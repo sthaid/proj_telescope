@@ -1,0 +1,8 @@
+#!/bin/bash
+
+rm -f hygdata_v3.csv
+
+wget http://www.astronexus.com/files/downloads/hygdata_v3.csv.gz
+gunzip hygdata_v3.csv.gz
+
+chmod 444 hygdata_v3.csv

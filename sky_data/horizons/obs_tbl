@@ -5,7 +5,7 @@
 #
 # Define path to settings input file; can be changed by user as desired. 
 #
-  set input_file ./obs_tbl.inp
+  set input_file ./horizons/obs_tbl.inp
 # 
 # Automate the Horizons session required to produce an OBSERVER TABLE for 
 # a user-specified Horizons object. Generally, this script is suited for 

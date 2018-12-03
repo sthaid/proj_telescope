@@ -1,0 +1,27 @@
+#!/bin/bash
+
+out_file=solar_sys_data.csv
+tmp_file=horizons.tmp
+
+gen()
+{
+  echo "# $2"
+  ./horizons/obs_tbl $1 $tmp_file
+  sed -e '1,/$$SOE/d' -e '/$$EOE/,$d' $tmp_file
+  rm $tmp_file
+}
+
+rm -f $out_file
+
+gen 1   Mercury  >> $out_file
+gen 2   Venus    >> $out_file
+gen 4   Mars     >> $out_file
+gen 5   Jupiter  >> $out_file
+gen 6   Saturn   >> $out_file
+gen 7   Uranus   >> $out_file
+gen 8   Neptune  >> $out_file
+gen 9   Pluto    >> $out_file
+gen 301 Moon     >> $out_file
+
+chmod 444 $out_file
+

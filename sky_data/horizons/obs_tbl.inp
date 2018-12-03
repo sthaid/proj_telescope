@@ -22,9 +22,8 @@
 #                   "@10"           (Sun center)
 #                   "@399"          (Earth geocenter)
 #                   "Apollo 11@301" (Apollo 11 landing site on Earth's Moon)
-#
 #             Additional observatory codes,   https://en.wikipedia.org/wiki/List_of_observatory_codes
-#                    765   Cincinnati Observatory
+#                     802   Harvard College Observatory, Cambridge MA
 #
 #   START_TIME
 #     Date the output ephemeris file is to begin.
@@ -79,11 +78,11 @@
 #
 
  set   EMAIL_ADDR           " "
- set   CENTER               "765"
+ set   CENTER               "802"
  set   START_TIME           "2018-Dec-01 00:00"
- set   STOP_TIME            "2021-Jan-01 00:00" 
+ set   STOP_TIME            "2019-Jun-01 00:00" 
  set   STEP_SIZE            "20m"
- set   QUANTITIES           "1"
+ set   QUANTITIES           "1, 9"
  set   CSV_FORMAT           "YES"
  set   ANG_FORMAT           "DEG"
 
