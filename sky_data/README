@@ -2,13 +2,9 @@ Stellar Data
 ------------
 
 hygdata_v3.csv: downloaded from http://www.astronexus.com/hyg.
-  wget http://www.astronexus.com/files/downloads/hygdata_v3.csv.gz
-  gunzip chmod 444 hygdata_v3.csv
-  chmod 444 hygdata_v3.csv
 
 my_stellar_data.csv: is manually entered using information from 
     Wikipedia or other sources
-
 
 Solar System Data
 -----------------
@@ -62,7 +58,7 @@ This is the CENTER value in obs_tbl.inp.  Where some examples are:
                     "@399"          (Earth geocenter)
                     "Apollo 11@301" (Apollo 11 landing site on Earth's Moon)
 And I used 
-                    765   Cincinnati Observatory
+                    802   Harvard College Observatory, Cambridge MA
 Another possible good choice would be @399 (Earth geocenter).
 
 Some commands for 'telnet horizons.jpl.nasa.gov 6775'
@@ -79,8 +75,9 @@ Dowloading obs_tbl script from JPL NASA ftp site:
    get obs_tbl
    get obs_tbl.imp
 
-And, the script I used is in the horizons directory, this script
-generates the solar_system_data.csv file in this directory.
-It takes a couple of minutes to run.
-  cd horizons
-  ./gen_solar_system_data_csv > ../solar_system_data.csv
+Scripts Used to Acquire Stellar and SolarSys Data
+--------------------------------------------------
+
+get_solar_sys_data
+get_stellar_data
+
