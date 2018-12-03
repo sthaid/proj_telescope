@@ -1,0 +1,189 @@
+==================================
+TODO
+==================================
+
+buy 
+- large washers for stand
+- screws and spacers for motor mount
+     https://www.mouser.com/Electromechanical/Hardware/Standoffs-Spacers/_/N-aictf?P=1yzug7w
+- drills for larger taps
+
+order polulu
+- nema23 stepper
+- controller
+- bracket
+
+camera
+- study how to do this
+
+stand
+- fix leg
+- reverse the mounting bracket, and use larger washers
+- take off telescope and use equivalent weight instead,
+  attach with zip ties or C clamp
+
+motor drive
+- purchase one nema23 from pololu and controller
+- test with use linux pc, then raspberry pi
+- attach the pulley to 0.75 inch shaft
+- attach the motor to the aluminum, probably use tapped holes 
+
+telescope
+- want to attach a camera, need to investigate this
+- buy the new lense and camera, and test in the basement
+
+==================================
+CONTROLL PROGRAM DESIGN
+==================================
+
+Sky Chart 
+- on upper half of screen,  az/el orientation
+- pan and zoom controls
+- init from 
+  - hygdata.csv
+  - planets from thesyklive.com
+  - others from more.csv,   such as Pleiades
+- display box for actual and desired telescope position
+- method to set position from the pane, such as click on desired position and commit
+
+Control Pane
+- controls
+  - select RA and DEC
+     - from sky chart
+     - by object name
+     - by RA/DEC coords
+     when this is done state goes to HOLD,  telescope az/el is frozen
+  - selecy state:  TRACKING  or  HOLDING
+  - other controls tbd
+- display 
+  . current telescope AZ/EL and RA/DEC
+  . state now is TRACK or HOLD
+
+Camera Pane
+- camera image
+- rotated and flipped to match AZ/EL sky chart 
+- controls to pan and zoom
+
+Misc
+- print screen
+- display date and time somewhere
+
+Source code files:
+- main.c:  main program flow;  mostly invoke routines in other files
+- sky.c:  init() reads database files and gets planet locations
+          sky_display()
+- util.c ...
+
+==================================
+MOTOR DRIVE RATE
+==================================
+
+https://www.pololu.com/product/3134
+MICROSTEP 1/32  of 1.8 degrees   = .056 degrees
+
+From Pololu web site
+- Maximum stepper speed: 50,000 steps per second
+- Very slow speeds down to 1 step every 200 seconds 
+  (or 1 step every 1428 seconds with reduced resolution).
+
+FOR example belt is 6 to 1
+  shaft speed .01 degrees per microstep
+  need max of 15 degree / hour = .004 degrees per second
+     
+   .004 deg/sec  /  .01 deg/microstep  =   0.4 microstep / sec
+                                           2.5 second / microstep
+
+==================================
+TELSECOPE INFO
+==================================
+
+Focal Len apprxo 45"  =  1140 mm
+
+Lense = 12.5 mm
+
+Mag = 1140 / 12.5 =  90   <===============
+
+F number = 45" / 4.25"   ~=  10
+
+Lense barrel diameter 1 1/4 "
+
+But there's also a minimum magnification beyond which light emerging from the 
+telescope eyepiece will spill around the dilated pupil of the eye and be wasted. 
+The largest-focal-length eyepiece you can use with your telescope is easy to 
+calculate: multiply the focal ratio (the focal length of your scope divided by 
+its aperture) by 7. For example, your Newtonian scope is f/5: the largest-focal-
+length eyepiece you should use is 35 mm. (Note: there is no harm in using a 
+lower-power eyepiece — you will still be seeing the brightest possible view — 
+but you will not be using all the light-collecting ability of the telescope's objective.)
+
+Longest lense focal length = Fnum x 7 = 10 x 7  = 70 mm
+
+Saturn's rings should be visible in even the smallest telescope at a 
+magnification of 25 times. A good 3-inch scope at 50x magnification 
+will show the rings as distinctly separate from the ball of the planet. 
+
+==================================
+INTERESTING OBJECTS
+==================================
+
+Crab Pulsar:
+  The Crab Pulsar is one of very few pulsars to be identified optically. 
+  The optical pulsar is roughly 20 kilometres (12 mi) in diameter and 
+  the pulsar "beams" rotate once every 33 milliseconds, or 30 times 
+  each second
+     Right ascension	05h 34m 31.97s
+     Declination	+22° 00' 52.1"
+     Apparent magnitude (V)	16.5
+
+Magnitude 10 comets are common.
+
+Pleiades
+  Right ascension	03h 47m 24s[1]
+  Declination	+24° 07′ 00″[1]
+
+==================================
+RA and DEC             
+==================================
+
+http://www.astronexus.com/hyg
+
+https://theskylive.com/saturn-tracker
+
+wget https://theskylive.com/mars-tracker -O /dev/stdout |& grep Declination
+   OR curl
+
+https://heavens-above.com/planetsummary.aspx?lat=33.647&lng=-117.688&loc=Lake+Forest&alt=148&tz=PST
+
+==================================
+APPARENT MAGNITUDE   
+==================================
+
+-27  Sun
+-12  Full Moon
+-4   Venus at brightest
+-2   Sirius
+2    Polaris
+6    Naked Eye Limit
+10   Binoculars
+15   general limiting visual brightness# of
+     comets with a 50-cm-aperture reflector   SEE reference
+28   Hubble space telescope
+
+http://www.icq.eps.harvard.edu/MagScale.html
+
+==================================
+DONE  
+==================================
+
+orders
+- HTD3M Reduction Kit   ebay 11/25
+
+motor drive
+- do calculations on what the step rate would be
+- design reducer pulley
+
+pulley investigation
+- taper lock pulley
+- taper lock bushing
+- Congress V-belt Pulley 3/4&quot Fixed 5&quot OD Zamak3 CA0500X075KW
+- decided to use timing belt

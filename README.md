@@ -1,2 +1,2 @@
 # proj_telescope
-telescope controller
+telescope controller  UNDER CONSTRUCTION

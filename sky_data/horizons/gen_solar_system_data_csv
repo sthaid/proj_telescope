@@ -1,0 +1,19 @@
+#!/bin/bash
+
+gen()
+{
+  echo "# $2"
+  ./obs_tbl $1 /tmp/gen
+  sed -e '1,/$$SOE/d' -e '/$$EOE/,$d' /tmp/gen
+}
+
+gen 1   Mercury
+gen 2   Venus
+gen 4   Mars
+gen 5   Jupiter
+gen 6   Saturn
+gen 7   Uranus
+gen 8   Neptune
+gen 9   Pluto
+gen 301 Moon
+
