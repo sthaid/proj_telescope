@@ -27,6 +27,8 @@
 // defines
 //
 
+#define MB 0x100000
+
 //
 // typedefs
 //

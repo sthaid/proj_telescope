@@ -36,7 +36,12 @@ void display_handler(void);
 
 int main(int argc, char ** argv)
 {
-    sky_init();
+    int ret;
+
+    ret = sky_init();
+    if (ret < 0) {
+        return ret;
+    }
 
     display_handler();
 }
