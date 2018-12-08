@@ -13,6 +13,7 @@ gen()
 
 rm -f $out_file
 
+gen 0   Sun      >> $out_file
 gen 1   Mercury  >> $out_file
 gen 2   Venus    >> $out_file
 gen 4   Mars     >> $out_file
