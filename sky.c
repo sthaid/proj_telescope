@@ -1,3 +1,9 @@
+// XXX TODO
+// - J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
+//   https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
+
+// XXX organize favorites
+
 #include "common.h"
 
 //
@@ -9,15 +15,23 @@
 #define MAX_NAME                32
 #define MAX_INFO_TBL            100000
 
+#define RAD2DEG (180. / M_PI)
+#define DEG2RAD (M_PI / 180.)
+#define HR2RAD  (M_PI / 12.)
+
+// https://www.latlong.net/
+#define MY_LAT    42.422986
+#define MY_LONG  -71.623798
+
 //
 // typedefs
 //
 
 typedef struct {
     char  name[MAX_NAME];
-    float ra;
-    float dec;
-    float mag;
+    double ra;
+    double dec;
+    double mag;
 } stellar_object_t;
 
 typedef struct {
@@ -26,9 +40,9 @@ typedef struct {
     int idx_info;
     struct info_s {
         time_t t;
-        float ra;
-        float dec;
-        float mag;
+        double ra;
+        double dec;
+        double mag;
     } info[MAX_INFO_TBL];
 } solar_sys_object_t;
 
@@ -38,6 +52,7 @@ typedef struct {
 
 stellar_object_t    stellar_object[MAX_STELLAR_OBJECT];
 int                 max_stellar_object;
+
 solar_sys_object_t  solar_sys_object[MAX_SOLAR_SYS_OBJECT];
 int                 max_solar_sys_object;
 
@@ -49,18 +64,31 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 
 int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename);
-int get_solar_object_values(solar_sys_object_t *x, time_t t, float *ra, float *dec, float *mag);
-char * gmtime_str(time_t t);
+int get_solar_sys_object_info(solar_sys_object_t *x, time_t t, double *ra, double *dec, double *mag);
+char * gmtime_str(time_t t, char *str);
+
+double jdconv(int yr, int mn, int day, double hour);
+double jdconv2(time_t t);
+double ct2lst(double lng, double jd);
+void radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
+
+void test_algorithms(void);
+bool is_close(double act, double exp, double allowed_deviation, double * deviation);
 
 // -----------------  SKY INIT  -------------------------------------------
 
 int sky_init(void) 
 {
     int ret;
+    char str[100];
 
     INFO("sizeof(stellar_object)   = %ld MB\n", sizeof(stellar_object)/MB);
     INFO("sizeof(solar_sys_object) = %ld MB\n", sizeof(solar_sys_object)/MB);
-    INFO("TIME NOW                 = %s UTC\n", gmtime_str(time(NULL)));
+    INFO("UTC now                  = %s UTC\n", gmtime_str(time(NULL),str));
+
+    INFO("sizeof(M_PI) = %ld\n", sizeof(M_PI));
+    INFO("sizeof(1.0) = %ld\n", sizeof(1.0));
+    INFO("sizeof(1.0l) = %ld\n", sizeof(1.0l));
 
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
@@ -76,6 +104,11 @@ int sky_init(void)
     if (ret < 0) {
         return ret;
     }
+
+    INFO("max_stellar_object   = %d\n", max_stellar_object);
+    INFO("max_solar_sys_object = %d\n", max_solar_sys_object);
+
+    test_algorithms();
 
     return 0;
 }
@@ -113,7 +146,7 @@ int read_stellar_data(char * filename)
     char *pmdec_str  __attribute__ ((unused));
     char *rv_str     __attribute__ ((unused));
     char *proper_str, *ra_str, *dec_str, *mag_str;
-    float ra, dec, mag;
+    double ra, dec, mag;
 
     // open file
     fp = fopen(filename, "r");
@@ -154,15 +187,15 @@ int read_stellar_data(char * filename)
             continue;
         } 
 
-        if (sscanf(ra_str, "%f", &ra) != 1) {
+        if (sscanf(ra_str, "%lf", &ra) != 1) {
             ERROR("filename=%s line=%d invalid ra='%s'\n", filename, line, ra_str);
             return -1;
         }
-        if (sscanf(dec_str, "%f", &dec) != 1) {
+        if (sscanf(dec_str, "%lf", &dec) != 1) {
             ERROR("filename=%s line=%d invalid dec='%s'\n", filename, line, dec_str);
             return -1;
         }
-        if (sscanf(mag_str, "%f", &mag) != 1) {
+        if (sscanf(mag_str, "%lf", &mag) != 1) {
             ERROR("filename=%s line=%d invalid mag='%s'\n", filename, line, mag_str);
             return -1;
         }
@@ -197,9 +230,8 @@ int read_solar_sys_data(char * filename)
     char str[10000], *s;
     char *date_str, *ra_str, *dec_str, *mag_str;
     char *not_used_str __attribute__ ((unused));
-    float ra, dec, mag;
+    double ra, dec, mag, lst;
     time_t t;
-    struct tm tm;
 
     // open
     fp = fopen(filename, "r");
@@ -260,6 +292,7 @@ int read_solar_sys_data(char * filename)
         {
         int year, month, day, hour, minute, cnt;
         static char month_str[10];
+        struct tm tm;
         cnt = sscanf(date_str, "%d-%c%c%c-%d %d:%d", &year, month_str+0, month_str+1, month_str+2, &day, &hour, &minute);
         if (cnt != 7) {
             ERROR("filename=%s line=%d invalid date_str='%s'\n", filename, line, date_str);
@@ -274,6 +307,7 @@ int read_solar_sys_data(char * filename)
             ERROR("filename=%s line=%d invalid month_str='%s'\n", filename, line, month_str);
             return -1;
         }
+        memset(&tm,0,sizeof(tm));
         tm.tm_min   = minute;
         tm.tm_hour  = hour;
         tm.tm_mday  = day;
@@ -282,16 +316,16 @@ int read_solar_sys_data(char * filename)
         t = timegm(&tm);
         }
 
-        // convert the righ-ascension, declination, and magniture strings to floating point
-        if (sscanf(ra_str, "%f", &ra) != 1) {
+        // convert the righ-ascension, declination, and magniture strings to doubleing point
+        if (sscanf(ra_str, "%lf", &ra) != 1) {
             ERROR("filename=%s line=%d invalid ra='%s'\n", filename, line, ra_str);
             return -1;
         }
-        if (sscanf(dec_str, "%f", &dec) != 1) {
+        if (sscanf(dec_str, "%lf", &dec) != 1) {
             ERROR("filename=%s line=%d invalid dec='%s'\n", filename, line, dec_str);
             return -1;
         }
-        if (sscanf(mag_str, "%f", &mag) != 1) {
+        if (sscanf(mag_str, "%lf", &mag) != 1) {
             ERROR("filename=%s line=%d invalid mag='%s'\n", filename, line, mag_str);
             return -1;
         }
@@ -318,104 +352,22 @@ int read_solar_sys_data(char * filename)
     INFO("added %d solar_sys_objects from %s\n", num_added, filename);
 
     // print the list of solar_sys objects that have been input
-    //      xxxxxxxxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx
-    printf("            NAME         RA        DEC        MAG\n");
+    //      xxxxxxxxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx
+    t = time(NULL);
+    lst = ct2lst(MY_LONG, jdconv2(t));
+    printf("            NAME         RA        DEC        MAG         AZ         EL\n");
     for (i = 0; i < max_solar_sys_object; i++) {
         solar_sys_object_t * x = &solar_sys_object[i];
-        float ra, dec, mag;
-        int ret;
-        time_t t = time(NULL);
-        ret = get_solar_object_values(x, t, &ra, &dec, &mag);
-        if (ret != 0) {
-            ERROR("get_solar_object_values failed\n");
-            return -1;
-        }
-        printf("%16s %10.4f %10.4f %10.1f\n", x->name, ra, dec, mag);
+        double ra, dec, mag, az, el;
+
+        get_solar_sys_object_info(x, t, &ra, &dec, &mag);
+        radec2azel(&az, &el, ra, dec, lst, MY_LAT);
+
+        printf("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, ra, dec, mag, az, el);
     }
 
     // success
     return 0;
-}
-
-// -----------------  SKY UTILS -------------------------------------------
-
-int get_solar_object_values(solar_sys_object_t *x, time_t t, float *ra, float *dec, float *mag)
-{
-    struct info_s *info     = x->info;
-    int            max_info = x->max_info;
-    int            idx      = x->idx_info;
-
-    // interpolated_val = v0 + ((v1 - v0) / (t1 - t0)) * (t - t0)
-    #define INTERPOLATE(t,v0,v1,t0,t1) \
-        ((float)(v0) + (((float)(v1) - (float)(v0)) / ((float)(t1) - (float)(t0))) * ((float)(t) - (float)(t0)))
-
-    if (t >= info[idx].t && t <= info[idx+1].t) {
-        goto interpolate;
-    }
-
-    while (t < info[idx].t) {
-        idx--;
-        if (idx < 0) {
-            ERROR("time %s too early for solar_sys_object %s\n", gmtime_str(t), x->name);
-            return -1;
-        }
-    }
-
-    while (t > info[idx+1].t) {
-        idx++;
-        if (idx > max_info-2) {
-            ERROR("time %s too large for solar_sys_object %s\n", gmtime_str(t), x->name);
-            return -1;
-        }
-    }
-
-    if (t < info[idx].t || t > info[idx+1].t) {
-        ERROR("bug t=%ld info[%d].t=%ld info[%d].t=%ld\n",
-              t, idx, info[idx].t, idx+1, info[idx+1].t);
-        return -1;
-    }
-
-interpolate:
-    // determine ra and dec return values by interpolation;
-    // don't bother interpolating mag
-    *ra  = INTERPOLATE(t, info[idx].ra, info[idx+1].ra, info[idx].t, info[idx+1].t); 
-    *dec = INTERPOLATE(t, info[idx].dec, info[idx+1].dec, info[idx].t, info[idx+1].t); 
-    *mag = info[idx].mag;
-        
-    // save idx hint
-    x->idx_info = idx;
-
-    // return success
-    return 0;
-}
-
-#if 0
-           struct tm {
-               int tm_sec;    /* Seconds (0-60) */
-               int tm_min;    /* Minutes (0-59) */
-               int tm_hour;   /* Hours (0-23) */
-               int tm_mday;   /* Day of the month (1-31) */
-               int tm_mon;    /* Month (0-11) */
-               int tm_year;   /* Year - 1900 */
-               int tm_wday;   /* Day of the week (0-6, Sunday = 0) */
-               int tm_yday;   /* Day in the year (0-365, 1 Jan = 0) */
-               int tm_isdst;  /* Daylight saving time */
-           };
-#endif
-char *gmtime_str(time_t t)
-{
-    struct tm *tm;
-    static char str[100];
-
-    tm = gmtime(&t);
-    // example format: 2018-Dec-01 00:00
-    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d",
-            tm->tm_year+1900, 
-            month_tbl[tm->tm_mon],
-            tm->tm_mday,
-            tm->tm_hour,
-            tm->tm_min);
-    return str;
 }
 
 // -----------------  SKY PANE HANDLER  -----------------------------------
@@ -445,6 +397,10 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         rect_t * pane = &pane_cx->pane;
+        int i;
+        for (i = 0; i < 10; i++) {
+            sdl_render_point(pane, 50+i*50, 100, WHITE, i);
+        }
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -489,4 +445,264 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
+// -----------------  GENERAL UTIL  ---------------------------------------
 
+int get_solar_sys_object_info(solar_sys_object_t *x, time_t t, double *ra, double *dec, double *mag)
+{
+    struct info_s *info     = x->info;
+    int            max_info = x->max_info;
+    int            idx      = x->idx_info;
+    char           str[100];
+
+    // interpolated_val = v0 + ((v1 - v0) / (t1 - t0)) * (t - t0)
+    #define INTERPOLATE(t,v0,v1,t0,t1) \
+        ((double)(v0) + (((double)(v1) - (double)(v0)) / ((double)(t1) - (double)(t0))) * ((double)(t) - (double)(t0)))
+
+    if (t >= info[idx].t && t <= info[idx+1].t) {
+        goto interpolate;
+    }
+
+    while (t < info[idx].t) {
+        idx--;
+        if (idx < 0) {
+            ERROR("time %s too early for solar_sys_object %s\n", gmtime_str(t,str), x->name);
+            return -1;
+        }
+    }
+
+    while (t > info[idx+1].t) {
+        idx++;
+        if (idx > max_info-2) {
+            ERROR("time %s too large for solar_sys_object %s\n", gmtime_str(t,str), x->name);
+            return -1;
+        }
+    }
+
+    if (t < info[idx].t || t > info[idx+1].t) {
+        ERROR("bug t=%ld info[%d].t=%ld info[%d].t=%ld\n",
+              t, idx, info[idx].t, idx+1, info[idx+1].t);
+        return -1;
+    }
+
+interpolate:
+    // determine ra and dec return values by interpolation;
+    // don't bother interpolating mag
+    *ra  = INTERPOLATE(t, info[idx].ra, info[idx+1].ra, info[idx].t, info[idx+1].t); 
+    *dec = INTERPOLATE(t, info[idx].dec, info[idx+1].dec, info[idx].t, info[idx+1].t); 
+    *mag = info[idx].mag;
+        
+    // save idx hint
+    x->idx_info = idx;
+
+    // return success
+    return 0;
+}
+
+char *gmtime_str(time_t t, char *str)
+{
+    struct tm *tm;
+
+    // format:  yyyy-mmm-dd hh:mm
+    // example: 2018-Dec-01 00:00
+    tm = gmtime(&t);
+    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d",
+            tm->tm_year+1900, 
+            month_tbl[tm->tm_mon],
+            tm->tm_mday,
+            tm->tm_hour,
+            tm->tm_min);
+    return str;
+}
+
+char * hr_str(double hr, char *str)
+{
+    int hour, min;
+    double seconds = hr * 3600;
+
+    hour = seconds / 3600;
+    seconds -= 3600 * hour;
+    min = seconds / 60;
+    seconds -= min * 60;
+    sprintf(str, "%2.2d:%2.2d:%5.2f", hour, min, seconds);
+    return str;
+}
+
+// -----------------  CONVERT RA/DEC TO AZ/EL UTILS  ----------------------
+
+// INFO
+// - https://en.wikipedia.org/wiki/Epoch_(reference_date)#J2000.0
+//   The current standard epoch is called "J2000.0" This is defined by 
+//   international agreement to be equivalent to:
+//   . The Gregorian date January 1, 2000 at approximately 12:00 GMT (Greenwich Mean Time).
+//  . The Julian date 2451545.0 TT (Terrestrial Time).[8]
+//  . January 1, 2000, 11:59:27.816 TAI (International Atomic Time).[9]
+//  . January 1, 2000, 11:58:55.816 UTC (Coordinated Universal Time).[a]
+//
+// - websites containing conversion algorithms
+//   https://paulplusx.wordpress.com/2016/03/02/rtpts_azalt/
+//   https://www.mathworks.com/matlabcentral/fileexchange/26458-convert-right-ascension-and-declination-to-azimuth-and-elevation
+//   http://cosmology.berkeley.edu/group/cmbanalysis/forecast/idl/radec2azel.pro
+//   https://idlastro.gsfc.nasa.gov/ftp/pro/astro/ct2lst.pro
+//   https://idlastro.gsfc.nasa.gov/ftp/pro/astro/jdcnv.pro
+//
+// - julian date converter
+//   https://www.aavso.org/jd-calculator
+//
+// - sidereal time converter
+//   https://tycho.usno.navy.mil/sidereal.html
+    
+
+//https://idlastro.gsfc.nasa.gov/ftp/pro/astro/jdcnv.pro
+//Converts Gregorian dates to Julian days
+double jdconv(int yr, int mn, int day, double hour)
+{
+    int L, julian;
+
+    L = (mn-14)/12;    // In leap years, -1 for Jan, Feb, else 0
+    julian = day - 32075 + 1461*(yr+4800+L)/4 + 
+             367*(mn - 2-L*12)/12 - 3*((yr+4900+L)/100)/4;
+
+    return (double)julian + (hour/24.) - 0.5;
+}
+
+double jdconv2(time_t t)
+{
+    struct tm * tm    = gmtime(&t);
+    int         year  = tm->tm_year + 1900;
+    int         month = tm->tm_mon + 1;
+    int         day   = tm->tm_mday;
+    double      hour  = (double)tm->tm_hour + (double)tm->tm_min / 60 + (double)tm->tm_sec / 3600;
+
+    return jdconv(year, month, day, hour);
+}
+
+// https://idlastro.gsfc.nasa.gov/ftp/pro/astro/ct2lst.pro
+// To convert from Local Civil Time to Local Mean Sidereal Time.
+double ct2lst(double lng, double jd)
+{
+    static double c[4] = {280.46061837, 360.98564736629, 0.000387933, 38710000.0} ;
+    static double jd2000 = 2451545.0;
+
+    double t0, t, theta, lst;
+
+    t0 = jd - jd2000;
+    t = t0 / 36525;
+
+    // Compute GST in seconds.
+    theta = c[0] + (c[1] * t0) + t * t * (c[2] - t / c[3]);
+
+    // Compute LST in hours.
+    lst = (theta + lng) / 15.0;
+
+    if (lst < 0) {
+        lst = -lst;
+        lst = lst - 24 * ((int)lst / 24);
+        lst = 24. - lst;
+    } else {
+        lst = lst - 24 * ((int)lst / 24);
+    }
+
+    return lst;
+}
+
+//  http://cosmology.berkeley.edu/group/cmbanalysis/forecast/idl/radec2azel.pro
+//  To convert from celestial coordinates (right ascension-declination)
+//  to horizon coordinates (azimuth-elevation)
+void radec2azel(double *az, double *el, double ra, double dec, double lst, double lat)
+{
+    double rha, rdec, rel, raz, rlat;
+
+    // get declination, latitude, and hourangle in radians
+    rdec = dec * DEG2RAD;
+    rlat = lat * DEG2RAD;
+    rha = (lst * HR2RAD) - (ra * DEG2RAD);
+
+    // working out elevation
+    rel = asin( sin(rdec)*sin(rlat)+cos(rdec)*cos(rha)*cos(rlat) );
+
+    // working out azimuth
+    raz = atan2( cos(rdec)*sin(rha),
+                 -sin(rdec)*cos(rlat)+cos(rdec)*cos(rha)*sin(rlat)
+                     );
+
+    // return az/el in degrees
+    // note: I added the '+ 180'
+    *az = raz * RAD2DEG + 180.;
+    *el = rel * RAD2DEG;
+}
+
+// -----------------  TEST ALGORITHMS  ------------------------------------
+
+void test_algorithms(void) 
+{
+    double jd, lst, ra, dec, az, el, lat, lng;
+    double deviation;
+    int i;
+    unsigned long start_us, duration_us;
+    time_t t;
+
+    // test jdconv ...
+    // https://www.aavso.org/jd-calculator; also
+    // refer to https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
+    jd =  jdconv(2000,1,1,12);
+    if (jd != 2451545.0) {
+        ERROR("jd %f should be 2451545.0\n", jd);
+    }
+
+    // test local sidereal time ...
+    // from date cmd: Fri Dec  7 20:53:37 EST 2018
+    // from https://tycho.usno.navy.mil/cgi-bin/sidereal-post.sh
+    //    02:12:44.9 LST         2+12/60+44.9/3600 = 2.21247
+    //    Longitude -72 00 00
+    jd = jdconv(2018,12,8,1.8936);  
+    lst = ct2lst(-72, jd);
+    if (!is_close(lst, 2.21247, 0.000010, &deviation)) {
+        ERROR("lst deviation = %f, exceeds limit\n", deviation);
+    }
+    INFO("lst deviation = %f\n", deviation);
+
+    // this webiste has a radec2azel convert code, which I did not use; 
+    // however I did use the sample problem provided in the comments ...
+    // https://www.mathworks.com/matlabcentral/fileexchange/26458-convert-right-ascension-and-declination-to-azimuth-and-elevation
+    // 
+    // Worked Example: http://www.stargazing.net/kepler/altaz.html
+    // [Az El] = RaDec2AzEl(344.95,42.71667,52.5,-1.91667,'1997/03/14 19:00:00')
+    // [311.92258 22.40100] = RaDec2AzEl(344.95,42.71667,52.5,-1.91667,'1997/03/14 19:00:00')
+    ra  = 344.95;
+    dec = 42.71667;
+    lat = 52.5;
+    lng = -1.91667;
+    jd = jdconv(1997, 3, 14, 19);
+    lst = ct2lst(lng, jd);
+    radec2azel(&az, &el, ra, dec, lst, lat);
+    printf("az = %f   el = %f\n", az, el);
+    if (!is_close(az, 311.92258, 0.000010, &deviation)) {
+        INFO("az deviation = %f, exceeds limit\n", deviation);
+    }
+    INFO("az deviation = %f\n", deviation);
+    if (!is_close(el, 22.40100, 0.000010, &deviation)) {
+        INFO("el deviation = %f, exceeds limit\n", deviation);
+    }
+    INFO("el deviation = %f\n", deviation);
+
+    // time how long to convert all stellar objects to az/el
+    start_us = microsec_timer();
+    t = time(NULL);
+    lst = ct2lst(MY_LONG, jdconv2(t));
+    for (i = 0; i < max_stellar_object; i++) {
+        stellar_object_t * x = &stellar_object[i];
+        radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+    }
+    duration_us = microsec_timer() - start_us;
+    INFO("radec2azel perf: %d objects in %ld ms\n", max_stellar_object, duration_us/1000);
+
+    INFO("tests passed\n");
+}
+
+bool is_close(double act, double exp, double allowed_deviation, double * deviation)
+{
+    bool is_close;
+    *deviation = fabs((act - exp) / exp);
+    is_close = (*deviation < 0.000010);
+    return is_close;
+}
