@@ -3,6 +3,8 @@
 //   https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
 
 // XXX organize favorites
+// XXX update pleides to hour angle
+// XXX make a much nicer display using smaller point sizes and displayng more 
 
 #include "common.h"
 
@@ -201,9 +203,11 @@ int read_stellar_data(char * filename)
         }
 
         strncpy(stellar_object[max_stellar_object].name, proper_str, MAX_NAME);
-        stellar_object[max_stellar_object].ra  = ra;
+        stellar_object[max_stellar_object].ra  = ra * 15.;
         stellar_object[max_stellar_object].dec = dec;
         stellar_object[max_stellar_object].mag = mag;
+
+        INFO("%16s %10.4f %10.4f %10.4f\n", proper_str, ra, dec, mag);
         max_stellar_object++;
 
         num_added++;
@@ -370,12 +374,31 @@ int read_solar_sys_data(char * filename)
     return 0;
 }
 
-// -----------------  SKY PANE HANDLER  -----------------------------------
+// -----------------  PANE HANDLERS  --------------------------------------
+// AAAAAAAAAAAAA
+// XXX 
+// - clean up
+// - hover mouse will OR click will iluminate obj and display info in ctrl pane
+// - ctrl pane
+//    . info display
+//    . mag select
+//    . reset (instead of home)
+// XXX  DONE
+// - make room for ctrl pane
+// - panning when zoomed in
+// - display az and el on borders
+// - display other grid lines
+
+double az_ctr  = 0;
+double az_span = 360;
+double el_ctr  = 0;
+double el_span = 180;
+double mag = 8;
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
     struct {
-        int tbd;
+        int not_used;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -388,6 +411,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        INFO("PANE x,y,w,h  %d %d %d %d\n",
+            pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -397,10 +422,112 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         rect_t * pane = &pane_cx->pane;
-        int i;
-        for (i = 0; i < 10; i++) {
-            sdl_render_point(pane, 50+i*50, 100, WHITE, i);
+
+        double min_az = az_ctr - az_span / 2.;
+        double max_az = az_ctr + az_span / 2.;
+        double min_el = el_ctr - el_span / 2.;
+        double max_el = el_ctr + el_span / 2.;
+        double k_el = (pane->h) / (max_el - min_el);
+        double k_az = (pane->w) / (min_az - max_az);
+
+        const int fontsz=30;
+
+        int x, y, i, ptsz;
+        double az, el, lst;
+        time_t t;
+        double grid_sep, first_az_line, first_el_line;
+
+        // get local sidereal time        
+        t = time(NULL);
+        lst = ct2lst(MY_LONG, jdconv2(t));
+
+        // draw points for stellar objects
+        for (i = 0; i < max_stellar_object; i++) {
+            stellar_object_t * obj = &stellar_object[i];
+
+            // magnitude too dim then skip
+            if (obj->mag > mag) {
+                continue;
+            }
+
+            // get az/el from ra/dec,
+            // sanity check az and el, and
+            // convert az to range -180 to + 180
+            radec2azel(&az, &el, obj->ra, obj->dec, lst, MY_LAT);
+            if (el < -90 || el > 90 || az < 0 || az > 360) {
+                WARN("stellar obj %d '%s' at ra=%f dec=%f has invalid az=%f or el=%f\n",
+                     i, obj->name, obj->ra, obj->dec, az, el);
+                continue;
+            }
+            if (az > 180)  az -= 360;
+
+            // adjust az, up or down by 360, to try to get it in range min_az to maz_az;
+            // if unable to get az in range min_az to maz_az then skip
+            if (az > max_az) {
+                while (az > max_az) az -= 360;
+            } else if (az < min_az) {
+                while (az < min_az) az += 360;
+            }
+            if (az < min_az || az > max_az) {
+                continue;
+            }
+
+            // determine display point size from object's apparent magnitude
+            // XXX verify, and is 8 a good choice
+            ptsz = 6 - obj->mag;  
+            if (ptsz < 0) ptsz = 0;
+            if (ptsz > 9) ptsz = 9;
+
+            // convert az/el to pane coordinates; 
+            // if coords are out of the pane then skip
+            y = 0 + k_el * (max_el - el);
+            x = 0 + k_az * (min_az - az);
+            if (x < 0 || x >= pane->w || y < 0 || y >= pane->h) {
+                continue;
+            }
+
+            // render the stellar object point
+            sdl_render_point(pane, x, y, WHITE, ptsz);
         }
+
+        // draw grid
+        // XXX location of azimuth string
+        grid_sep = el_span > 120 ? 45 :
+                   el_span > 60  ? 20 :
+                   el_span > 30  ? 10 :
+                   el_span > 10  ? 5 :
+                   el_span > 4   ? 2 :
+                   el_span > 2   ? 1 :
+                   el_span > 1   ? 0.5 :
+                                   0.25;
+        first_az_line = floor(min_az/grid_sep) * grid_sep;
+        for (az = first_az_line; az < max_az; az += grid_sep) {
+            x = 0 + k_az * (min_az - az);
+            sdl_render_line(pane, x, 0, x, pane->h-1, BLUE);
+            sdl_render_printf(pane, x-COL2X(2,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, BLUE, BLACK, "%g", az);
+        }
+        first_el_line = floor(min_el/grid_sep) * grid_sep;
+        for (el = first_el_line; el < max_el; el += grid_sep) {
+            y = 0 + k_el * (max_el - el);
+            sdl_render_line(pane, 0, y, pane->w-1, y, BLUE);
+            sdl_render_printf(pane, 0, y-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g ", el);
+        }
+
+#if 0
+        // draw a purple point at sidereal north
+        // XXX instead just add to my sky data
+        y = 0 + k_el * (max_el - MY_LAT);
+        x = 0 + k_az * (min_az - 0);
+        if (x >= 0 && x < pane->w && y >= 0 && y < pane->h) {
+            sdl_render_point(pane, x, y, PURPLE, 9);
+        }
+#endif
+
+        // register control events 
+        rect_t loc = {0,0,pane->w,pane->h};
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -409,6 +536,103 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
+        switch (event->event_id) {
+        case SDL_EVENT_MOUSE_MOTION: {
+            int dx = event->mouse_motion.delta_x;
+            int dy = event->mouse_motion.delta_y;
+            az_ctr -= dx * (az_span / 1800.);
+            if (az_ctr > 180) az_ctr = 180;
+            if (az_ctr < -180) az_ctr = -180;
+            el_ctr += dy * (el_span / 900.);
+            if (el_ctr > 90) el_ctr = 90;
+            if (el_ctr < -90) el_ctr = -90;
+            //printf("%d %d  %f %f\n", dx, dy, az_ctr, el_ctr);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        case SDL_EVENT_MOUSE_WHEEL: {
+            int dy = event->mouse_motion.delta_y;
+            if (dy < 0) {
+                az_span *= 1.1;
+                el_span *= 1.1;
+            }
+            if (dy > 0 && az_span > 1) {
+                az_span /= 1.1;
+                el_span /= 1.1;
+            }
+            //XXX printf("%d  %f %f\n", dy, az_span, el_span);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        case SDL_EVENT_KEY_HOME: {
+            az_ctr  = 0;
+            az_span = 360;
+            el_ctr  = 0;
+            el_span = 180;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+#if 0
+        case SDL_EVENT_KEY_END:
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_PGUP:
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_PGDN:
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_UP_ARROW:
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_DOWN_ARROW:
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+#endif
+        }
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ---------------------------
+    // -------- TERMINATE --------
+    // ---------------------------
+
+    if (request == PANE_HANDLER_REQ_TERMINATE) {
+        free(vars);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // not reached
+    assert(0);
+    return PANE_HANDLER_RET_NO_ACTION;
+}
+
+int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
+{
+    struct {
+        int not_used;
+    } * vars = pane_cx->vars;
+    rect_t * pane = &pane_cx->pane;
+
+    #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 0)
+    #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 1)
+
+    // ----------------------------
+    // -------- INITIALIZE --------
+    // ----------------------------
+
+    if (request == PANE_HANDLER_REQ_INITIALIZE) {
+        vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        INFO("PANE x,y,w,h  %d %d %d %d\n",
+            pane->x, pane->y, pane->w, pane->h);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ------------------------
+    // -------- RENDER --------
+    // ------------------------
+
+    if (request == PANE_HANDLER_REQ_RENDER) {
+        //rect_t * pane = &pane_cx->pane;
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // -----------------------
+    // -------- EVENT --------
+    // -----------------------
+
+    if (request == PANE_HANDLER_REQ_EVENT) {
+#if 0
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION:
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
@@ -427,6 +651,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         case SDL_EVENT_KEY_DOWN_ARROW:
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         }
+#endif
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -675,7 +900,7 @@ void test_algorithms(void)
     jd = jdconv(1997, 3, 14, 19);
     lst = ct2lst(lng, jd);
     radec2azel(&az, &el, ra, dec, lst, lat);
-    printf("az = %f   el = %f\n", az, el);
+    DEBUG("az = %f   el = %f\n", az, el);
     if (!is_close(az, 311.92258, 0.000010, &deviation)) {
         INFO("az deviation = %f, exceeds limit\n", deviation);
     }

@@ -1,7 +1,7 @@
-TARGETS = controller
+TARGETS = tcx
 
 # to read profiling outut file gmon.out:
-#   gprof controller gmon.out
+#   gprof tcx gmon.out
 
 CC = gcc
 OUTPUT_OPTION=-MMD -MP -o $@
@@ -9,7 +9,7 @@ OUTPUT_OPTION=-MMD -MP -o $@
 CFLAGS_SDL2 = $(shell sdl2-config --cflags)
 CFLAGS = -g -O2 -Wall -Iutil $(CFLAGS_PROFILING) $(CFLAGS_SDL2)
 
-SRC_CONTROLLER = main.c \
+SRC_TCX = main.c \
                  sky.c \
                  util/util_sdl.c \
                  util/util_sdl_predefined_panes.c \
@@ -17,9 +17,9 @@ SRC_CONTROLLER = main.c \
                  util/util_png.c \
                  util/util_misc.c
 
-OBJ_CONTROLLER=$(SRC_CONTROLLER:.c=.o)
+OBJ_TCX=$(SRC_TCX:.c=.o)
 
-DEP=$(SRC_CONTROLLER:.c=.d)
+DEP=$(SRC_TCX:.c=.d)
 
 #
 # build rules
@@ -27,9 +27,9 @@ DEP=$(SRC_CONTROLLER:.c=.d)
 
 all: $(TARGETS)
 
-controller: $(OBJ_CONTROLLER) 
+tcx: $(OBJ_TCX) 
 	$(CC) -pthread -lrt -lm -lreadline -lpng -ljpeg -lSDL2 -lSDL2_ttf -lSDL2_mixer $(CFLAGS_PROFILING) \
-              -o $@ $(OBJ_CONTROLLER)
+              -o $@ $(OBJ_TCX)
 
 -include $(DEP)
 
@@ -38,5 +38,5 @@ controller: $(OBJ_CONTROLLER)
 #
 
 clean:
-	rm -f $(TARGETS) $(OBJ_CONTROLLER) $(DEP) gmon.out
+	rm -f $(TARGETS) $(OBJ_TCX) $(DEP) gmon.out
 
