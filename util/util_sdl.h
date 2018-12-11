@@ -70,9 +70,10 @@ typedef void * texture_t;
 //
 
 // event types
-#define SDL_EVENT_TYPE_MOUSE_CLICK    1
-#define SDL_EVENT_TYPE_MOUSE_MOTION   2
-#define SDL_EVENT_TYPE_MOUSE_WHEEL    3
+#define SDL_EVENT_TYPE_MOUSE_CLICK          1
+#define SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK    2
+#define SDL_EVENT_TYPE_MOUSE_MOTION         3
+#define SDL_EVENT_TYPE_MOUSE_WHEEL          4
 
 // event identifiers
 // - no event

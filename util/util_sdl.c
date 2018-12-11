@@ -356,7 +356,7 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
 
         // init
         start_us = microsec_timer();
-        sdl_display_init(&win_width, &win_height, NULL);  // XXX perhaps win_width/height should be used
+        sdl_display_init(&win_width, &win_height, NULL);
         redraw = false;
 
         // call display_start, if supplied 
@@ -815,6 +815,8 @@ sdl_event_t * sdl_poll_event(void)
         // - updates sdl_win_width, sdl_win_height, sdl_win_minimized
         switch (ev.type) {
         case SDL_MOUSEBUTTONDOWN: {
+            bool left_click, right_click;
+
             DEBUG("MOUSE DOWN which=%d button=%s state=%s x=%d y=%d\n",
                    ev.button.which,
                    (ev.button.button == SDL_BUTTON_LEFT   ? "LEFT" :
@@ -827,8 +829,11 @@ sdl_event_t * sdl_poll_event(void)
                    ev.button.x,
                    ev.button.y);
 
-            // if not the left button then get out
-            if (ev.button.button != SDL_BUTTON_LEFT) {
+            // determine if the left or right button is clicked;
+            // if neither then break
+            left_click = (ev.button.button == SDL_BUTTON_LEFT);
+            right_click = (ev.button.button == SDL_BUTTON_RIGHT);
+            if (!left_click && !right_click) {
                 break;
             }
 
@@ -837,8 +842,9 @@ sdl_event_t * sdl_poll_event(void)
 
             // search for matching registered mouse_click or mouse_motion event
             for (i = sdl_event_max-1; i >= 0; i--) {
-                if ((sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_CLICK ||
-                     sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_MOTION) &&
+                if (((sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_CLICK && left_click) ||
+                     (sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK && right_click) ||
+                     (sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_MOTION && left_click)) &&
                     (AT_POS(ev.button.x, ev.button.y, sdl_event_reg_tbl[i].disp_loc))) 
                 {
                     break;
@@ -848,17 +854,20 @@ sdl_event_t * sdl_poll_event(void)
                 break;
             }
 
-            // we've found a registered MOUSE_CLICK or MOUSE_MOTION event;
-            // if it is a MOUSE_CLICK event then
+            // we've found a registered MOUSE_CLICK or MOUSE_RIGHT_CLICK or MOUSE_MOTION event;
+            // if it is a MOUSE_CLICK or MOUSE_RIGHT_CLICK event then
             //   return the event to caller
             // else
             //   initialize mouse_motion state, which will be used in 
             //     the case SDL_MOUSEMOTION below
             // endif
-// XXX add mouseright click event,  and return mouse click x,y for both mouse click events
-            if (sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_CLICK) {
+            if (sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_CLICK ||
+                sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK) 
+            {
                 event.event_id = sdl_event_reg_tbl[i].event_id;
                 event.event_cx = sdl_event_reg_tbl[i].event_cx;
+                event.mouse_click.x = ev.button.x - sdl_event_reg_tbl[i].disp_loc.x;
+                event.mouse_click.y = ev.button.y - sdl_event_reg_tbl[i].disp_loc.y;
             } else {
                 mouse_motion.active = true;
                 mouse_motion.event_id = sdl_event_reg_tbl[i].event_id;
@@ -902,32 +911,6 @@ sdl_event_t * sdl_poll_event(void)
             if (!mouse_motion.active) {
                 break;
             }
-
-#if 0 //XXX evaluate why this is ifdefed out
-// XXX get rid of this
-            // search the sdl_event_reg_tbl to ensure the mouse_motion event is still registered
-            for (i = sdl_event_max-1; i >= 0; i--) {
-                if ((sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_MOTION) &&
-                    (AT_POS(mouse_motion.x_start, mouse_motion.y_start, sdl_event_reg_tbl[i].disp_loc))) 
-                {
-                    break;
-                }
-            }
-
-            // if the mouse_motion event is no longer registered or 
-            //    the registration has changed 
-            // then
-            //   clear mouse_motion, and get out
-            // endif
-            if (i < 0 ||
-                sdl_event_reg_tbl[i].event_id != mouse_motion.event_id ||
-                sdl_event_reg_tbl[i].event_cx != mouse_motion.event_cx)
-            {
-                memset(&mouse_motion,0,sizeof(mouse_motion));
-                break;
-            }
-#endif
-            
 
             // get all additional pending mouse motion events, and sum the motion
             event.event_id = mouse_motion.event_id;
@@ -977,7 +960,7 @@ sdl_event_t * sdl_poll_event(void)
             // map key to event_id
             if (key < 128) {
                 event_id = key;
-                if (shift) {  // XXX other keys, try using a table
+                if (shift) {
                     if (event_id >= 'a' && event_id <= 'z') {
                         event_id = toupper(event_id);
                     } else if (event_id >= '0' && event_id <= '9') {
@@ -1107,16 +1090,7 @@ rect_t sdl_render_text(rect_t * pane, int32_t x, int32_t y, int32_t font_ptsize,
     sdl_query_texture(texture, &width, &height);
 
     // determine the location within the pane that this
-    // texture is to be rendered, if x or y is negative then
-    // wrap to other end of the pane
-#if 0 // XXX
-    if (x < 0) {
-        x += pane->w;
-    }
-    if (y < 0) {
-        y += pane->h;
-    }
-#endif
+    // texture is to be rendered
     loc.x = x;
     loc.y = y; 
     loc.w = width;
@@ -1132,7 +1106,6 @@ rect_t sdl_render_text(rect_t * pane, int32_t x, int32_t y, int32_t font_ptsize,
     return loc_clipped;
 }
 
-// XXX what is str len is zero
 void sdl_render_printf(rect_t * pane, int32_t x, int32_t y, int32_t font_ptsize,
                        int32_t fg_color, int32_t bg_color, char * fmt, ...) 
 {
@@ -1142,6 +1115,10 @@ void sdl_render_printf(rect_t * pane, int32_t x, int32_t y, int32_t font_ptsize,
     va_start(ap, fmt);
     vsnprintf(str, sizeof(str), fmt, ap);
     va_end(ap);
+
+    if (str[0] == '\0') {
+        return;
+    }
     
     sdl_render_text(pane, x, y, font_ptsize, str, fg_color, bg_color);
 }
