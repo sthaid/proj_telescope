@@ -855,6 +855,7 @@ sdl_event_t * sdl_poll_event(void)
             //   initialize mouse_motion state, which will be used in 
             //     the case SDL_MOUSEMOTION below
             // endif
+// XXX add mouseright click event,  and return mouse click x,y for both mouse click events
             if (sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_CLICK) {
                 event.event_id = sdl_event_reg_tbl[i].event_id;
                 event.event_cx = sdl_event_reg_tbl[i].event_cx;
@@ -903,6 +904,7 @@ sdl_event_t * sdl_poll_event(void)
             }
 
 #if 0 //XXX evaluate why this is ifdefed out
+// XXX get rid of this
             // search the sdl_event_reg_tbl to ensure the mouse_motion event is still registered
             for (i = sdl_event_max-1; i >= 0; i--) {
                 if ((sdl_event_reg_tbl[i].event_type == SDL_EVENT_TYPE_MOUSE_MOTION) &&

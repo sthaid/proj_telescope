@@ -1,5 +1,5 @@
 *.o
 *.d
-controller
+tcx
 hygdata_v3.csv
 solar_sys_data.csv

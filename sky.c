@@ -12,32 +12,30 @@
 // defines
 //
 
-#define MAX_STELLAR_OBJECT      200000
-#define MAX_SOLAR_SYS_OBJECT    20 
-#define MAX_NAME                32
-#define MAX_INFO_TBL            100000
+#define MAX_OBJ              200000
+#define MAX_OBJ_NAME         32
+#define MAX_SS_OBJ_INFO_TBL  100000  // XXX make this dynamic
 
 #define RAD2DEG (180. / M_PI)
 #define DEG2RAD (M_PI / 180.)
 #define HR2RAD  (M_PI / 12.)
 
-// https://www.latlong.net/
-#define MY_LAT    42.422986
-#define MY_LONG  -71.623798
+#define MY_LAT    42.422986   // from https://www.latlong.net/
+#define MY_LONG  -71.623798   // for Bolton Mass USA
+
+#define NO_VALUE 9999
+
+#define OBJTYPE_NONE             0
+#define OBJTYPE_STELLAR          1
+#define OBJTYPE_SOLAR            2
+#define OBJTYPE_PLACE_MARK       3  // XXX add these
+#define OBJTYPE_TEMP_PLACE_MARK  4
 
 //
 // typedefs
 //
 
 typedef struct {
-    char  name[MAX_NAME];
-    double ra;
-    double dec;
-    double mag;
-} stellar_object_t;
-
-typedef struct {
-    char name[MAX_NAME];
     int max_info;
     int idx_info;
     struct info_s {
@@ -45,18 +43,29 @@ typedef struct {
         double ra;
         double dec;
         double mag;
-    } info[MAX_INFO_TBL];
-} solar_sys_object_t;
+    } info[MAX_SS_OBJ_INFO_TBL];
+} solar_sys_obj_info_t;
+
+
+typedef struct {
+    char name[MAX_OBJ_NAME];
+    int type;
+    double ra;
+    double dec;
+    double mag;
+    double az;
+    double el;
+    int x;
+    int y;
+    solar_sys_obj_info_t * ssinfo;
+} obj_t;
 
 //
 // variables
 //
 
-stellar_object_t    stellar_object[MAX_STELLAR_OBJECT];
-int                 max_stellar_object;
-
-solar_sys_object_t  solar_sys_object[MAX_SOLAR_SYS_OBJECT];
-int                 max_solar_sys_object;
+obj_t obj[MAX_OBJ];
+int   max_obj;
 
 char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
@@ -66,7 +75,7 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 
 int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename);
-int get_solar_sys_object_info(solar_sys_object_t *x, time_t t, double *ra, double *dec, double *mag);
+int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 char * gmtime_str(time_t t, char *str);
 
 double jdconv(int yr, int mn, int day, double hour);
@@ -84,31 +93,31 @@ int sky_init(void)
     int ret;
     char str[100];
 
-    INFO("sizeof(stellar_object)   = %ld MB\n", sizeof(stellar_object)/MB);
-    INFO("sizeof(solar_sys_object) = %ld MB\n", sizeof(solar_sys_object)/MB);
-    INFO("UTC now                  = %s UTC\n", gmtime_str(time(NULL),str));
-
+    INFO("sizeof(obj)  = %ld MB\n", sizeof(obj)/MB);
     INFO("sizeof(M_PI) = %ld\n", sizeof(M_PI));
-    INFO("sizeof(1.0) = %ld\n", sizeof(1.0));
+    INFO("sizeof(1.0)  = %ld\n", sizeof(1.0));
     INFO("sizeof(1.0l) = %ld\n", sizeof(1.0l));
+    INFO("UTC now      = %s UTC\n", gmtime_str(time(NULL),str));
 
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
         return ret;
     }
 
+#if 0
+    // XXX use different format and name
     ret = read_stellar_data("sky_data/my_stellar_data.csv");
     if (ret < 0) {
         return ret;
     }
+#endif
 
     ret = read_solar_sys_data("sky_data/solar_sys_data.csv");
     if (ret < 0) {
         return ret;
     }
 
-    INFO("max_stellar_object   = %d\n", max_stellar_object);
-    INFO("max_solar_sys_object = %d\n", max_solar_sys_object);
+    INFO("max_object  = %d\n", max_obj);
 
     test_algorithms();
 
@@ -159,8 +168,8 @@ int read_stellar_data(char * filename)
 
     // read and parse all lines
     while (fgets(str, sizeof(str), fp) != NULL) {
-        if (max_stellar_object >= MAX_STELLAR_OBJECT) {
-            ERROR("filename=%s line=%d stellar_object table is full\n", filename, line);
+        if (max_obj >= MAX_OBJ) {
+            ERROR("filename=%s line=%d obj table is full\n", filename, line);
             return -1;
         }
 
@@ -202,13 +211,19 @@ int read_stellar_data(char * filename)
             return -1;
         }
 
-        strncpy(stellar_object[max_stellar_object].name, proper_str, MAX_NAME);
-        stellar_object[max_stellar_object].ra  = ra * 15.;
-        stellar_object[max_stellar_object].dec = dec;
-        stellar_object[max_stellar_object].mag = mag;
+        strncpy(obj[max_obj].name, proper_str, MAX_OBJ_NAME);
+        obj[max_obj].type = OBJTYPE_STELLAR;
+        obj[max_obj].ra       = ra * 15.;
+        obj[max_obj].dec      = dec;
+        obj[max_obj].mag      = mag;
+        obj[max_obj].az       = NO_VALUE;
+        obj[max_obj].el       = NO_VALUE;
+        obj[max_obj].x        = NO_VALUE;
+        obj[max_obj].y        = NO_VALUE;
+        obj[max_obj].ssinfo   = NULL;
 
-        INFO("%16s %10.4f %10.4f %10.4f\n", proper_str, ra, dec, mag);
-        max_stellar_object++;
+        //INFO("%16s %10.4f %10.4f %10.4f\n", proper_str, ra, dec, mag);
+        max_obj++;
 
         num_added++;
         line++;
@@ -230,8 +245,9 @@ int read_solar_sys_data(char * filename)
 
     FILE *fp;
     int line=1, num_added=0, i, len;
-    solar_sys_object_t *x = NULL;
-    char str[10000], *s;
+    obj_t *x = NULL;
+    solar_sys_obj_info_t *ssinfo = NULL;
+    char str[10000], *s, *name;
     char *date_str, *ra_str, *dec_str, *mag_str;
     char *not_used_str __attribute__ ((unused));
     double ra, dec, mag, lst;
@@ -250,28 +266,39 @@ int read_solar_sys_data(char * filename)
 
         // first line in file must be an object name
         if (line == 1 && s[0] != '#') {
-            ERROR("first line must contain solar_sys_object.name, '%s'\n", str);
+            ERROR("first line must contain solar sys object name, '%s'\n", str);
             return -1;
         }
 
         // if this line is object name then start a new object
         if (s[0] == '#') {
             // check for too many
-            if (max_solar_sys_object >= MAX_SOLAR_SYS_OBJECT) {
-                ERROR("filename=%s line=%d solar_sys_object table is full\n", filename, line);
+            if (max_obj >= MAX_OBJ) {
+                ERROR("filename=%s line=%d obj table is full\n", filename, line);
                 return -1;
             }
 
-            // get ptr to the solar_sys_object being initialized
-            x = &solar_sys_object[max_solar_sys_object];
+            // get ptr to the name of the solar_sys_object, and remove trailing newline
+            name = s + 2;
+            len = strlen(name);
+            if (len > 0 && name[len-1] == '\n') name[len-1] = 0;
 
-            // save the name of the solar_sys_object, and remove trailing newline
-            strncpy(x->name, s+2, MAX_NAME);
-            len = strlen(x->name);
-            if (len > 0 && x->name[len-1] == '\n') x->name[len-1] = 0;
+            // init obj fields
+            x = &obj[max_obj];
+            ssinfo = calloc(1,sizeof(solar_sys_obj_info_t));
+            strncpy(x->name, name, MAX_OBJ_NAME);
+            x->type = OBJTYPE_SOLAR;
+            x->ra       = NO_VALUE;
+            x->dec      = NO_VALUE;
+            x->mag      = NO_VALUE;
+            x->az       = NO_VALUE;
+            x->el       = NO_VALUE;
+            x->x        = NO_VALUE;
+            x->y        = NO_VALUE;
+            x->ssinfo   = ssinfo;
 
             // update counters
-            max_solar_sys_object++;
+            max_obj++;
             num_added++;
             line++;
             continue;
@@ -286,7 +313,7 @@ int read_solar_sys_data(char * filename)
         GET_FIELD(mag_str);
 
         // sometimes magnitude is not-avail, such as when Mercury is on the
-        // other side of the sun; in this case set magnitude to 990
+        // other side of the sun; in this case set magnitude to 99
         if (strstr(mag_str, "n.a.")) {
             mag_str = "99";
         }
@@ -335,15 +362,15 @@ int read_solar_sys_data(char * filename)
         }
         
         // fill in the info table for the object currently being input
-        if (x->max_info >= MAX_INFO_TBL) {
-            ERROR("filename=%s line=%d solar_sys_object '%s' info table is full\n", filename, line, x->name);
+        if (ssinfo->max_info >= MAX_SS_OBJ_INFO_TBL) {
+            ERROR("filename=%s line=%d solar sys obj '%s' info table is full\n", filename, line, x->name);
             return -1;
         }
-        x->info[x->max_info].t   = t;
-        x->info[x->max_info].ra  = ra;
-        x->info[x->max_info].dec = dec;
-        x->info[x->max_info].mag = mag;
-        x->max_info++;
+        ssinfo->info[ssinfo->max_info].t   = t;
+        ssinfo->info[ssinfo->max_info].ra  = ra;
+        ssinfo->info[ssinfo->max_info].dec = dec;
+        ssinfo->info[ssinfo->max_info].mag = mag;
+        ssinfo->max_info++;
 
         // update line counter, which is used to identify which line in filename is in error
         line++;
@@ -360,14 +387,18 @@ int read_solar_sys_data(char * filename)
     t = time(NULL);
     lst = ct2lst(MY_LONG, jdconv2(t));
     printf("            NAME         RA        DEC        MAG         AZ         EL\n");
-    for (i = 0; i < max_solar_sys_object; i++) {
-        solar_sys_object_t * x = &solar_sys_object[i];
-        double ra, dec, mag, az, el;
+    for (i = 0; i < max_obj; i++) {
+        obj_t *x = &obj[i];
+        double az, el;
 
-        get_solar_sys_object_info(x, t, &ra, &dec, &mag);
-        radec2azel(&az, &el, ra, dec, lst, MY_LAT);
+        if (x->type != OBJTYPE_SOLAR) {
+            continue;
+        }
 
-        printf("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, ra, dec, mag, az, el);
+        compute_ss_obj_ra_dec_mag(x, t);
+        radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+
+        printf("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
     }
 
     // success
@@ -375,14 +406,13 @@ int read_solar_sys_data(char * filename)
 }
 
 // -----------------  PANE HANDLERS  --------------------------------------
-// AAAAAAAAAAAAA
-// XXX 
-// - clean up
-// - hover mouse will OR click will iluminate obj and display info in ctrl pane
+// XXX  AAA
+// - mouse right click iluminate obj and display info in ctrl pane
 // - ctrl pane
 //    . info display
 //    . mag select
 //    . reset (instead of home)
+// - clean up
 // XXX  DONE
 // - make room for ctrl pane
 // - panning when zoomed in
@@ -393,7 +423,7 @@ double az_ctr  = 0;
 double az_span = 360;
 double el_ctr  = 0;
 double el_span = 180;
-double mag = 8;
+double mag     = 8;
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
@@ -430,33 +460,45 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_el = (pane->h) / (max_el - min_el);
         double k_az = (pane->w) / (min_az - max_az);
 
-        const int fontsz=30;
+        const int fontsz=30;  // XXX where is this used?
 
-        int x, y, i, ptsz;
+        int xcoord, ycoord, i, ptsz, color;
         double az, el, lst;
         time_t t;
         double grid_sep, first_az_line, first_el_line;
+
+        // XXX reset all az, al, x, y to NO_VALUE
 
         // get local sidereal time        
         t = time(NULL);
         lst = ct2lst(MY_LONG, jdconv2(t));
 
         // draw points for stellar objects
-        for (i = 0; i < max_stellar_object; i++) {
-            stellar_object_t * obj = &stellar_object[i];
+        for (i = 0; i < max_obj; i++) {
+            obj_t * x = &obj[i];
+
+            // if obj type is not valid then continue
+            if (x->type == OBJTYPE_NONE) {
+                continue;
+            }
+
+            // if processing solar-sys object then compute its current ra, dec, and mag
+            if (x->type == OBJTYPE_SOLAR) {
+                compute_ss_obj_ra_dec_mag(x, t);
+            }
 
             // magnitude too dim then skip
-            if (obj->mag > mag) {
+            if (x->mag > mag) {
                 continue;
             }
 
             // get az/el from ra/dec,
             // sanity check az and el, and
             // convert az to range -180 to + 180
-            radec2azel(&az, &el, obj->ra, obj->dec, lst, MY_LAT);
+            radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
             if (el < -90 || el > 90 || az < 0 || az > 360) {
                 WARN("stellar obj %d '%s' at ra=%f dec=%f has invalid az=%f or el=%f\n",
-                     i, obj->name, obj->ra, obj->dec, az, el);
+                     i, x->name, x->ra, x->dec, az, el);
                 continue;
             }
             if (az > 180)  az -= 360;
@@ -473,21 +515,24 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
 
             // determine display point size from object's apparent magnitude
-            // XXX verify, and is 8 a good choice
-            ptsz = 6 - obj->mag;  
+            // XXX verify, and is 6 a good choice
+            ptsz = 6 - x->mag;   // XXX probably not correct
             if (ptsz < 0) ptsz = 0;
             if (ptsz > 9) ptsz = 9;
 
             // convert az/el to pane coordinates; 
             // if coords are out of the pane then skip
-            y = 0 + k_el * (max_el - el);
-            x = 0 + k_az * (min_az - az);
-            if (x < 0 || x >= pane->w || y < 0 || y >= pane->h) {
+            ycoord = 0 + k_el * (max_el - el);
+            xcoord = 0 + k_az * (min_az - az);
+            if (xcoord < 0 || xcoord >= pane->w || ycoord < 0 || ycoord >= pane->h) {
                 continue;
             }
 
             // render the stellar object point
-            sdl_render_point(pane, x, y, WHITE, ptsz);
+            color = (x->type == OBJTYPE_STELLAR ? WHITE :
+                     x->type == OBJTYPE_SOLAR   ? YELLOW :
+                                                  PURPLE);
+            sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
 
         // draw grid
@@ -502,20 +547,19 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                                    0.25;
         first_az_line = floor(min_az/grid_sep) * grid_sep;
         for (az = first_az_line; az < max_az; az += grid_sep) {
-            x = 0 + k_az * (min_az - az);
-            sdl_render_line(pane, x, 0, x, pane->h-1, BLUE);
-            sdl_render_printf(pane, x-COL2X(2,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, BLUE, BLACK, "%g", az);
+            xcoord = 0 + k_az * (min_az - az);
+            sdl_render_line(pane, xcoord, 0, xcoord, pane->h-1, BLUE);
+            sdl_render_printf(pane, xcoord-COL2X(2,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, BLUE, BLACK, "%g", az);
         }
         first_el_line = floor(min_el/grid_sep) * grid_sep;
         for (el = first_el_line; el < max_el; el += grid_sep) {
-            y = 0 + k_el * (max_el - el);
-            sdl_render_line(pane, 0, y, pane->w-1, y, BLUE);
-            sdl_render_printf(pane, 0, y-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g ", el);
+            ycoord = 0 + k_el * (max_el - el);
+            sdl_render_line(pane, 0, ycoord, pane->w-1, ycoord, BLUE);
+            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g ", el);
         }
 
-#if 0
+#if 0 // XXX instead just add to my sky data
         // draw a purple point at sidereal north
-        // XXX instead just add to my sky data
         y = 0 + k_el * (max_el - MY_LAT);
         x = 0 + k_az * (min_az - 0);
         if (x >= 0 && x < pane->w && y >= 0 && y < pane->h) {
@@ -546,7 +590,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             el_ctr += dy * (el_span / 900.);
             if (el_ctr > 90) el_ctr = 90;
             if (el_ctr < -90) el_ctr = -90;
-            //printf("%d %d  %f %f\n", dx, dy, az_ctr, el_ctr);
+            //XXX printf("%d %d  %f %f\n", dx, dy, az_ctr, el_ctr);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case SDL_EVENT_MOUSE_WHEEL: {
             int dy = event->mouse_motion.delta_y;
@@ -561,11 +605,22 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             //XXX printf("%d  %f %f\n", dy, az_span, el_span);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case SDL_EVENT_KEY_HOME: {
+            // XXX maybe get rid of this, and replace with ctl pane button
             az_ctr  = 0;
             az_span = 360;
             el_ctr  = 0;
             el_span = 180;
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        // XXX mouse right click
+        //   search x,y against the table; find the closest match that is within 10x10
+        //   if no match found then clear select_idx; else set select_idx to best match;
+        //   the select idx s used
+        //    - display item in green  
+        //    - in controlpane, display associated info
+        //   
+        // select idx can also be cleared with esc key too
+        // XXX why sometimes keys not working?
+
 #if 0
         case SDL_EVENT_KEY_END:
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
@@ -672,16 +727,21 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
 
 // -----------------  GENERAL UTIL  ---------------------------------------
 
-int get_solar_sys_object_info(solar_sys_object_t *x, time_t t, double *ra, double *dec, double *mag)
+int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
 {
-    struct info_s *info     = x->info;
-    int            max_info = x->max_info;
-    int            idx      = x->idx_info;
+    solar_sys_obj_info_t *ssinfo = x->ssinfo;
+    struct info_s *info     = ssinfo->info;
+    int            max_info = ssinfo->max_info;
+    int            idx      = ssinfo->idx_info;
     char           str[100];
 
     // interpolated_val = v0 + ((v1 - v0) / (t1 - t0)) * (t - t0)
     #define INTERPOLATE(t,v0,v1,t0,t1) \
         ((double)(v0) + (((double)(v1) - (double)(v0)) / ((double)(t1) - (double)(t0))) * ((double)(t) - (double)(t0)))
+
+    if (x->type != OBJTYPE_SOLAR) {
+        ERROR("called for invalid obj type %d\n",x->type);
+    }
 
     if (t >= info[idx].t && t <= info[idx+1].t) {
         goto interpolate;
@@ -712,12 +772,12 @@ int get_solar_sys_object_info(solar_sys_object_t *x, time_t t, double *ra, doubl
 interpolate:
     // determine ra and dec return values by interpolation;
     // don't bother interpolating mag
-    *ra  = INTERPOLATE(t, info[idx].ra, info[idx+1].ra, info[idx].t, info[idx+1].t); 
-    *dec = INTERPOLATE(t, info[idx].dec, info[idx+1].dec, info[idx].t, info[idx+1].t); 
-    *mag = info[idx].mag;
+    x->ra  = INTERPOLATE(t, info[idx].ra, info[idx+1].ra, info[idx].t, info[idx+1].t); 
+    x->dec = INTERPOLATE(t, info[idx].dec, info[idx+1].dec, info[idx].t, info[idx+1].t); 
+    x->mag = info[idx].mag;
         
     // save idx hint
-    x->idx_info = idx;
+    ssinfo->idx_info = idx;
 
     // return success
     return 0;
@@ -775,10 +835,9 @@ char * hr_str(double hr, char *str)
 //
 // - sidereal time converter
 //   https://tycho.usno.navy.mil/sidereal.html
-    
 
-//https://idlastro.gsfc.nasa.gov/ftp/pro/astro/jdcnv.pro
-//Converts Gregorian dates to Julian days
+// https://idlastro.gsfc.nasa.gov/ftp/pro/astro/jdcnv.pro
+// Converts Gregorian dates to Julian days
 double jdconv(int yr, int mn, int day, double hour)
 {
     int L, julian;
@@ -914,12 +973,15 @@ void test_algorithms(void)
     start_us = microsec_timer();
     t = time(NULL);
     lst = ct2lst(MY_LONG, jdconv2(t));
-    for (i = 0; i < max_stellar_object; i++) {
-        stellar_object_t * x = &stellar_object[i];
+    for (i = 0; i < max_obj; i++) {
+        obj_t * x = &obj[i];
+        if (obj->type == OBJTYPE_SOLAR) {
+            compute_ss_obj_ra_dec_mag(x, t);
+        }
         radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
     }
     duration_us = microsec_timer() - start_us;
-    INFO("radec2azel perf: %d objects in %ld ms\n", max_stellar_object, duration_us/1000);
+    INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
 
     INFO("tests passed\n");
 }
