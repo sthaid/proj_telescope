@@ -1,10 +1,30 @@
+// XXX use arrow keys for scolling too, and use other keys for zoom
+
+// XXX do a better job of displaying grid coord numbers
+//      - they could be smaller and better positioned
+
 // XXX TODO
 // - J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
 //   https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
 
 // XXX organize favorites
-// XXX update pleides to hour angle
-// XXX make a much nicer display using smaller point sizes and displayng more 
+
+// XXX what is Sol in hygdata, should eliminate
+
+// XXX why sometimes sdl key events not working?
+
+// XXX add code to sanity check that names dont begin or end with a space
+
+// XXX add code to support PLACE_MARK
+
+// XXX add code to support temporary PLACE_MARK,  when right clicked somewhere without something close by ??????
+
+// XXX grid sep needs work when elspan is 90
+
+// XXX ctl pane layout
+// - ctl pane perhaps goes below sky
+
+//XXX place marks should be displayed independent of mag
 
 #include "common.h"
 
@@ -28,8 +48,9 @@
 #define OBJTYPE_NONE             0
 #define OBJTYPE_STELLAR          1
 #define OBJTYPE_SOLAR            2
-#define OBJTYPE_PLACE_MARK       3  // XXX add these
-#define OBJTYPE_TEMP_PLACE_MARK  4
+#define OBJTYPE_PLACE_MARK       3
+
+#define DEFAULT_MAG 7.
 
 //
 // typedefs
@@ -45,7 +66,6 @@ typedef struct {
         double mag;
     } info[MAX_SS_OBJ_INFO_TBL];
 } solar_sys_obj_info_t;
-
 
 typedef struct {
     char name[MAX_OBJ_NAME];
@@ -75,13 +95,14 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 
 int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename);
+int read_place_marks(char * filename);
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 char * gmtime_str(time_t t, char *str);
 
 double jdconv(int yr, int mn, int day, double hour);
 double jdconv2(time_t t);
 double ct2lst(double lng, double jd);
-void radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
+int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
 
 void test_algorithms(void);
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
@@ -104,15 +125,12 @@ int sky_init(void)
         return ret;
     }
 
-#if 0
-    // XXX use different format and name
-    ret = read_stellar_data("sky_data/my_stellar_data.csv");
+    ret = read_solar_sys_data("sky_data/solar_sys_data.csv");
     if (ret < 0) {
         return ret;
     }
-#endif
 
-    ret = read_solar_sys_data("sky_data/solar_sys_data.csv");
+    ret = read_place_marks("sky_data/place_marks.dat");
     if (ret < 0) {
         return ret;
     }
@@ -142,6 +160,7 @@ int read_stellar_data(char * filename)
             *s = '\0'; \
             s++; \
         } while (0)
+// XXX ^^^ needs to remove leading and trailing spaces
 
     FILE *fp;
     int line=1, num_added=0;
@@ -198,6 +217,11 @@ int read_stellar_data(char * filename)
             continue;
         } 
 
+        if (strcmp(proper_str, "Sol") == 0) {
+            INFO("XXX skip Sol\n");
+            continue;
+        }
+
         if (sscanf(ra_str, "%lf", &ra) != 1) {
             ERROR("filename=%s line=%d invalid ra='%s'\n", filename, line, ra_str);
             return -1;
@@ -244,7 +268,7 @@ int read_solar_sys_data(char * filename)
     //    2018-Dec-01 00:00, , ,207.30643, -9.79665,  -4.87,  1.44,
 
     FILE *fp;
-    int line=1, num_added=0, i, len;
+    int line=1, num_added=0, i, len, ret;
     obj_t *x = NULL;
     solar_sys_obj_info_t *ssinfo = NULL;
     char str[10000], *s, *name;
@@ -386,7 +410,7 @@ int read_solar_sys_data(char * filename)
     //      xxxxxxxxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx
     t = time(NULL);
     lst = ct2lst(MY_LONG, jdconv2(t));
-    printf("            NAME         RA        DEC        MAG         AZ         EL\n");
+    INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
     for (i = 0; i < max_obj; i++) {
         obj_t *x = &obj[i];
         double az, el;
@@ -396,12 +420,67 @@ int read_solar_sys_data(char * filename)
         }
 
         compute_ss_obj_ra_dec_mag(x, t);
-        radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+        ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+        if (ret != 0) {
+            ERROR("radec2azel failed\n");
+            return -1;
+        }
 
-        printf("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
+        INFO("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
     }
 
     // success
+    return 0;
+}
+
+int read_place_marks(char *filename)
+{
+    FILE * fp;
+    int line=1, num_added=0, cnt;
+    char str[1000], name[100];
+    double ra, dec;
+
+    // open
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        ERROR("failed to open %s\n", filename);
+        return -1;
+    }
+
+    // read and parse all lines
+    while (fgets(str, sizeof(str), fp) != NULL) {
+        if (str[0] == '#') {
+            continue;
+        }
+
+        cnt = sscanf(str, "%s %lf %lf\n", name, &ra, &dec);
+        if (cnt != 3) {
+            ERROR("filename=%s line=%d invalid, scan cnt %d\n", filename, line, cnt);
+            return -1;
+        }
+        DEBUG("PLACE_MARK '%s' %f %f\n", name, ra, dec);
+
+        strncpy(obj[max_obj].name, name, MAX_OBJ_NAME);
+        obj[max_obj].type   = OBJTYPE_PLACE_MARK;;
+        obj[max_obj].ra     = ra;
+        obj[max_obj].dec    = dec;
+        obj[max_obj].mag    = 3;
+        obj[max_obj].az     = NO_VALUE;
+        obj[max_obj].el     = NO_VALUE;
+        obj[max_obj].x      = NO_VALUE;
+        obj[max_obj].y      = NO_VALUE;
+        obj[max_obj].ssinfo = NULL;
+        max_obj++;
+
+        line++;
+        num_added++;
+    }
+
+    // close
+    fclose(fp);
+
+    // success
+    INFO("added %d place_mark_objects from %s\n", num_added, filename);
     return 0;
 }
 
@@ -413,17 +492,14 @@ int read_solar_sys_data(char * filename)
 //    . mag select
 //    . reset (instead of home)
 // - clean up
-// XXX  DONE
-// - make room for ctrl pane
-// - panning when zoomed in
-// - display az and el on borders
-// - display other grid lines
 
-double az_ctr  = 0;
-double az_span = 360;
-double el_ctr  = 0;
-double el_span = 180;
-double mag     = 8;
+double az_ctr   = 0;
+double az_span  = 360;
+double el_ctr   = 45;
+double el_span  = 90;  
+double mag      = DEFAULT_MAG;
+int    selected = -1;
+bool   tracking = false;
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
@@ -434,6 +510,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
     #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 1)
+    #define SDL_EVENT_MOUSE_RIGHT_CLICK    (SDL_EVENT_USER_DEFINED + 2)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -460,20 +537,25 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_el = (pane->h) / (max_el - min_el);
         double k_az = (pane->w) / (min_az - max_az);
 
-        const int fontsz=30;  // XXX where is this used?
-
-        int xcoord, ycoord, i, ptsz, color;
+        int xcoord, ycoord, i, ptsz, color, fontsz, ret;
         double az, el, lst;
         time_t t;
         double grid_sep, first_az_line, first_el_line;
 
-        // XXX reset all az, al, x, y to NO_VALUE
+        // reset all az, al, x, y to NO_VALUE
+        for (i = 0; i < max_obj; i++) {
+            obj_t * x = &obj[i];
+            x->x  = NO_VALUE;
+            x->y  = NO_VALUE;
+            x->az = NO_VALUE;
+            x->el = NO_VALUE;
+        }
 
         // get local sidereal time        
         t = time(NULL);
         lst = ct2lst(MY_LONG, jdconv2(t));
 
-        // draw points for stellar objects
+        // draw points for objects
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
 
@@ -495,28 +577,26 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             // get az/el from ra/dec,
             // sanity check az and el, and
             // convert az to range -180 to + 180
-            radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
-            if (el < -90 || el > 90 || az < 0 || az > 360) {
-                WARN("stellar obj %d '%s' at ra=%f dec=%f has invalid az=%f or el=%f\n",
-                     i, x->name, x->ra, x->dec, az, el);
+            ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+            if (ret != 0) {
                 continue;
             }
-            if (az > 180)  az -= 360;
 
-            // adjust az, up or down by 360, to try to get it in range min_az to maz_az;
-            // if unable to get az in range min_az to maz_az then skip
+            // The azimuth returned from radec2azel is in range 0 to 360; 
+            // however the min_az..max_az could be as low as -360 to 0;
+            // so, if az is too large, try to correct by reducing it by 360.
+            // If az is still out of range min_az..maz_az then the display
+            // must be zoomed in, so skip this object.
             if (az > max_az) {
-                while (az > max_az) az -= 360;
-            } else if (az < min_az) {
-                while (az < min_az) az += 360;
+                az -= 360;
             }
             if (az < min_az || az > max_az) {
                 continue;
             }
 
             // determine display point size from object's apparent magnitude
-            // XXX verify, and is 6 a good choice
-            ptsz = 6 - x->mag;   // XXX probably not correct
+            // XXX try smaaller ptsz, such as '5'
+            ptsz = 5 - x->mag;
             if (ptsz < 0) ptsz = 0;
             if (ptsz > 9) ptsz = 9;
 
@@ -528,28 +608,46 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 continue;
             }
 
+            // save the computed object's az/el position, and 
+            // pane coordinates
+            x->x = xcoord;
+            x->y = ycoord;
+            x->az = az;  // XXX save orig, not after modified
+            x->el = el;
+
             // render the stellar object point
-            color = (x->type == OBJTYPE_STELLAR ? WHITE :
-                     x->type == OBJTYPE_SOLAR   ? YELLOW :
-                                                  PURPLE);
+            color = (i == selected                 ? ORANGE :
+                     x->type == OBJTYPE_STELLAR    ? WHITE  :
+                     x->type == OBJTYPE_SOLAR      ? YELLOW :
+                     x->type == OBJTYPE_PLACE_MARK ? PURPLE :
+                                                     BLACK);
+            if (color == BLACK) {
+                WARN("obj %d '%s' invalid type %d\n", i, x->name, x->type);
+                continue;
+            }
             sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
 
         // draw grid
-        // XXX location of azimuth string
-        grid_sep = el_span > 120 ? 45 :
-                   el_span > 60  ? 20 :
-                   el_span > 30  ? 10 :
-                   el_span > 10  ? 5 :
-                   el_span > 4   ? 2 :
-                   el_span > 2   ? 1 :
-                   el_span > 1   ? 0.5 :
+        // XXX have problems at the left corners
+        grid_sep = az_span > 240 ? 45 :
+                   az_span > 120 ? 20 :
+                   az_span > 60  ? 10 :
+                   az_span > 20  ? 5 :
+                   az_span > 8   ? 2 :
+                   az_span > 4   ? 1 :
+                   az_span > 2   ? 0.5 :
                                    0.25;
+        fontsz = 24;
         first_az_line = floor(min_az/grid_sep) * grid_sep;
         for (az = first_az_line; az < max_az; az += grid_sep) {
+            double adj_az = (az >= 0 ? az : az + 360);
+            char adj_az_str[20];
+            int len;
+            len = sprintf(adj_az_str, "%g", adj_az);
             xcoord = 0 + k_az * (min_az - az);
             sdl_render_line(pane, xcoord, 0, xcoord, pane->h-1, BLUE);
-            sdl_render_printf(pane, xcoord-COL2X(2,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, BLUE, BLACK, "%g", az);
+            sdl_render_printf(pane, xcoord-COL2X(len,fontsz)/2, pane->h-ROW2Y(1,fontsz), fontsz, BLUE, BLACK, "%g", adj_az);
         }
         first_el_line = floor(min_el/grid_sep) * grid_sep;
         for (el = first_el_line; el < max_el; el += grid_sep) {
@@ -558,19 +656,38 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g ", el);
         }
 
-#if 0 // XXX instead just add to my sky data
-        // draw a purple point at sidereal north
-        y = 0 + k_el * (max_el - MY_LAT);
-        x = 0 + k_az * (min_az - 0);
-        if (x >= 0 && x < pane->w && y >= 0 && y < pane->h) {
-            sdl_render_point(pane, x, y, PURPLE, 9);
+        // if zoomed in then display names of the objects that have names
+        if (az_span < 100) {
+            fontsz = 18;
+            for (i = 0; i < max_obj; i++) {
+                obj_t * x = &obj[i];
+                if (x->name[0] == '\0' || x->x == NO_VALUE || x->y == NO_VALUE) {
+                    continue;
+                }
+                sdl_render_printf(pane, 
+                                  x->x+6, x->y-ROW2Y(1,fontsz)/2,
+                                  fontsz, WHITE, BLACK, "%s", x->name);
+            }
         }
-#endif
+
+        // XXX
+        if (selected != -1 && obj[selected].x == NO_VALUE) {
+            selected = -1;
+        }
+        if (tracking && selected == -1) {
+            tracking = false;
+        }
+        if (tracking) {  // XXX 1 sec delay
+            az_ctr = obj[selected].az;
+            if (az_ctr > 180) az_ctr -= 360;
+            el_ctr = obj[selected].el;
+        }
 
         // register control events 
         rect_t loc = {0,0,pane->w,pane->h};
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_RIGHT_CLICK, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -578,22 +695,59 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // -----------------------
     // -------- EVENT --------
     // -----------------------
+/** XXX REVIEW
+DISPLAY PANE KEYS
+- will disable tracking
+  - pgup pgdn
+  - arrow keys
+  - mouse motion
+- wont disable tracking
+  - mag   m M
+  - zoom  z Z
+  - mouse wheel  ZOOM
+- tbd-xxxx for track on or off
+- esc clears selection
+- right click enable select and track
+TODO
+arrow keys
+esc  clear select
+comments
+review
+**/
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION: {
+            // XXX add arrow keys
             int dx = event->mouse_motion.delta_x;
             int dy = event->mouse_motion.delta_y;
+            if (dx == 0 && dy == 0) {
+                break;
+            }
             az_ctr -= dx * (az_span / 1800.);
             if (az_ctr > 180) az_ctr = 180;
             if (az_ctr < -180) az_ctr = -180;
-            el_ctr += dy * (el_span / 900.);
+            el_ctr += dy * (el_span / 450.);
             if (el_ctr > 90) el_ctr = 90;
             if (el_ctr < -90) el_ctr = -90;
-            //XXX printf("%d %d  %f %f\n", dx, dy, az_ctr, el_ctr);
+            DEBUG("MOUSE MOTION dx=%d dy=%d  az_ctr=%f el_ctr=%f\n", dx, dy, az_ctr, el_ctr);
+            tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case SDL_EVENT_MOUSE_WHEEL: {
-            int dy = event->mouse_motion.delta_y;
+        case SDL_EVENT_MOUSE_WHEEL: case 'z': case 'Z': {
+            int dy;
+
+            if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
+                dy = event->mouse_motion.delta_y;
+            } else if (event->event_id == 'z') {
+                dy = -1;
+            } else {
+                dy = 1;
+            }
+
+            // don't let az_span get abov  360
+            if (dy < 0 && az_span * 1.1 > 360) {
+                break;
+            }
             if (dy < 0) {
                 az_span *= 1.1;
                 el_span *= 1.1;
@@ -602,31 +756,93 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 az_span /= 1.1;
                 el_span /= 1.1;
             }
-            //XXX printf("%d  %f %f\n", dy, az_span, el_span);
+            DEBUG("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case SDL_EVENT_KEY_HOME: {
-            // XXX maybe get rid of this, and replace with ctl pane button
-            az_ctr  = 0;
-            az_span = 360;
-            el_ctr  = 0;
-            el_span = 180;
-            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        // XXX mouse right click
-        //   search x,y against the table; find the closest match that is within 10x10
-        //   if no match found then clear select_idx; else set select_idx to best match;
-        //   the select idx s used
-        //    - display item in green  
-        //    - in controlpane, display associated info
-        //   
-        // select idx can also be cleared with esc key too
-        // XXX why sometimes keys not working?
+        case SDL_EVENT_MOUSE_RIGHT_CLICK: {
+            int mouse_x, mouse_y;
+            int dist, best_dist, best_i, i, delta_x, delta_y;
 
-#if 0
-        case SDL_EVENT_KEY_END:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+            static int distance_lookup[50][50];
+            static bool first_call = true;
+
+            if (first_call) {
+                int x, y;
+                for (x = 0; x < 50; x++) {
+                    for (y = 0; y < 50; y++) {
+                        distance_lookup[x][y] = sqrt(x*x + y*y);
+                    }
+                }
+                first_call = false;
+            }
+
+            mouse_x = event->mouse_click.x;
+            mouse_y = event->mouse_click.y;
+            best_dist = 999999;
+            best_i = -1;
+            
+            for (i = 0; i < max_obj; i++) {
+                obj_t * x = &obj[i];
+                if (x->x == NO_VALUE || x->y == NO_VALUE) {
+                    continue;
+                }
+                delta_x = abs(x->x - mouse_x);
+                delta_y = abs(x->y - mouse_y);
+                if (delta_x >= 50 || delta_y >= 50) {
+                    continue;
+                }
+                dist = distance_lookup[delta_x][delta_y];
+                if (dist < best_dist) {
+                    best_dist = dist;
+                    best_i = i;
+                }
+            }
+            selected = (best_dist != 999999 ? best_i : -1);
+            tracking = false;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        case 27: {  // ESC
+            selected = -1;
+            tracking = false;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case SDL_EVENT_KEY_PGUP:
+            az_ctr   = 0;
+            az_span  = 360;
+            el_ctr   = 45;
+            el_span  = 90; 
+            mag      = DEFAULT_MAG;
+            selected = false;
+            tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGDN:
+            az_ctr   = 0;
+            az_span  = 360;
+            el_ctr   = 0;
+            el_span  = 180;
+            mag      = DEFAULT_MAG;
+            selected = false;
+            tracking = false;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case 'm': case 'M':
+            mag += (event->event_id == 'M' ? .1 : -.1);
+            if (selected != -1 && obj[selected].mag > mag) {
+                selected = -1;
+                tracking = false;
+            }
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case 'y':
+            if (selected != -1) {
+                tracking = true;
+            }
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case 'n':
+            tracking = false;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+
+
+        // XXX select idx can also be cleared with esc key too
+#if 0
+        case SDL_EVENT_KEY_HOME: {
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        case SDL_EVENT_KEY_END:
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_UP_ARROW:
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
@@ -659,8 +875,7 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
-    #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 0)
-    #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 1)
+    #define SDL_EVENT_TRACKING_CTL  (SDL_EVENT_USER_DEFINED + 0)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -678,7 +893,43 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        //rect_t * pane = &pane_cx->pane;
+        rect_t * pane = &pane_cx->pane;
+        int fontsz=24;
+        char name[200];
+
+        sdl_render_text_and_register_event(
+            pane, 0, ROW2Y(0,fontsz), fontsz,
+            tracking ? "TRACKING" : "NOT_TRACKING",
+            LIGHT_BLUE, BLACK, 
+            SDL_EVENT_TRACKING_CTL, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+
+// XXX az display should be consistent with min/maz az
+// XXX also need to work on the input line
+        sdl_render_printf(pane, 0, ROW2Y(1,fontsz), fontsz, WHITE, BLACK,
+                          "AZ/EL  %8.4f %8.4f", az_ctr, el_ctr);
+        
+        if (selected != -1) {
+            obj_t *x = &obj[selected];
+            if (x->name[0] != '\0') {
+                strcpy(name, x->name);
+            } else {
+                sprintf(name, "Object-%d", selected);
+            }
+            sdl_render_printf(pane, 0, ROW2Y(3,fontsz), fontsz, WHITE, BLACK,
+                              "%s", name);
+            sdl_render_printf(pane, 0, ROW2Y(4,fontsz), fontsz, WHITE, BLACK,
+                              "RA/DEC %8.4f %8.4f", x->ra, x->dec);
+            sdl_render_printf(pane, 0, ROW2Y(5,fontsz), fontsz, WHITE, BLACK,
+                              "AZ/EL  %8.4f %8.4f", x->az, x->el);
+            if (x->type != OBJTYPE_PLACE_MARK) {
+                sdl_render_printf(pane, 0, ROW2Y(6,fontsz), fontsz, WHITE, BLACK,
+                                "MAG   %0.1f", x->mag);
+            }
+        }
+
+        sdl_render_printf(pane, 0, ROW2Y(8,fontsz), fontsz, WHITE, BLACK,
+                          "DISPLAY_MAG   %0.1f", mag);
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -687,6 +938,11 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
+        switch (event->event_id) {
+        case SDL_EVENT_TRACKING_CTL:
+            tracking = !tracking && selected != -1;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        }
 #if 0
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION:
@@ -724,6 +980,37 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
 }
+/**
+TRACKING 'OR' NOT_TRACKING     <== can click this, but needs a selection to enable tracking
+o AZEL 359.12345 -19.12345
+
+POLARIS                            DONE
+o RADEC 244.1234 42.0000            x
+o AZEL  xxx       xxxx              x
+o MAG   7.1                         x
+
+DISPLAY_MAG  6.0                    x
+
+> <inputs>
+sel polaris
+sel radec ...   put a place mark at radec
+                when a selection is made the display centers and zooms, and track is enabled
+sel clear       disables tracking 
+
+track on       
+track off
+
+azel xxxx xxxx    disables tracking
+
+mag xxx
+zoom xxx
+fmt dec
+fmt dms
+help
+
+FOLLOWED BY STATUS LINE:  OK, ERROR ...
+**/
+
 
 // -----------------  GENERAL UTIL  ---------------------------------------
 
@@ -892,7 +1179,7 @@ double ct2lst(double lng, double jd)
 //  http://cosmology.berkeley.edu/group/cmbanalysis/forecast/idl/radec2azel.pro
 //  To convert from celestial coordinates (right ascension-declination)
 //  to horizon coordinates (azimuth-elevation)
-void radec2azel(double *az, double *el, double ra, double dec, double lst, double lat)
+int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat)
 {
     double rha, rdec, rel, raz, rlat;
 
@@ -913,6 +1200,16 @@ void radec2azel(double *az, double *el, double ra, double dec, double lst, doubl
     // note: I added the '+ 180'
     *az = raz * RAD2DEG + 180.;
     *el = rel * RAD2DEG;
+
+    // sanity check result
+    if (*el < -90 || *el > 90 || *az < 0 || *az > 360) {
+        WARN("ra=%f dec=%f cvt to az=%f el=%f, result out of range\n",
+             ra, dec, *az, *el);
+        return -1;
+    }
+
+    // return success
+    return 0;
 }
 
 // -----------------  TEST ALGORITHMS  ------------------------------------
@@ -921,7 +1218,7 @@ void test_algorithms(void)
 {
     double jd, lst, ra, dec, az, el, lat, lng;
     double deviation;
-    int i;
+    int i, ret;
     unsigned long start_us, duration_us;
     time_t t;
 
@@ -958,7 +1255,10 @@ void test_algorithms(void)
     lng = -1.91667;
     jd = jdconv(1997, 3, 14, 19);
     lst = ct2lst(lng, jd);
-    radec2azel(&az, &el, ra, dec, lst, lat);
+    ret = radec2azel(&az, &el, ra, dec, lst, lat);
+    if (ret != 0) {
+        ERROR("radec2azel failed\n");
+    }
     DEBUG("az = %f   el = %f\n", az, el);
     if (!is_close(az, 311.92258, 0.000010, &deviation)) {
         INFO("az deviation = %f, exceeds limit\n", deviation);
@@ -978,7 +1278,10 @@ void test_algorithms(void)
         if (obj->type == OBJTYPE_SOLAR) {
             compute_ss_obj_ra_dec_mag(x, t);
         }
-        radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+        ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+        if (ret != 0) {
+            ERROR("radec2azel failed\n");
+        }
     }
     duration_us = microsec_timer() - start_us;
     INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);

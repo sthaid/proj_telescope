@@ -4,19 +4,18 @@
 // defines
 //
 
-#define DEFAULT_WIN_WIDTH  1900
-#define DEFAULT_WIN_HEIGHT 1000
+#define DEFAULT_WIN_WIDTH  1920
+#define DEFAULT_WIN_HEIGHT 980
 
-// XXX win_width=1920 win_height=981
 #define PH_SKY_X  0
 #define PH_SKY_Y  0
-#define PH_SKY_W  1500
+#define PH_SKY_W  1920
 #define PH_SKY_H  500 
 
-#define PH_SKY_CTL_X  1500
-#define PH_SKY_CTL_Y  0
+#define PH_SKY_CTL_X  0
+#define PH_SKY_CTL_Y  500
 #define PH_SKY_CTL_W  420  
-#define PH_SKY_CTL_H  500 
+#define PH_SKY_CTL_H  480 
 
 //
 // typedefs
