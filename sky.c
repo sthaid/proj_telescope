@@ -1,30 +1,19 @@
-// XXX use arrow keys for scolling too, and use other keys for zoom
-
-// XXX do a better job of displaying grid coord numbers
-//      - they could be smaller and better positioned
-
-// XXX TODO
-// - J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
-//   https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
-
-// XXX organize favorites
-
-// XXX what is Sol in hygdata, should eliminate
-
-// XXX why sometimes sdl key events not working?
-
-// XXX add code to sanity check that names dont begin or end with a space
-
-// XXX add code to support PLACE_MARK
-
-// XXX add code to support temporary PLACE_MARK,  when right clicked somewhere without something close by ??????
+// XXX reveiw and add comments throughout
 
 // XXX grid sep needs work when elspan is 90
 
-// XXX ctl pane layout
-// - ctl pane perhaps goes below sky
+// XXX do a better job of displaying grid coord numbers, at corners
 
-//XXX place marks should be displayed independent of mag
+// XXX J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
+//     https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
+
+// XXX add code to sanity check that names dont begin or end with a space,
+//     or remove leading and trailing spaces
+
+// LATER
+// XXX why sometimes sdl key events not working?
+// XXX organize favorites
+
 
 #include "common.h"
 
@@ -44,13 +33,16 @@
 #define MY_LONG  -71.623798   // for Bolton Mass USA
 
 #define NO_VALUE 9999
+#define NO_VALUE_STR "9999"
 
 #define OBJTYPE_NONE             0
 #define OBJTYPE_STELLAR          1
 #define OBJTYPE_SOLAR            2
 #define OBJTYPE_PLACE_MARK       3
 
-#define DEFAULT_MAG 7.
+#define MIN_MAG     -5    // brightest
+#define MAX_MAG      22   // dimmest
+#define DEFAULT_MAG  7    // faintest naked-eye stars from dark rural area
 
 //
 // typedefs
@@ -73,10 +65,6 @@ typedef struct {
     double ra;
     double dec;
     double mag;
-    double az;
-    double el;
-    int x;
-    int y;
     solar_sys_obj_info_t * ssinfo;
 } obj_t;
 
@@ -96,8 +84,13 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename);
 int read_place_marks(char * filename);
+
+char * proc_ctl_pane_cmd(char * cmd_line);
+
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
+void reset(bool all_sky);
 char * gmtime_str(time_t t, char *str);
+char * hr_str(double hr, char *str);
 
 double jdconv(int yr, int mn, int day, double hour);
 double jdconv2(time_t t);
@@ -160,7 +153,6 @@ int read_stellar_data(char * filename)
             *s = '\0'; \
             s++; \
         } while (0)
-// XXX ^^^ needs to remove leading and trailing spaces
 
     FILE *fp;
     int line=1, num_added=0;
@@ -217,8 +209,9 @@ int read_stellar_data(char * filename)
             continue;
         } 
 
+        // don't know why hygdata_v3.csv has Sol entry at ra=0 dec=0;
+        // so just ignore it
         if (strcmp(proper_str, "Sol") == 0) {
-            INFO("XXX skip Sol\n");
             continue;
         }
 
@@ -240,10 +233,6 @@ int read_stellar_data(char * filename)
         obj[max_obj].ra       = ra * 15.;
         obj[max_obj].dec      = dec;
         obj[max_obj].mag      = mag;
-        obj[max_obj].az       = NO_VALUE;
-        obj[max_obj].el       = NO_VALUE;
-        obj[max_obj].x        = NO_VALUE;
-        obj[max_obj].y        = NO_VALUE;
         obj[max_obj].ssinfo   = NULL;
 
         //INFO("%16s %10.4f %10.4f %10.4f\n", proper_str, ra, dec, mag);
@@ -315,10 +304,6 @@ int read_solar_sys_data(char * filename)
             x->ra       = NO_VALUE;
             x->dec      = NO_VALUE;
             x->mag      = NO_VALUE;
-            x->az       = NO_VALUE;
-            x->el       = NO_VALUE;
-            x->x        = NO_VALUE;
-            x->y        = NO_VALUE;
             x->ssinfo   = ssinfo;
 
             // update counters
@@ -339,7 +324,7 @@ int read_solar_sys_data(char * filename)
         // sometimes magnitude is not-avail, such as when Mercury is on the
         // other side of the sun; in this case set magnitude to 99
         if (strstr(mag_str, "n.a.")) {
-            mag_str = "99";
+            mag_str = NO_VALUE_STR;
         }
 
         // convert utc date_str to t
@@ -464,11 +449,7 @@ int read_place_marks(char *filename)
         obj[max_obj].type   = OBJTYPE_PLACE_MARK;;
         obj[max_obj].ra     = ra;
         obj[max_obj].dec    = dec;
-        obj[max_obj].mag    = 3;
-        obj[max_obj].az     = NO_VALUE;
-        obj[max_obj].el     = NO_VALUE;
-        obj[max_obj].x      = NO_VALUE;
-        obj[max_obj].y      = NO_VALUE;
+        obj[max_obj].mag    = NO_VALUE;
         obj[max_obj].ssinfo = NULL;
         max_obj++;
 
@@ -485,13 +466,6 @@ int read_place_marks(char *filename)
 }
 
 // -----------------  PANE HANDLERS  --------------------------------------
-// XXX  AAA
-// - mouse right click iluminate obj and display info in ctrl pane
-// - ctrl pane
-//    . info display
-//    . mag select
-//    . reset (instead of home)
-// - clean up
 
 double az_ctr   = 0;
 double az_span  = 360;
@@ -503,8 +477,14 @@ bool   tracking = false;
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
+    typedef struct {
+        double x;
+        double y;
+    } disp_obj_t;
+
     struct {
-        int not_used;
+        disp_obj_t disp_obj[MAX_OBJ];
+        bool tracking_last;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -537,18 +517,16 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_el = (pane->h) / (max_el - min_el);
         double k_az = (pane->w) / (min_az - max_az);
 
-        int xcoord, ycoord, i, ptsz, color, fontsz, ret;
+        int xcoord, ycoord, i, ptsz, color, fontsz, ret, ret_action;
         double az, el, lst;
         time_t t;
         double grid_sep, first_az_line, first_el_line;
 
         // reset all az, al, x, y to NO_VALUE
         for (i = 0; i < max_obj; i++) {
-            obj_t * x = &obj[i];
-            x->x  = NO_VALUE;
-            x->y  = NO_VALUE;
-            x->az = NO_VALUE;
-            x->el = NO_VALUE;
+            disp_obj_t * disp_x = &vars->disp_obj[i];
+            disp_x->x  = NO_VALUE;
+            disp_x->y  = NO_VALUE;
         }
 
         // get local sidereal time        
@@ -558,6 +536,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
+            disp_obj_t * disp_x = &vars->disp_obj[i];
 
             // if obj type is not valid then continue
             if (x->type == OBJTYPE_NONE) {
@@ -570,7 +549,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
 
             // magnitude too dim then skip
-            if (x->mag > mag) {
+            if (x->mag != NO_VALUE && x->mag > mag) {
                 continue;
             }
 
@@ -595,8 +574,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
 
             // determine display point size from object's apparent magnitude
-            // XXX try smaaller ptsz, such as '5'
-            ptsz = 5 - x->mag;
+            ptsz = (x->mag != NO_VALUE ? 5 - x->mag : 3);
             if (ptsz < 0) ptsz = 0;
             if (ptsz > 9) ptsz = 9;
 
@@ -608,12 +586,12 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 continue;
             }
 
-            // save the computed object's az/el position, and 
+            // save the computed object's pane coords so that they can be used
+            // when processing the right-click event, to find the object that is
+            // nearest the mouse's right-click x,y
             // pane coordinates
-            x->x = xcoord;
-            x->y = ycoord;
-            x->az = az;  // XXX save orig, not after modified
-            x->el = el;
+            disp_x->x = xcoord;
+            disp_x->y = ycoord;
 
             // render the stellar object point
             color = (i == selected                 ? ORANGE :
@@ -647,13 +625,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             len = sprintf(adj_az_str, "%g", adj_az);
             xcoord = 0 + k_az * (min_az - az);
             sdl_render_line(pane, xcoord, 0, xcoord, pane->h-1, BLUE);
-            sdl_render_printf(pane, xcoord-COL2X(len,fontsz)/2, pane->h-ROW2Y(1,fontsz), fontsz, BLUE, BLACK, "%g", adj_az);
+            sdl_render_printf(pane, xcoord-COL2X(len,fontsz)/2, pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%g", adj_az);
         }
         first_el_line = floor(min_el/grid_sep) * grid_sep;
         for (el = first_el_line; el < max_el; el += grid_sep) {
             ycoord = 0 + k_el * (max_el - el);
             sdl_render_line(pane, 0, ycoord, pane->w-1, ycoord, BLUE);
-            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g ", el);
+            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, WHITE, BLACK, "%g", el);
         }
 
         // if zoomed in then display names of the objects that have names
@@ -661,27 +639,31 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             fontsz = 18;
             for (i = 0; i < max_obj; i++) {
                 obj_t * x = &obj[i];
-                if (x->name[0] == '\0' || x->x == NO_VALUE || x->y == NO_VALUE) {
+                disp_obj_t * disp_x = &vars->disp_obj[i];
+                if (x->name[0] == '\0' || disp_x->x == NO_VALUE) {
                     continue;
                 }
                 sdl_render_printf(pane, 
-                                  x->x+6, x->y-ROW2Y(1,fontsz)/2,
+                                  disp_x->x+6, disp_x->y-ROW2Y(1,fontsz)/2,
                                   fontsz, WHITE, BLACK, "%s", x->name);
             }
         }
 
-        // XXX
-        if (selected != -1 && obj[selected].x == NO_VALUE) {
+        // XXX needs comment
+        if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
             selected = -1;
         }
         if (tracking && selected == -1) {
             tracking = false;
         }
-        if (tracking) {  // XXX 1 sec delay
-            az_ctr = obj[selected].az;
+        if (tracking) {
+            radec2azel(&az_ctr, &el_ctr, obj[selected].ra, obj[selected].dec, lst, MY_LAT);
             if (az_ctr > 180) az_ctr -= 360;
-            el_ctr = obj[selected].el;
         }
+        ret_action = (tracking && !vars->tracking_last 
+                      ? PANE_HANDLER_RET_DISPLAY_REDRAW
+                      : PANE_HANDLER_RET_NO_ACTION);
+        vars->tracking_last = tracking;
 
         // register control events 
         rect_t loc = {0,0,pane->w,pane->h};
@@ -689,48 +671,51 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_RIGHT_CLICK, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
 
-        return PANE_HANDLER_RET_NO_ACTION;
+        return ret_action;;
     }
 
     // -----------------------
     // -------- EVENT --------
     // -----------------------
-/** XXX REVIEW
-DISPLAY PANE KEYS
-- will disable tracking
-  - pgup pgdn
-  - arrow keys
-  - mouse motion
-- wont disable tracking
-  - mag   m M
-  - zoom  z Z
-  - mouse wheel  ZOOM
-- tbd-xxxx for track on or off
-- esc clears selection
-- right click enable select and track
-TODO
-arrow keys
-esc  clear select
-comments
-review
-**/
+    // XXX better chars for trk on off than y n
+    // XXX comments
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
-        case SDL_EVENT_MOUSE_MOTION: {
-            // XXX add arrow keys
-            int dx = event->mouse_motion.delta_x;
-            int dy = event->mouse_motion.delta_y;
+        case SDL_EVENT_MOUSE_MOTION: 
+        case SDL_EVENT_KEY_UP_ARROW: 
+        case SDL_EVENT_KEY_DOWN_ARROW: 
+        case SDL_EVENT_KEY_LEFT_ARROW: 
+        case SDL_EVENT_KEY_RIGHT_ARROW: {
+            int dx=0, dy=0;
+
+            if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
+                dx = event->mouse_motion.delta_x;
+                dy = event->mouse_motion.delta_y;
+            } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
+                dx = 5;
+            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
+                dx = -5;
+            } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
+                dy = 5;
+            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
+                dy = -5;
+            }
+
             if (dx == 0 && dy == 0) {
                 break;
             }
+
             az_ctr -= dx * (az_span / 1800.);
             if (az_ctr > 180) az_ctr = 180;
             if (az_ctr < -180) az_ctr = -180;
+
             el_ctr += dy * (el_span / 450.);
             if (el_ctr > 90) el_ctr = 90;
             if (el_ctr < -90) el_ctr = -90;
+
             DEBUG("MOUSE MOTION dx=%d dy=%d  az_ctr=%f el_ctr=%f\n", dx, dy, az_ctr, el_ctr);
+
             tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case SDL_EVENT_MOUSE_WHEEL: case 'z': case 'Z': {
@@ -758,6 +743,15 @@ review
             }
             DEBUG("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        case 'm': case 'M':
+            mag += (event->event_id == 'M' ? .1 : -.1);
+            if (mag < MIN_MAG) mag = MIN_MAG;
+            if (mag > MAX_MAG) mag = MAX_MAG;
+            if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
+                selected = -1;
+                tracking = false;
+            }
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_MOUSE_RIGHT_CLICK: {
             int mouse_x, mouse_y;
             int dist, best_dist, best_i, i, delta_x, delta_y;
@@ -781,12 +775,12 @@ review
             best_i = -1;
             
             for (i = 0; i < max_obj; i++) {
-                obj_t * x = &obj[i];
-                if (x->x == NO_VALUE || x->y == NO_VALUE) {
+                disp_obj_t * disp_x = &vars->disp_obj[i];
+                if (disp_x->x == NO_VALUE) {
                     continue;
                 }
-                delta_x = abs(x->x - mouse_x);
-                delta_y = abs(x->y - mouse_y);
+                delta_x = abs(disp_x->x - mouse_x);
+                delta_y = abs(disp_x->y - mouse_y);
                 if (delta_x >= 50 || delta_y >= 50) {
                     continue;
                 }
@@ -803,31 +797,6 @@ review
             selected = -1;
             tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case SDL_EVENT_KEY_PGUP:
-            az_ctr   = 0;
-            az_span  = 360;
-            el_ctr   = 45;
-            el_span  = 90; 
-            mag      = DEFAULT_MAG;
-            selected = false;
-            tracking = false;
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_PGDN:
-            az_ctr   = 0;
-            az_span  = 360;
-            el_ctr   = 0;
-            el_span  = 180;
-            mag      = DEFAULT_MAG;
-            selected = false;
-            tracking = false;
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case 'm': case 'M':
-            mag += (event->event_id == 'M' ? .1 : -.1);
-            if (selected != -1 && obj[selected].mag > mag) {
-                selected = -1;
-                tracking = false;
-            }
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case 'y':
             if (selected != -1) {
                 tracking = true;
@@ -836,19 +805,24 @@ review
         case 'n':
             tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
-
-
-        // XXX select idx can also be cleared with esc key too
-#if 0
-        case SDL_EVENT_KEY_HOME: {
-            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case SDL_EVENT_KEY_END:
+        case SDL_EVENT_KEY_PGUP:
+            az_ctr   = 0;
+            az_span  = 360;
+            el_ctr   = 45;
+            el_span  = 90; 
+            mag      = DEFAULT_MAG;
+            selected = -1;    
+            tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_UP_ARROW:
+        case SDL_EVENT_KEY_PGDN:
+            az_ctr   = 0;
+            az_span  = 360;
+            el_ctr   = 0;
+            el_span  = 180;
+            mag      = DEFAULT_MAG;
+            selected = -1;    
+            tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_DOWN_ARROW:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-#endif
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -871,11 +845,13 @@ review
 int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
     struct {
-        int not_used;
+        char   cmd_line[1000];
+        char   cmd_line_last[1000];
+        int    cmd_line_len;
+        char * cmd_status;
+        long   cmd_status_time_us;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
-
-    #define SDL_EVENT_TRACKING_CTL  (SDL_EVENT_USER_DEFINED + 0)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -894,19 +870,17 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         rect_t * pane = &pane_cx->pane;
-        int fontsz=24;
+        int fontsz=24, ret;
         char name[200];
+        double az, el, lst, az_ctr1;
+        time_t t;
 
-        sdl_render_text_and_register_event(
-            pane, 0, ROW2Y(0,fontsz), fontsz,
-            tracking ? "TRACKING" : "NOT_TRACKING",
-            LIGHT_BLUE, BLACK, 
-            SDL_EVENT_TRACKING_CTL, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        sdl_render_printf(pane, 0, ROW2Y(0,fontsz), fontsz, WHITE, BLACK, 
+                          tracking ? "TRACKING" : "NOT_TRACKING");
 
-// XXX az display should be consistent with min/maz az
-// XXX also need to work on the input line
+        az_ctr1 = (az_ctr >= 0 ? az_ctr : az_ctr + 360);
         sdl_render_printf(pane, 0, ROW2Y(1,fontsz), fontsz, WHITE, BLACK,
-                          "AZ/EL  %8.4f %8.4f", az_ctr, el_ctr);
+                          "AZ/EL  %8.4f %8.4f", az_ctr1, el_ctr);
         
         if (selected != -1) {
             obj_t *x = &obj[selected];
@@ -919,16 +893,31 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
                               "%s", name);
             sdl_render_printf(pane, 0, ROW2Y(4,fontsz), fontsz, WHITE, BLACK,
                               "RA/DEC %8.4f %8.4f", x->ra, x->dec);
-            sdl_render_printf(pane, 0, ROW2Y(5,fontsz), fontsz, WHITE, BLACK,
-                              "AZ/EL  %8.4f %8.4f", x->az, x->el);
-            if (x->type != OBJTYPE_PLACE_MARK) {
+            t = time(NULL);
+            lst = ct2lst(MY_LONG, jdconv2(t));
+            ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+            if (ret == 0) {
+                sdl_render_printf(pane, 0, ROW2Y(5,fontsz), fontsz, WHITE, BLACK,
+                                  "AZ/EL  %8.4f %8.4f", az, el);
+            }
+            if (x->mag != NO_VALUE) {
                 sdl_render_printf(pane, 0, ROW2Y(6,fontsz), fontsz, WHITE, BLACK,
-                                "MAG   %0.1f", x->mag);
+                                  "MAG   %0.1f", x->mag);
             }
         }
 
         sdl_render_printf(pane, 0, ROW2Y(8,fontsz), fontsz, WHITE, BLACK,
                           "DISPLAY_MAG   %0.1f", mag);
+
+        if (microsec_timer() - vars->cmd_status_time_us < 2500000) {
+            sdl_render_printf(pane, 0, ROW2Y(10,fontsz), fontsz, WHITE, BLACK,
+                              "> %s", vars->cmd_line_last);
+            sdl_render_printf(pane, 0, ROW2Y(11,fontsz), fontsz, WHITE, BLACK,
+                              "  %s", vars->cmd_status);
+        } else {
+            sdl_render_printf(pane, 0, ROW2Y(10,fontsz), fontsz, WHITE, BLACK,
+                              "> %s%c", vars->cmd_line, '_');  // XXX cursor could maybe blink
+        }
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -939,10 +928,29 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
-        case SDL_EVENT_TRACKING_CTL:
-            tracking = !tracking && selected != -1;
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case 1 ... 127: {
+            char ch = event->event_id;
+            if (ch >= 32 && ch <= 126) {
+                vars->cmd_line[vars->cmd_line_len++] = ch;            
+                vars->cmd_line[vars->cmd_line_len] = '\0';          
+            }
+            if (ch == '\b') { // backspace
+                if (vars->cmd_line_len > 0) {
+                    vars->cmd_line_len--;
+                    vars->cmd_line[vars->cmd_line_len] = '\0';          
+                }
+            }
+            if (ch == '\r') { // carriage return
+                vars->cmd_status = proc_ctl_pane_cmd(vars->cmd_line);
+                vars->cmd_status_time_us = microsec_timer();
+                strcpy(vars->cmd_line_last, vars->cmd_line);
+                vars->cmd_line_len = 0;
+                vars->cmd_line[0]  = '\0';          
+            }
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         }
+
+        
 #if 0
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION:
@@ -980,37 +988,77 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
 }
-/**
-TRACKING 'OR' NOT_TRACKING     <== can click this, but needs a selection to enable tracking
-o AZEL 359.12345 -19.12345
 
-POLARIS                            DONE
-o RADEC 244.1234 42.0000            x
-o AZEL  xxx       xxxx              x
-o MAG   7.1                         x
+char * proc_ctl_pane_cmd(char * cmd_line)
+{
+    int i;
+    char *cmd, *arg1;
+    char cmd_line_copy[1000];
 
-DISPLAY_MAG  6.0                    x
+    // tokenize cmd_line into cmd, arg1
+    strcpy(cmd_line_copy, cmd_line);
+    cmd = strtok(cmd_line_copy, " ");
+    arg1 = strtok(NULL, " ");
 
-> <inputs>
-sel polaris
-sel radec ...   put a place mark at radec
-                when a selection is made the display centers and zooms, and track is enabled
-sel clear       disables tracking 
+    // ignore blank cmd_line
+    if (cmd == NULL) {
+        return "";
+    }
 
-track on       
-track off
+    if (strcasecmp(cmd, "sel") == 0) {
+        // process: sel [<object_name>]
+        selected = -1;
+        if (arg1 == NULL) {
+            return "okay";
+        }
+        for (i = 0; i < max_obj; i++) {
+            obj_t *x = &obj[i];
+            if (strcasecmp(arg1, x->name) == 0) {
+                if (obj[i].mag != NO_VALUE && obj[i].mag > mag) {
+                    return "error: obj too dim";
+                }
+                selected = i;
+                tracking = false;
+                return "okay";
+            }
+        }
+        return "error: not found";
+    } else if (strcasecmp(cmd, "trk") == 0) {
+        // process: trk <on|off>
+        if ((arg1 != NULL) && (strcasecmp(arg1, "on") && strcasecmp(arg1, "off"))) {
+            return "error: expected 'on', 'off'";
+        }
+        if (arg1 == NULL || strcasecmp(arg1, "on") == 0) {
+            if (selected == -1) {
+                return "error: no selection";
+            }
+            tracking = true;
+        } else {
+            tracking = false;
+        }
+        return "okay";
+    } else if (strcasecmp(cmd, "reset") == 0) {
+        // process: reset [<all_sky>]
+        if (arg1 != NULL && strcasecmp(arg1, "all_sky")) {
+            return "error: expected '', 'all_sky'";
+        }
+        reset(arg1 ? true : false);
+        return "okay";
+    } else if (strcasecmp(cmd, "zoom") == 0) {
+        // process 'zoom' cmd
+        // XXX tbd
+        return "not implemented";
+    } else if (strcasecmp(cmd, "mag") == 0) {
+        // process 'mag' cmd
+        // XXX tbd
+        return "not implemented";
+    } else if (strcasecmp(cmd, "quit") == 0) {
+        exit(0);
+        // not reached
+    }
 
-azel xxxx xxxx    disables tracking
-
-mag xxx
-zoom xxx
-fmt dec
-fmt dms
-help
-
-FOLLOWED BY STATUS LINE:  OK, ERROR ...
-**/
-
+    return "error: invalid command";
+}
 
 // -----------------  GENERAL UTIL  ---------------------------------------
 
@@ -1068,6 +1116,23 @@ interpolate:
 
     // return success
     return 0;
+}
+
+// XXX call this from other places
+void reset(bool all_sky) 
+{
+    az_ctr   = 0;
+    az_span  = 360;
+    if (all_sky) {
+        el_ctr   = 0;
+        el_span  = 180;
+    } else {
+        el_ctr   = 45;
+        el_span  = 90; 
+    }
+    mag      = DEFAULT_MAG;
+    selected = -1;    
+    tracking = false;
 }
 
 char *gmtime_str(time_t t, char *str)

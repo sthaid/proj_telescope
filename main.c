@@ -40,6 +40,7 @@ int main(int argc, char ** argv)
 {
     int ret;
 
+// XXX get options, for lat/long
     ret = sky_init();
     if (ret < 0) {
         return ret;
