@@ -1,14 +1,12 @@
 // XXX reveiw and add comments throughout
 
-// XXX grid sep needs work when elspan is 90
-
-// XXX do a better job of displaying grid coord numbers, at corners
-
 // XXX J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
 //     https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
 
 // XXX add code to sanity check that names dont begin or end with a space,
 //     or remove leading and trailing spaces
+
+// XXX get lat/long from env, or cmdline option 
 
 // LATER
 // XXX why sometimes sdl key events not working?
@@ -607,31 +605,38 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         }
 
         // draw grid
-        // XXX have problems at the left corners
         grid_sep = az_span > 240 ? 45 :
                    az_span > 120 ? 20 :
                    az_span > 60  ? 10 :
-                   az_span > 20  ? 5 :
-                   az_span > 8   ? 2 :
-                   az_span > 4   ? 1 :
-                   az_span > 2   ? 0.5 :
-                                   0.25;
+                   az_span > 25  ? 5 :
+                   az_span > 10  ? 2 :
+                   az_span > 6   ? 1 :
+                                   0.5;
         fontsz = 24;
         first_az_line = floor(min_az/grid_sep) * grid_sep;
-        for (az = first_az_line; az < max_az; az += grid_sep) {
+        for (az = first_az_line; az <= max_az; az += grid_sep) {
             double adj_az = (az >= 0 ? az : az + 360);
             char adj_az_str[20];
             int len;
             len = sprintf(adj_az_str, "%g", adj_az);
             xcoord = 0 + k_az * (min_az - az);
             sdl_render_line(pane, xcoord, 0, xcoord, pane->h-1, BLUE);
+            if (xcoord-COL2X(len,fontsz)/2 < 2*COL2X(1,fontsz)) {
+                continue;
+            }
             sdl_render_printf(pane, xcoord-COL2X(len,fontsz)/2, pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%g", adj_az);
         }
         first_el_line = floor(min_el/grid_sep) * grid_sep;
-        for (el = first_el_line; el < max_el; el += grid_sep) {
+        for (el = first_el_line; el <= max_el; el += grid_sep) {
             ycoord = 0 + k_el * (max_el - el);
             sdl_render_line(pane, 0, ycoord, pane->w-1, ycoord, BLUE);
-            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, WHITE, BLACK, "%g", el);
+            if (ycoord - ROW2Y(1,fontsz)/2 > pane->h - ROW2Y(1,fontsz) && ycoord - ROW2Y(1,fontsz)/2 < pane->h) {
+                ycoord = pane->h - ROW2Y(1,fontsz)/2;
+            }
+            if (ycoord-ROW2Y(1,fontsz)/2 > -ROW2Y(1,fontsz) && ycoord-ROW2Y(1,fontsz)/2 < 0) {
+                ycoord = 0 + ROW2Y(1,fontsz)/2;
+            }
+            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g", el);
         }
 
         // if zoomed in then display names of the objects that have names
@@ -677,8 +682,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // -----------------------
     // -------- EVENT --------
     // -----------------------
-    // XXX better chars for trk on off than y n
-    // XXX comments
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
@@ -693,13 +696,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 dx = event->mouse_motion.delta_x;
                 dy = event->mouse_motion.delta_y;
             } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
-                dx = 5;
-            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
                 dx = -5;
+            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
+                dx = 5;
             } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
-                dy = 5;
-            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
                 dy = -5;
+            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
+                dy = 5;
             }
 
             if (dx == 0 && dy == 0) {
@@ -729,19 +732,16 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 dy = 1;
             }
 
-            // don't let az_span get abov  360
-            if (dy < 0 && az_span * 1.1 > 360) {
-                break;
-            }
-            if (dy < 0) {
+            // XXX comment
+            if (dy < 0 && az_span < 359.99) {
                 az_span *= 1.1;
                 el_span *= 1.1;
             }
-            if (dy > 0 && az_span > 1) {
+            if (dy > 0 && az_span > 3) {
                 az_span /= 1.1;
                 el_span /= 1.1;
             }
-            DEBUG("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
+            INFO("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case 'm': case 'M':
             mag += (event->event_id == 'M' ? .1 : -.1);
@@ -797,31 +797,14 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             selected = -1;
             tracking = false;
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case 'y':
-            if (selected != -1) {
-                tracking = true;
-            }
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case 'n':
-            tracking = false;
+        case 't': case 'T':
+            tracking = (event->event_id == 'T' && selected != -1);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGUP:
-            az_ctr   = 0;
-            az_span  = 360;
-            el_ctr   = 45;
-            el_span  = 90; 
-            mag      = DEFAULT_MAG;
-            selected = -1;    
-            tracking = false;
+            reset(false);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGDN:
-            az_ctr   = 0;
-            az_span  = 360;
-            el_ctr   = 0;
-            el_span  = 180;
-            mag      = DEFAULT_MAG;
-            selected = -1;    
-            tracking = false;
+            reset(true);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         }
 
@@ -916,7 +899,7 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
                               "  %s", vars->cmd_status);
         } else {
             sdl_render_printf(pane, 0, ROW2Y(10,fontsz), fontsz, WHITE, BLACK,
-                              "> %s%c", vars->cmd_line, '_');  // XXX cursor could maybe blink
+                              "> %s%c", vars->cmd_line, '_');
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -949,29 +932,6 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
             }
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         }
-
-        
-#if 0
-        switch (event->event_id) {
-        case SDL_EVENT_MOUSE_MOTION:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_MOUSE_WHEEL:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_HOME:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_END:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_PGUP:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_PGDN:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_UP_ARROW:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_DOWN_ARROW:
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        }
-#endif
-
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -1050,8 +1010,16 @@ char * proc_ctl_pane_cmd(char * cmd_line)
         return "not implemented";
     } else if (strcasecmp(cmd, "mag") == 0) {
         // process 'mag' cmd
-        // XXX tbd
-        return "not implemented";
+        if (arg1 == NULL) {
+            mag = DEFAULT_MAG;
+        } else {
+            int new_mag;
+            if (sscanf(arg1, "%d", &new_mag) != 1 || new_mag < MIN_MAG || new_mag > MAX_MAG) {
+                return "error: invalid mag";
+            }
+            mag = new_mag;
+        }
+        return "okay";
     } else if (strcasecmp(cmd, "quit") == 0) {
         exit(0);
         // not reached
@@ -1118,7 +1086,6 @@ interpolate:
     return 0;
 }
 
-// XXX call this from other places
 void reset(bool all_sky) 
 {
     az_ctr   = 0;
