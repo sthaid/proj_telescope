@@ -657,17 +657,17 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         }
 
         // if zoomed in then display names of the objects that have names
-        if (az_span < 100) {
-            fontsz = 18;
-            for (i = 0; i < max_obj; i++) {
-                obj_t * x = &obj[i];
-                disp_obj_t * disp_x = &vars->disp_obj[i];
-                if (x->name[0] == '\0' || disp_x->x == NO_VALUE) {
-                    continue;
-                }
+        fontsz = 18;
+        for (i = 0; i < max_obj; i++) {
+            obj_t * x = &obj[i];
+            disp_obj_t * disp_x = &vars->disp_obj[i];
+            if (x->name[0] != '\0' && 
+                disp_x->x != NO_VALUE &&
+                (x->type == OBJTYPE_SOLAR || az_span < 100))
+            {
                 sdl_render_printf(pane, 
-                                  disp_x->x+6, disp_x->y-ROW2Y(1,fontsz)/2,
-                                  fontsz, WHITE, BLACK, "%s", x->name);
+                                disp_x->x+6, disp_x->y-ROW2Y(1,fontsz)/2,
+                                fontsz, WHITE, BLACK, "%s", x->name);
             }
         }
 
@@ -1112,7 +1112,6 @@ void reset(bool all_sky)
         el_span  = 90; 
     }
     mag      = DEFAULT_MAG;
-    selected = -1;    
     tracking = false;
 }
 
