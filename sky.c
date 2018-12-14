@@ -1022,9 +1022,23 @@ char * proc_ctl_pane_cmd(char * cmd_line)
         reset(arg1 ? true : false);
         return "okay";
     } else if (strcasecmp(cmd, "zoom") == 0) {
-        // process 'zoom' cmd
-        // XXX tbd, try 'zoom 1' through 50 starting at 360/90 factors of 1.1
-        return "not implemented";
+        int n;
+        // process: zoom <1..52>
+        if (arg1 == NULL || sscanf(arg1, "%d", &n) != 1 || n < 1 || n > 52) {
+            return "error: expected 1..52";
+        }
+        if (az_span/el_span > 3.9999) {
+            az_span  = 360;
+            el_span  = 90;
+        } else {
+            az_span  = 360;
+            el_span  = 180;
+        }
+        for (i = 1; i < n; i++) {
+            az_span /= 1.1;
+            el_span /= 1.1;
+        }
+        return "okay";
     } else if (strcasecmp(cmd, "mag") == 0) {
         // process 'mag' cmd
         if (arg1 == NULL) {
