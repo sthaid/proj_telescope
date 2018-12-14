@@ -1,17 +1,12 @@
 // XXX reveiw and add comments throughout
 
-// XXX J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
-//     https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
-
 // XXX add code to sanity check that names dont begin or end with a space,
 //     or remove leading and trailing spaces
 
-// XXX get lat/long from env, or cmdline option 
+// XXX J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
+//     https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
 
-// LATER
-// XXX why sometimes sdl key events not working?
 // XXX organize favorites
-
 
 #include "common.h"
 
@@ -26,9 +21,6 @@
 #define RAD2DEG (180. / M_PI)
 #define DEG2RAD (M_PI / 180.)
 #define HR2RAD  (M_PI / 12.)
-
-#define MY_LAT    42.422986   // from https://www.latlong.net/
-#define MY_LONG  -71.623798   // for Bolton Mass USA
 
 #define NO_VALUE 9999
 #define NO_VALUE_STR "9999"
@@ -105,11 +97,11 @@ int sky_init(void)
     int ret;
     char str[100];
 
-    INFO("sizeof(obj)  = %ld MB\n", sizeof(obj)/MB);
-    INFO("sizeof(M_PI) = %ld\n", sizeof(M_PI));
-    INFO("sizeof(1.0)  = %ld\n", sizeof(1.0));
-    INFO("sizeof(1.0l) = %ld\n", sizeof(1.0l));
-    INFO("UTC now      = %s UTC\n", gmtime_str(time(NULL),str));
+    //INFO("sizeof(obj)  = %ld MB\n", sizeof(obj)/MB);
+    //INFO("sizeof(M_PI) = %ld\n", sizeof(M_PI));
+    //INFO("sizeof(1.0)  = %ld\n", sizeof(1.0));
+    //INFO("sizeof(1.0l) = %ld\n", sizeof(1.0l));
+    INFO("UTC now = %s UTC\n", gmtime_str(time(NULL),str));
 
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
@@ -392,7 +384,7 @@ int read_solar_sys_data(char * filename)
     // print the list of solar_sys objects that have been input
     //      xxxxxxxxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx
     t = time(NULL);
-    lst = ct2lst(MY_LONG, jdconv2(t));
+    lst = ct2lst(longitude, jdconv2(t));
     INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
     for (i = 0; i < max_obj; i++) {
         obj_t *x = &obj[i];
@@ -403,7 +395,7 @@ int read_solar_sys_data(char * filename)
         }
 
         compute_ss_obj_ra_dec_mag(x, t);
-        ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+        ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
         if (ret != 0) {
             ERROR("radec2azel failed\n");
             return -1;
@@ -529,7 +521,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
         // get local sidereal time        
         t = time(NULL);
-        lst = ct2lst(MY_LONG, jdconv2(t));
+        lst = ct2lst(longitude, jdconv2(t));
 
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
@@ -554,7 +546,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             // get az/el from ra/dec,
             // sanity check az and el, and
             // convert az to range -180 to + 180
-            ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+            ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
             if (ret != 0) {
                 continue;
             }
@@ -662,7 +654,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             tracking = false;
         }
         if (tracking) {
-            radec2azel(&az_ctr, &el_ctr, obj[selected].ra, obj[selected].dec, lst, MY_LAT);
+            radec2azel(&az_ctr, &el_ctr, obj[selected].ra, obj[selected].dec, lst, latitude);
             if (az_ctr > 180) az_ctr -= 360;
         }
         ret_action = (tracking && !vars->tracking_last 
@@ -877,8 +869,8 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
             sdl_render_printf(pane, 0, ROW2Y(4,fontsz), fontsz, WHITE, BLACK,
                               "RA/DEC %8.4f %8.4f", x->ra, x->dec);
             t = time(NULL);
-            lst = ct2lst(MY_LONG, jdconv2(t));
-            ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+            lst = ct2lst(longitude, jdconv2(t));
+            ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
             if (ret == 0) {
                 sdl_render_printf(pane, 0, ROW2Y(5,fontsz), fontsz, WHITE, BLACK,
                                   "AZ/EL  %8.4f %8.4f", az, el);
@@ -1006,7 +998,7 @@ char * proc_ctl_pane_cmd(char * cmd_line)
         return "okay";
     } else if (strcasecmp(cmd, "zoom") == 0) {
         // process 'zoom' cmd
-        // XXX tbd
+        // XXX tbd, try 'zoom 1' through 50 starting at 360/90 factors of 1.1
         return "not implemented";
     } else if (strcasecmp(cmd, "mag") == 0) {
         // process 'mag' cmd
@@ -1304,13 +1296,13 @@ void test_algorithms(void)
     // time how long to convert all stellar objects to az/el
     start_us = microsec_timer();
     t = time(NULL);
-    lst = ct2lst(MY_LONG, jdconv2(t));
+    lst = ct2lst(longitude, jdconv2(t));
     for (i = 0; i < max_obj; i++) {
         obj_t * x = &obj[i];
         if (obj->type == OBJTYPE_SOLAR) {
             compute_ss_obj_ra_dec_mag(x, t);
         }
-        ret = radec2azel(&az, &el, x->ra, x->dec, lst, MY_LAT);
+        ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
         if (ret != 0) {
             ERROR("radec2azel failed\n");
         }

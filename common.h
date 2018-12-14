@@ -37,6 +37,9 @@
 // variables
 //
 
+double latitude;
+double longitude;
+
 //
 // prototypes
 //
