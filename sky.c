@@ -1,9 +1,5 @@
 // XXX reveiw and add comments throughout
-
 // XXX organize favorites
-
-// XXX J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
-//     https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
 
 #include "common.h"
 
@@ -1266,7 +1262,7 @@ int radec2azel(double *az, double *el, double ra, double dec, double lst, double
 
 void test_algorithms(void) 
 {
-    double jd, lst, ra, dec, az, el, lat, lng;
+    double jd, lst, ra, dec, az, el, lat, lng, az_exp, el_exp;
     double deviation;
     int i, ret;
     unsigned long start_us, duration_us;
@@ -1305,16 +1301,18 @@ void test_algorithms(void)
     lng = -1.91667;
     jd = jdconv(1997, 3, 14, 19);
     lst = ct2lst(lng, jd);
+    az_exp = 311.92258;
+    el_exp = 22.40100;
     ret = radec2azel(&az, &el, ra, dec, lst, lat);
     if (ret != 0) {
         FATAL("radec2azel failed\n");
     }
-    DEBUG("az = %f   el = %f\n", az, el);
-    if (!is_close(az, 311.92258, 0.000010, &deviation)) {
+    DEBUG("calc: az=%f el=%f  expected: az=%f el=%f\n", az, el, az_exp, el_exp);
+    if (!is_close(az, az_exp, 0.000010, &deviation)) {
         INFO("az deviation = %f, exceeds limit\n", deviation);
     }
     INFO("az deviation = %f\n", deviation);
-    if (!is_close(el, 22.40100, 0.000010, &deviation)) {
+    if (!is_close(el, el_exp, 0.000010, &deviation)) {
         INFO("el deviation = %f, exceeds limit\n", deviation);
     }
     INFO("el deviation = %f\n", deviation);
