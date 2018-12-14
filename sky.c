@@ -1,12 +1,9 @@
 // XXX reveiw and add comments throughout
 
-// XXX add code to sanity check that names dont begin or end with a space,
-//     or remove leading and trailing spaces
+// XXX organize favorites
 
 // XXX J2000 corresponds to  January 1, 2000, 11:58:55.816 UTC according to
 //     https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
-
-// XXX organize favorites
 
 #include "common.h"
 
@@ -74,6 +71,7 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename);
 int read_place_marks(char * filename);
+int obj_sanity_checks(void);
 
 char * proc_ctl_pane_cmd(char * cmd_line);
 
@@ -114,6 +112,11 @@ int sky_init(void)
     }
 
     ret = read_place_marks("sky_data/place_marks.dat");
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = obj_sanity_checks();
     if (ret < 0) {
         return ret;
     }
@@ -455,6 +458,28 @@ int read_place_marks(char *filename)
     return 0;
 }
 
+int obj_sanity_checks(void)
+{
+    int i;
+
+    // verify obj names don't begin or end with a space char
+    for (i = 0; i < max_obj; i++) {
+        obj_t * x = &obj[i];
+        char * name = x->name;
+        if (name[0] == '\0') {
+            continue;
+        }
+        if (name[0] == ' ' || name[strlen(name)-1] == ' ') {
+            ERROR("obj %d invalid name '%s'\n", i, name);
+            return -1;
+        }
+    }
+
+    // sanity checks all passed
+    INFO("obj sanity checks all passed\n");
+    return 0;
+}
+
 // -----------------  PANE HANDLERS  --------------------------------------
 
 double az_ctr   = 0;
@@ -613,7 +638,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             len = sprintf(adj_az_str, "%g", adj_az);
             xcoord = 0 + k_az * (min_az - az);
             sdl_render_line(pane, xcoord, 0, xcoord, pane->h-1, BLUE);
-            if (xcoord-COL2X(len,fontsz)/2 < 2*COL2X(1,fontsz)) {
+            if (xcoord < COL2X(len+2,fontsz)) {
                 continue;
             }
             sdl_render_printf(pane, xcoord-COL2X(len,fontsz)/2, pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%g", adj_az);
@@ -622,11 +647,15 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         for (el = first_el_line; el <= max_el; el += grid_sep) {
             ycoord = 0 + k_el * (max_el - el);
             sdl_render_line(pane, 0, ycoord, pane->w-1, ycoord, BLUE);
-            if (ycoord - ROW2Y(1,fontsz)/2 > pane->h - ROW2Y(1,fontsz) && ycoord - ROW2Y(1,fontsz)/2 < pane->h) {
+            if (ycoord > pane->h - ROW2Y(1,fontsz)/2 && 
+                ycoord < pane->h + ROW2Y(1,fontsz)/4) 
+            {
                 ycoord = pane->h - ROW2Y(1,fontsz)/2;
             }
-            if (ycoord-ROW2Y(1,fontsz)/2 > -ROW2Y(1,fontsz) && ycoord-ROW2Y(1,fontsz)/2 < 0) {
-                ycoord = 0 + ROW2Y(1,fontsz)/2;
+            if (ycoord > -ROW2Y(1,fontsz)/4 && 
+                ycoord < ROW2Y(1,fontsz)/2) 
+            {
+                ycoord = ROW2Y(1,fontsz)/2;
             }
             sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g", el);
         }
@@ -733,7 +762,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 az_span /= 1.1;
                 el_span /= 1.1;
             }
-            INFO("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
+            DEBUG("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case 'm': case 'M':
             mag += (event->event_id == 'M' ? .1 : -.1);
@@ -1035,7 +1064,7 @@ int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
         ((double)(v0) + (((double)(v1) - (double)(v0)) / ((double)(t1) - (double)(t0))) * ((double)(t) - (double)(t0)))
 
     if (x->type != OBJTYPE_SOLAR) {
-        ERROR("called for invalid obj type %d\n",x->type);
+        FATAL("called for invalid obj type %d\n",x->type);
     }
 
     if (t >= info[idx].t && t <= info[idx+1].t) {
@@ -1045,23 +1074,20 @@ int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
     while (t < info[idx].t) {
         idx--;
         if (idx < 0) {
-            ERROR("time %s too early for solar_sys_object %s\n", gmtime_str(t,str), x->name);
-            return -1;
+            FATAL("time %s too early for solar_sys_object %s\n", gmtime_str(t,str), x->name);
         }
     }
 
     while (t > info[idx+1].t) {
         idx++;
         if (idx > max_info-2) {
-            ERROR("time %s too large for solar_sys_object %s\n", gmtime_str(t,str), x->name);
-            return -1;
+            FATAL("time %s too large for solar_sys_object %s\n", gmtime_str(t,str), x->name);
         }
     }
 
     if (t < info[idx].t || t > info[idx+1].t) {
-        ERROR("bug t=%ld info[%d].t=%ld info[%d].t=%ld\n",
+        FATAL("bug t=%ld info[%d].t=%ld info[%d].t=%ld\n",
               t, idx, info[idx].t, idx+1, info[idx+1].t);
-        return -1;
     }
 
 interpolate:
@@ -1251,7 +1277,7 @@ void test_algorithms(void)
     // refer to https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
     jd =  jdconv(2000,1,1,12);
     if (jd != 2451545.0) {
-        ERROR("jd %f should be 2451545.0\n", jd);
+        FATAL("jd %f should be 2451545.0\n", jd);
     }
 
     // test local sidereal time ...
@@ -1262,7 +1288,7 @@ void test_algorithms(void)
     jd = jdconv(2018,12,8,1.8936);  
     lst = ct2lst(-72, jd);
     if (!is_close(lst, 2.21247, 0.000010, &deviation)) {
-        ERROR("lst deviation = %f, exceeds limit\n", deviation);
+        FATAL("lst deviation = %f, exceeds limit\n", deviation);
     }
     INFO("lst deviation = %f\n", deviation);
 
@@ -1281,7 +1307,7 @@ void test_algorithms(void)
     lst = ct2lst(lng, jd);
     ret = radec2azel(&az, &el, ra, dec, lst, lat);
     if (ret != 0) {
-        ERROR("radec2azel failed\n");
+        FATAL("radec2azel failed\n");
     }
     DEBUG("az = %f   el = %f\n", az, el);
     if (!is_close(az, 311.92258, 0.000010, &deviation)) {
@@ -1304,7 +1330,7 @@ void test_algorithms(void)
         }
         ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
         if (ret != 0) {
-            ERROR("radec2azel failed\n");
+            FATAL("radec2azel failed\n");
         }
     }
     duration_us = microsec_timer() - start_us;

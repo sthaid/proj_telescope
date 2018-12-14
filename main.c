@@ -43,20 +43,20 @@ int main(int argc, char ** argv)
     lat_str = getenv("MY_LAT");
     long_str = getenv("MY_LONG");
     if (lat_str == NULL || long_str == NULL) {
-        ERROR("latitude and longitude must be supplied in environment variables MY_LAT and MY_LONG\n");
+        FATAL("latitude and longitude must be supplied in environment variables MY_LAT and MY_LONG\n");
     }
     if (sscanf(lat_str, "%lf", &latitude) != 1 || latitude < -90 || latitude > 90) {
-        ERROR("invalid latitude '%s' \n", lat_str);
+        FATAL("invalid latitude '%s' \n", lat_str);
     }
     if (sscanf(long_str, "%lf", &longitude) != 1 || longitude < -180 || longitude > 180) {
-        ERROR("invalid longitude '%s' \n", lat_str);
+        FATAL("invalid longitude '%s' \n", lat_str);
     }
     INFO("latitude = %0.6lf  longitude = %0.6lf\n", latitude, longitude);
     
     // initialize sky module
     ret = sky_init();
     if (ret < 0) {
-        return ret;
+        FATAL("sky_init ret %d\n", ret);
     }
 
     // draw display and handle user inputs
