@@ -9,7 +9,6 @@
 
 #define MAX_OBJ              200000
 #define MAX_OBJ_NAME         32
-#define MAX_SS_OBJ_INFO_TBL  100000  // XXX make this dynamic
 
 #define RAD2DEG (180. / M_PI)
 #define DEG2RAD (M_PI / 180.)
@@ -27,6 +26,8 @@
 #define MAX_MAG      22   // dimmest
 #define DEFAULT_MAG  7    // faintest naked-eye stars from dark rural area
 
+#define SIZEOF_SOLAR_SYS_OBJ_INFO_T(n) (sizeof(solar_sys_obj_info_t) + sizeof(struct info_s) * (n))
+
 //
 // typedefs
 //
@@ -39,7 +40,7 @@ typedef struct {
         double ra;
         double dec;
         double mag;
-    } info[MAX_SS_OBJ_INFO_TBL];
+    } info[0];
 } solar_sys_obj_info_t;
 
 typedef struct {
@@ -285,9 +286,13 @@ int read_solar_sys_data(char * filename)
             len = strlen(name);
             if (len > 0 && name[len-1] == '\n') name[len-1] = 0;
 
+            // alloc ssinfo, it will be realloced in increments of 10000 struct info_s as needed
+            ssinfo = malloc(SIZEOF_SOLAR_SYS_OBJ_INFO_T(0));
+            ssinfo->max_info = 0;
+            ssinfo->idx_info = 0;
+
             // init obj fields
             x = &obj[max_obj];
-            ssinfo = calloc(1,sizeof(solar_sys_obj_info_t));
             strncpy(x->name, name, MAX_OBJ_NAME);
             x->type = OBJTYPE_SOLAR;
             x->ra       = NO_VALUE;
@@ -359,11 +364,14 @@ int read_solar_sys_data(char * filename)
             return -1;
         }
         
-        // fill in the info table for the object currently being input
-        if (ssinfo->max_info >= MAX_SS_OBJ_INFO_TBL) {
-            ERROR("filename=%s line=%d solar sys obj '%s' info table is full\n", filename, line, x->name);
-            return -1;
+        // if the info table for the object currently being input is full
+        // then realloc with 10000 more entries
+        if ((ssinfo->max_info % 10000) == 0) {
+            ssinfo = realloc(ssinfo, SIZEOF_SOLAR_SYS_OBJ_INFO_T(ssinfo->max_info+10000));
+            x->ssinfo = ssinfo;
         }
+
+        // fill in the info table for the object currently being input
         ssinfo->info[ssinfo->max_info].t   = t;
         ssinfo->info[ssinfo->max_info].ra  = ra;
         ssinfo->info[ssinfo->max_info].dec = dec;
