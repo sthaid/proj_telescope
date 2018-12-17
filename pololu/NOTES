@@ -1,0 +1,396 @@
+========================================
+My Order
+========================================
+
+This shipment includes:
+   1 x #1477 Stepper Motor: Unipolar/Bipolar, 200 Steps/Rev, 57×76mm,
+          8.6V, 1 A/Phase = 49.95
+   1 x #2258 Steel L-Bracket for NEMA 23 Stepper Motors = 4.95
+   1 x #3130 Tic T825 USB Multi-Interface Stepper Motor Controller
+          (Connectors Soldered) = 31.95
+
+1477 Stepper Motor
+- use wires   BLACK-GREEN   RED-BLUE
+- Specs
+  . Size: 56.4 mm square × 76 mm, not including the shaft (NEMA 23)
+  . Weight: 1 kg (35 oz)
+  . Shaft diameter: 6.35 mm (0.25″) “D”
+  . Steps per revolution: 200
+  . Current rating: 1 A per coil        <======
+  . Voltage rating: 8.6 V               <======
+  . Resistance: 8.6 Ω per coil
+  . Holding torque: 14 kg-cm (190 oz-in)
+  . Inductance: 14 mH per coil
+  . Lead length: 30 cm (12″)
+  . Output shaft supported by two ball bearings
+
+T825 USB Multi-Interface Stepper Motor Controller
+- max current per phase   1.5A
+- 8.5 to 45 V
+- 1/32 microstep resolution
+
+************************************************************************************
+
+The following notes are taken from https://www.pololu.com/docs/0J71
+
+========================================
+Tic Stepper Motor Controller User’s Guide
+========================================
+
+The Tic T825, is based on the DRV8825 IC from Texas Instruments. 
+
+This driver IC supports microstepping with up to 32 microsteps per full step and 
+features three configurable decay modes. 
+
+The Tic T825 can operate from 8.5 V to 45 V and features reverse-voltage protection up to 40 V. 
+
+It can deliver up to approximately 1.5 A per phase without a heat sink or forced air flow 
+(absolute maximum is 2.5 A per phase). 
+
+The Tic T825’s circuit board is blue with white labels.
+
+Features
+- USB interface
+- Accel and decel limiting
+- max speed 50000 steps per sec
+- slow speed 1 step every 200 secs
+- microstep res for T825 is 1/32
+- digitally adjusted current limit
+- 3 digitally configurabel decay modes
+- needs usb MicroB cable
+
+========================================
+Installing Linux Software
+========================================
+
+Download the version for your system from this list:
+
+Tic Software for Linux (x86) (8MB xz) — 
+  works on 32-bit and 64-bit systems
+Tic Software for Linux (Raspberry Pi) (6MB xz) — 
+  works on the Raspberry Pi and might work on other ARM Linux systems
+
+tar -xvf pololu-tic-*.tar.xz 
+
+sudo pololu-tic-*/install.sh 
+
+Plug the Tic into your computer via USB. 
+If you already connected the Tic earlier, unplug it and plug it in again to make sure 
+the newly-installed udev rules are applied.
+
+ticcmd --list 
+- to make sure the software can detect the Tic. 
+- This command should print the serial number and model of the Tic. 
+  If it prints nothing, see the “USB troubleshooting for Linux” section below.
+
+ticgui   # to start the Tic Control Center.
+
+This Tic software consists of two programs:
+- ticgui is a graphical user interface (GUI) for configuring the Tic, viewing its status, 
+  and controlling it manually. You can open a terminal and type ticgui to run it.
+- ticcmd : is a command-line utility that can do most of what the GUI can do, and more. 
+  You can open a terminal and type ticcmd with no arguments to a see a summary of its options.
+
+No special drivers are needed for the Tic on Linux. Also, the Tic software is statically 
+compiled; it does not depend on any shared libraries.
+
+The source code for the software is available.
+
+========================================
+LEDs                         
+========================================
+
+green - should be on when okay, flickers with usb activity
+ - when computer is suspended, should blink once per sec
+
+red - error condition
+
+yellow - motor status and error codes
+   https://www.pololu.com/docs/0J71/3.4
+
+========================================
+Power Supply, TIC, and Stepper Motor
+========================================
+
+Use Bipolar motor.
+
+Tic continuous current per phase for T825 = 1.5A
+
+1477 Stepper Motor
+  . Current rating: 1 A per coil        <======
+  . Voltage rating: 8.6 V               <======
+
+TIC has active current limitting, so power supply voltage should
+be higher than stepper motor voltage rating.  But don't make power
+supply voltage too high because this could cause microsteps to skip.
+
+you can typically get by with less power supply current than this, especially 
+if your supply voltage is higher than the rated voltage of your stepper motor. 
+In this situation, the Tic’s current control acts as a step-down converter, 
+meaning that a small amount of current from the power supply at a higher voltage 
+can generate a larger amount of current going through the coils at a lower voltage.
+
+The total current going through the coils is maximized in the four full-step positions, 
+where the Tic will be sending 71% of the current limit through each coil, for a total 
+current of 142% of the current limit. If you want to know the maximum current draw 
+from your power supply, you can measure this with a multimeter while the stepper 
+motor is energized in full-step mode and not stepping. If your system draws too much 
+current, your power supply might shut down, overheat, produce a lower voltage, and/or be damaged.
+
+Conclusions:
+- My 3A power supply should be fine.
+- Probably should use about 12V
+
+========================================
+Connecting Stepper Motor
+========================================
+
+1477 Stepper Motor
+- use wires   BLACK-GREEN   RED-BLUE
+
+Swapping wires reverses direction of motor.
+
+========================================
+Configuring and Testing Stepper Motor
+========================================
+
+Ticgui ...
+
+Motor Box (apply settings needed when changing something)
+. Current Limit    1000 ma
+. Step Mode        FULL     or   1/32
+. Decay Mode       MIXED    or   FAST
+
+Status Tab
+- Set Target to move motor
+- check heat - let motor sit for a while and see how hot it gets
+
+Microsteps:
+- The Tic’s speed, velocity, acceleration, and deceleration numbers are all denominated in microsteps, 
+  which are also called pulses. Therefore, if you change the step mode, you might have to change those 
+  other settings to account for the change. For example, the default maximum speed for the Tic is 200 
+  pulses per second. If you change the step mode from full step to half step, you would have to change 
+  the speed to 400 pulses per second to maintain the same angular rate of change. Since the step mode 
+  affects those other parameters, it is a good idea to set it first.
+
+Decay Mode
+- using slow decay generates less electrical and audible noise, 
+  but it can result in missed microsteps when the coil current is decreasing. 
+- Fast decay is much noisier both electrically and audibly, but it creates more 
+  evenly sized microsteps. 
+- Mixed decay is a combination of both fast and slow decay that tries to minimize 
+  noise while keeping microsteps as even as possible. 
+
+Movement Params - Max Speed and Accel
+- The Tic represents 
+  - speeds (non-negative values indicating the magnitude of a velocity), 
+  - velocities (signed values indicating speed and direction), and 
+  - speed limits 
+in units of pulses (microsteps) per 10,000 (ten thousand) seconds. 
+
+Speed
+- The Tic can send up to 50,000 pulses (microsteps) per second, so the maximum allowed speed setting is 
+  500,000,000. However, your motor might not be capable of moving that fast. 
+- If you want to get the maximum speed possible out of your motor, you might have to do some 
+  tests to see how fast it can go. To do this, set the max speed to 500,000,000 in the 
+  “Input and motor settings” and click “Apply settings”. Then go to the “Set target” box in the 
+  “Status” tab, select “Set velocity”, and enter smaller numbers in the boxes at the ends of the 
+  scroll bar that determine its range. For example, try entering -4,000,000 and 4,000,000, which 
+  would mean the scrollbar can set target velocities between −400 pulses per second and +400 pulses 
+  per second.
+
+Accel - 
+- You will probably have to adjust the “Max acceleration” parameter too. 
+- The Tic represents acceleration and deceleration limits in 
+  units of pulses per second per 100 seconds. 
+- The acceleration and deceleration limits specify how much the speed 
+  (in units of 10,000 pulses per second) is allowed to rise or fall in one hundredth 
+  of a second (0.01 s or 10 ms). 
+- To set the acceleration limit, you might consider how much time you want the Tic to spend accelerating 
+  from rest to full speed. 
+- If you want it to take one second, then set the maximum acceleration 
+  to be one hundredth of the maximum speed.
+
+Starting Speed:
+- this parameter specifies a speed below which deceleration and acceleration 
+  limits are not respected. For example, if you set the starting speed to 1000000 
+  (100 pulses per second), then the Tic will be able to instantly change from any 
+  velocity in the range of −1000000 to +1000000 to any other velocity in that range. 
+  Setting the starting speed might allow you to make your system faster since it will 
+  not waste time accelerating or decelerating through low speeds where it is not needed
+
+Summary
+- Speed: units of pulses per 10,000 seconds.    (Pulse = Microstep)
+- Accel: units of pulses per second per 100 seconds. 
+    Example, to accel from rest for full speed in 1 second then set 
+    maximum accel to 1/100 of max speed
+
+Exampe Velocities:
+- Pulses per rev = 200 * 32 = 6400
+  - multiply by 10000 for ticgui input
+- 1 rev/sec  = 64,000,000
+- 1 rev/min  =  1,060,000
+- 1 rev/hr   =     18,000
+- 1 rev/day  =        740
+- 6 rev/day  =      4,440   <== using 6 to 1 belt
+                                = .440 pules per second  OR  1 pulse every 2.25 secs
+
+========================================
+Ticcmd
+========================================
+
+Examples:
+  ticcmd                                           # no args  --> prints help screen
+  ticcmd --exit-safe-start --position 400          # or -p
+  ticcmd --exit-safe-start --velocity 2000000      # or -v
+  ticcmd --reset-command-timeout                   # run every second, otherwise motor will stop
+  ticcmd --status
+
+  For multiple Tics, use the -d option
+
+--- HELP ---
+
+General options:
+  -s, --status                 Show device settings and info.
+  --full                       When used with --status, shows more.
+  -d SERIALNUMBER              Specifies the serial number of the device.
+  --list                       List devices connected to computer.
+  --pause                      Pause program at the end.
+  --pause-on-error             Pause program at the end if an error happens.
+  -h, --help                   Show this help screen.
+
+Control commands:
+  -p, --position NUM           Set target position in microsteps.
+  -y, --velocity NUM           Set target velocity in microsteps / 10000 s.
+  --halt-and-set-position NUM  Set where the controller thinks it currently is.
+  --halt-and-hold              Abruptly stop the motor.
+  --reset-command-timeout      Clears the command timeout error.
+  --deenergize                 Disable the motor driver.
+  --energize                   Stop disabling the driver.
+  --exit-safe-start            Send the exit safe start command.
+  --resume                     Equivalent to --energize with --exit-safe-start.
+  --enter-safe-start           Send the enter safe start command.
+  --reset                      Make the controller forget its current state.
+  --clear-driver-error         Attempt to clear a motor driver error.
+
+Temporary settings:
+  --max-speed NUM              Set the speed limit.
+  --starting-speed NUM         Set the starting speed.
+  --max-accel NUM              Set the acceleration limit.
+  --max-decel NUM              Set the deceleration limit.
+  --step-mode MODE             Set step mode: full, half, 1, 2, 4, 8, 16, 32.
+  --current NUM                Set the current limit in mA.
+  --decay MODE                 Set decay mode:
+                               Tic T825: mixed, slow, or fast
+                               T834: slow, mixed25, mixed50, mixed75, or fast
+
+Permanent settings:
+  --restore-defaults           Restore device's factory settings
+  --settings FILE              Load settings file into device.
+  --get-settings FILE          Read device settings and write to file.
+  --fix-settings IN OUT        Read settings from a file and fix them.
+
+========================================
+Motion Parameters
+========================================
+
+Current position and current velocity
+- The Tic keeps track of “Current position” and “Current velocity” variables at all times. 
+  Both of these are 32-bit signed integers and they default to zero when the Tic is turned on.
+- The Tic uses velocity variables like “Current velocity” to hold both a speed and a direction. 
+  The absolute value of a velocity is a speed, and positive velocities correspond to increasing 
+  positions while negative velocities correspond to decreasing positions.
+- “Current position” can be set with a “Halt and set position” command, which has a side effect 
+  of setting the “Current velocity” to zero. The “Current velocity” can also be forced to zero 
+  by the “Halt and hold” command and by certain error conditions.
+- The Tic also keeps track of a flag called “Position uncertain”, which indicates whether 
+  the Tic has received external confirmation that the value of its “Current position” 
+  variable is correct (see Section 5.4).
+
+Target position and target velocity
+- Whenever the Tic is moving the stepper motor, it is either in “Target position mode” or 
+  “Target velocity mode”.
+- In “Target position mode”, the Tic has a variable called “Target position” that specifies what position 
+  the Tic is moving to. In this mode, the Tic will plan steps for the stepper motor with the goal of making 
+  its current position equal to the target position and its current velocity equal to zero, while maintaining 
+  the speed/acceleration/deceleration limits described later in this section.
+- In “Target velocity mode”, the Tic has a variable called “Target velocity” that specifies the velocity 
+  the Tic should maintain. It will plan steps so that its current velocity reaches the target velocity, 
+  while respecting the limits described later in this section. The target velocity can be set to any 32-bit 
+  signed integer value, but if the absolute value of the “target velocity” is larger than the max speed, 
+  then the Tic will never reach the target velocity.
+- In both of these modes, the Tic is designed to handle a frequently changing target. For instance, 
+  it is OK if the target position changes while the Tic is traveling towards it, and the Tic will handle 
+  changes like this seamlessly and quickly.
+- When the Tic’s control mode is Serial / I²C / USB, you can use the “Set target position” and 
+  “Set target velocity” commands to set the target position and target velocity, respectively. 
+  These commands allow you to change between “Target position mode” and “Target velocity mode” on the fly. 
+  In the other control modes (besides STEP/DIR mode), you are limited to just one of those two modes 
+  (either target position or target velocity), and the target is set automatically based on an input to the Tic.
+
+========================================
+Reference Sections 6,7,8
+========================================
+
+https://www.pololu.com/docs/0J71/6   Settings Reference
+https://www.pololu.com/docs/0J71/7   Variables Reference
+https://www.pololu.com/docs/0J71/8   Command Reference
+
+========================================
+Using C API
+========================================
+
+---- EXAMPLE CODE USING THE C API ----
+
+https://www.pololu.com/docs/0J71/12.10
+
+---- BUILDING POLOLU TIC SOFTWARE FROM SOURCE ----
+---- ON FEDORA 26                             ----
+
+# After cloning, refer to tic/BUILDING.md
+
+# clone pololu repos
+mkdir ~/pololu
+cd ~/pololu
+git clone https://github.com/pololu/pololu-tic-software.git tic
+git clone https://github.com/pololu/libusbp -b v1-latest
+
+# install packages needed to build on fedora
+sudo yum install cmake 
+sudo yum install systemd-devel
+sudo yum install qt5-qtbase-devel
+
+# build libusbp-1.so
+cd libusbp/
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+
+# check that it was correctly installed
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig        # put this in .bash_profile
+pkg-config libusbp-1 --cflags
+
+# build tic
+cd ~/pololu/tic
+mkdir build
+cd build
+cmake ..
+make
+sudo make install
+
+# check that ticcmd works
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib    # put this in .bash_profile
+ticcmd 
+
+---- BUILDING A TEST PROGRAM  ----
+
+t1.c is copied from https://www.pololu.com/docs/0J71/12.10
+
+gcc -Wall -I/usr/local/include/libpololu-tic-1 -lpololu-tic-1 -o t1 t1.c
+
+---- TIC SOFTWARE LIBRARY DOCUMENTATION ----
+
+refer to /usr/local/include/libpololu-tic-1/tic.h
+
