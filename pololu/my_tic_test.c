@@ -23,6 +23,9 @@
         } \
     } while (0)
 
+#define MIN_VIN_VOLTAGE 10000  // mv
+#define MAX_VIN_VOLTAGE 15000
+
 // variables
 
 tic_handle * handle;
@@ -164,14 +167,16 @@ void * monitor_pos_thread(void * cx)
         int energized          = tic_variables_get_energized(variables);
         int position_uncertain = tic_variables_get_position_uncertain(variables);
         int error_status       = tic_variables_get_error_status(variables);
+        int vin_voltage        = tic_variables_get_vin_voltage(variables);
         int target_position    = tic_variables_get_target_position(variables);
         int current_position   = tic_variables_get_current_position(variables);
 
-        fprintf(stderr, "op_state=%d(%s) energized=%d pos_unc=%d err_status=0x%x(%s) tgt_pos=%d curr_pos=%d\n",
+        fprintf(stderr, "op_state=%d(%s) energized=%d pos_unc=%d err_status=0x%x(%s) mv=%d tgt_pos=%d curr_pos=%d\n",
                 operation_state, operation_state_str(operation_state),
                 energized,
                 position_uncertain,
                 error_status, error_status_str(error_status),
+                vin_voltage,
                 target_position,
                 current_position);
 
@@ -333,4 +338,12 @@ void check_variables(void)
     PRINT_VARIABLE(current_limit_code);
     PRINT_VARIABLE(decay_mode);
     PRINT_VARIABLE(input_state);
+
+    // check voltage
+    int vin_voltage = tic_variables_get_vin_voltage(variables);
+    if (vin_voltage < 10000 || vin_voltage > 15000) {
+        fprintf(stderr, "ERROR variable vin_voltage=%d out of range %d to %d\n",
+                vin_voltage, MIN_VIN_VOLTAGE, MAX_VIN_VOLTAGE);
+        exit(1);
+    }
 }
