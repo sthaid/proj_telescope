@@ -72,6 +72,7 @@ void display_handler(void)
     int win_height = DEFAULT_WIN_HEIGHT;
     int sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h;
     int sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h;
+    int sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h;
 
     if (sdl_init(&win_width, &win_height, true) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
@@ -90,13 +91,20 @@ void display_handler(void)
     sky_ctl_pane_h = win_height - sky_pane_h;
     INFO("sky_ctl_pane x,y,w,h = %d %d %d %d\n", sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h);
 
+    sky_view_pane_x = sky_ctl_pane_w;
+    sky_view_pane_y = sky_pane_h;  
+    sky_view_pane_w = win_height - sky_pane_h;
+    sky_view_pane_h = win_height - sky_pane_h;
+    INFO("sky_view_pane x,y,w,h = %d %d %d %d\n", sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h);
+
     sdl_pane_manager(
         NULL,           // context
         NULL,           // called prior to pane handlers
         NULL,           // called after pane handlers
         1000000,        // 0=continuous, -1=never, else us 
-        2,              // number of pane handler varargs that follow
+        3,              // number of pane handler varargs that follow
         sky_pane_hndlr, NULL, sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        sky_ctl_pane_hndlr, NULL, sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h, PANE_BORDER_STYLE_MINIMAL
+        sky_ctl_pane_hndlr, NULL, sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h, PANE_BORDER_STYLE_MINIMAL,
+        sky_view_pane_hndlr, NULL, sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h, PANE_BORDER_STYLE_MINIMAL
                         );
 }

@@ -1,11 +1,21 @@
 // XXX reveiw and add comments throughout
 // XXX organize favorites
 
+// XXX display current UTC time in sky pane,  and also when testing is enabled, in red
+//         #define TIME_TEST 86400/4;
+// XXX time test mode
+// XXX new pane
+//  - zoom
+//  - display names
+//  - click on object ???
+// XXX cross hair
+
 #include "common.h"
 
 //
 // defines
 //
+
 
 #define MAX_OBJ              200000
 #define MAX_OBJ_NAME         32
@@ -50,6 +60,11 @@ typedef struct {
     double dec;
     double mag;
     solar_sys_obj_info_t * ssinfo;
+    // the following fields are dynamic (utilized during runtime)
+    double x;
+    double y;
+    double az;
+    double el;
 } obj_t;
 
 //
@@ -81,6 +96,8 @@ double jdconv(int yr, int mn, int day, double hour);
 double jdconv2(time_t t);
 double ct2lst(double lng, double jd);
 int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
+
+int azel2xy(double az, double el, double max, double *xret, double *yret);
 
 void test_algorithms(void);
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
@@ -486,24 +503,21 @@ int obj_sanity_checks(void)
 
 // -----------------  PANE HANDLERS  --------------------------------------
 
-double az_ctr   = 0;
-double az_span  = 360;
-double el_ctr   = 45;
-double el_span  = 90;  
-double mag      = DEFAULT_MAG;
-int    selected = -1;
-bool   tracking = false;
+double az_ctr                 = 0;
+double az_span                = 360;
+double el_ctr                 = 45;
+double el_span                = 90;  
+double mag                    = DEFAULT_MAG;
+int    selected               = -1;
+bool   tracking               = false;
+bool   tracking_last          = false;
+int    sky_view_scale_tbl_idx = 0;
+double sky_view_scale_tbl[]   = {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.5};
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
-    typedef struct {
-        double x;
-        double y;
-    } disp_obj_t;
-
     struct {
-        disp_obj_t disp_obj[MAX_OBJ];
-        bool tracking_last;
+        int not_used;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -543,9 +557,11 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
         // reset all az, al, x, y to NO_VALUE
         for (i = 0; i < max_obj; i++) {
-            disp_obj_t * disp_x = &vars->disp_obj[i];
-            disp_x->x  = NO_VALUE;
-            disp_x->y  = NO_VALUE;
+            obj_t * x = &obj[i];
+            x->x  = NO_VALUE;
+            x->y  = NO_VALUE;
+            x->az = NO_VALUE;
+            x->el = NO_VALUE;
         }
 
         // get local sidereal time        
@@ -555,7 +571,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
-            disp_obj_t * disp_x = &vars->disp_obj[i];
 
             // if obj type is not valid then continue
             if (x->type == OBJTYPE_NONE) {
@@ -572,13 +587,14 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 continue;
             }
 
-            // get az/el from ra/dec,
-            // sanity check az and el, and
-            // convert az to range -180 to + 180
+            // get az/el from ra/dec, and
+            // save az/el in obj_t for later use
             ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
             if (ret != 0) {
                 continue;
             }
+            x->az = az;
+            x->el = el;
 
             // The azimuth returned from radec2azel is in range 0 to 360; 
             // however the min_az..max_az could be as low as -360 to 0;
@@ -609,8 +625,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             // when processing the right-click event, to find the object that is
             // nearest the mouse's right-click x,y
             // pane coordinates
-            disp_x->x = xcoord;
-            disp_x->y = ycoord;
+            x->x = xcoord;
+            x->y = ycoord;
 
             // render the stellar object point
             color = (i == selected                 ? ORANGE :
@@ -668,32 +684,39 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         fontsz = 18;
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
-            disp_obj_t * disp_x = &vars->disp_obj[i];
             if (x->name[0] != '\0' && 
-                disp_x->x != NO_VALUE &&
+                x->x != NO_VALUE &&
                 (x->type == OBJTYPE_SOLAR || az_span < 100))
             {
                 sdl_render_printf(pane, 
-                                disp_x->x+6, disp_x->y-ROW2Y(1,fontsz)/2,
+                                x->x+6, x->y-ROW2Y(1,fontsz)/2,
                                 fontsz, WHITE, BLACK, "%s", x->name);
             }
         }
 
-        // XXX needs comment
+        // clear selected if the magnitude of the selected obj is no longer being displayed
         if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
             selected = -1;
         }
+
+        // if we're tracking the selected obj, and there is no longer a selected obj
+        // then turn tracking off
         if (tracking && selected == -1) {
             tracking = false;
         }
+
+        // if we're tracking then update the az/el of sky_pane center to the
+        // az/el of the selected object
         if (tracking) {
             radec2azel(&az_ctr, &el_ctr, obj[selected].ra, obj[selected].dec, lst, latitude);
             if (az_ctr > 180) az_ctr -= 360;
         }
-        ret_action = (tracking && !vars->tracking_last 
+
+        // if tracking has been enabled then do an immediae display redraw
+        ret_action = (tracking && !tracking_last 
                       ? PANE_HANDLER_RET_DISPLAY_REDRAW
                       : PANE_HANDLER_RET_NO_ACTION);
-        vars->tracking_last = tracking;
+        tracking_last = tracking;
 
         // register control events 
         rect_t loc = {0,0,pane->w,pane->h};
@@ -757,7 +780,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 dy = 1;
             }
 
-            // XXX comment
             if (dy < 0 && az_span < 359.99) {
                 az_span *= 1.1;
                 el_span *= 1.1;
@@ -800,12 +822,12 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             best_i = -1;
             
             for (i = 0; i < max_obj; i++) {
-                disp_obj_t * disp_x = &vars->disp_obj[i];
-                if (disp_x->x == NO_VALUE) {
+                obj_t * x = &obj[i];
+                if (x->x == NO_VALUE) {
                     continue;
                 }
-                delta_x = abs(disp_x->x - mouse_x);
-                delta_y = abs(disp_x->y - mouse_y);
+                delta_x = abs(x->x - mouse_x);
+                delta_y = abs(x->y - mouse_y);
                 if (delta_x >= 50 || delta_y >= 50) {
                     continue;
                 }
@@ -1067,6 +1089,144 @@ char * proc_ctl_pane_cmd(char * cmd_line)
     return "error: invalid command";
 }
 
+int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
+{
+    struct {
+        int tbd;
+    } * vars = pane_cx->vars;
+    rect_t * pane = &pane_cx->pane;
+
+    #define MAX_SCALE_TBL (sizeof(sky_view_scale_tbl)/sizeof(sky_view_scale_tbl[0]))
+
+    #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 1)
+
+    // ----------------------------
+    // -------- INITIALIZE --------
+    // ----------------------------
+
+    if (request == PANE_HANDLER_REQ_INITIALIZE) {
+        vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        INFO("PANE x,y,w,h  %d %d %d %d\n",
+            pane->x, pane->y, pane->w, pane->h);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ------------------------
+    // -------- RENDER --------
+    // ------------------------
+
+//AAAAAAAAAAA
+    if (request == PANE_HANDLER_REQ_RENDER) {
+        rect_t * pane = &pane_cx->pane;
+        int i, ret, ptsz, color, xcoord, ycoord;
+        double xret, yret, max;
+        int fontsz=24;
+
+        for (i = 0; i < max_obj; i++) {
+            obj_t * x = &obj[i];
+
+            // if obj type is not valid then continue
+            if (x->type == OBJTYPE_NONE) {
+                continue;
+            }
+
+            // magnitude too dim then skip
+            if (x->mag != NO_VALUE && x->mag > mag) {
+                continue;
+            }
+
+            // if az/el is not available for this object then skip
+            if (x->az == NO_VALUE || x->el == NO_VALUE) {
+                continue;
+            }
+
+            // determine the minimally distorted position of the object
+            // relative to az_ctr/el_ctr;
+            // if the angle from az_ctr/el_ctr to az/el exceeds max the skip this object
+            max = sky_view_scale_tbl[sky_view_scale_tbl_idx];
+            ret = azel2xy(x->az, x->el, max, &xret, &yret);
+            if (ret != 0) {
+                continue;
+            }
+
+            // determine display point size from object's apparent magnitude
+            ptsz = (x->mag != NO_VALUE ? 5 - x->mag : 3);
+            if (ptsz < 0) ptsz = 0;
+            if (ptsz > 9) ptsz = 9;
+
+            // convert xret/yret to pane coordinates;
+            // if coords are out of the pane then skip
+            xcoord = pane->w/2 + xret * pane->w/2;
+            ycoord = pane->h/2 - yret * pane->h/2;
+            if (xcoord < 0 || xcoord >= pane->w || ycoord < 0 || ycoord >= pane->h) {
+                continue;
+            }
+
+            // render the stellar object point
+            color = (i == selected                 ? ORANGE :
+                     x->type == OBJTYPE_STELLAR    ? WHITE  :
+                     x->type == OBJTYPE_SOLAR      ? YELLOW :
+                     x->type == OBJTYPE_PLACE_MARK ? PURPLE :
+                                                     BLACK);
+            if (color == BLACK) {
+                WARN("obj %d '%s' invalid type %d\n", i, x->name, x->type);
+                continue;
+            }
+            sdl_render_point(pane, xcoord, ycoord, color, ptsz);
+        }
+
+        // print the angle diameter of the sky_view pane
+        sdl_render_printf(pane, 0, 0, fontsz, WHITE, BLACK,
+                          "DIAMETER %0.2g DEG", sky_view_scale_tbl[sky_view_scale_tbl_idx]*2);
+
+        // register control events 
+        rect_t loc = {0,0,pane->w,pane->h};
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // -----------------------
+    // -------- EVENT --------
+    // -----------------------
+
+    if (request == PANE_HANDLER_REQ_EVENT) {
+        switch (event->event_id) {
+        case SDL_EVENT_MOUSE_WHEEL: case 'z': case 'Z': {
+            if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
+                if (event->mouse_motion.delta_y > 0) {
+                    sky_view_scale_tbl_idx++;
+                } else if (event->mouse_motion.delta_y < 0) {
+                    sky_view_scale_tbl_idx--;
+                }
+            } else if (event->event_id == 'z') {
+                sky_view_scale_tbl_idx--;
+            } else {
+                sky_view_scale_tbl_idx++;
+            }
+
+            if (sky_view_scale_tbl_idx < 0) sky_view_scale_tbl_idx = 0;
+            if (sky_view_scale_tbl_idx >= MAX_SCALE_TBL) sky_view_scale_tbl_idx = MAX_SCALE_TBL-1;
+            DEBUG("MOUSE WHEEL sky_view_scale_tbl_idx = %d\n", sky_view_scale_tbl_idx);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        }
+// ALSO others pgup/dn ,  etc
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ---------------------------
+    // -------- TERMINATE --------
+    // ---------------------------
+
+    if (request == PANE_HANDLER_REQ_TERMINATE) {
+        free(vars);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // not reached
+    assert(0);
+    return PANE_HANDLER_RET_NO_ACTION;
+}
 // -----------------  GENERAL UTIL  ---------------------------------------
 
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
@@ -1133,8 +1293,9 @@ void reset(bool all_sky)
         el_ctr   = 45;
         el_span  = 90; 
     }
-    mag      = DEFAULT_MAG;
+    mag = DEFAULT_MAG;
     tracking = false;
+    sky_view_scale_tbl_idx = 0;
 }
 
 char *gmtime_str(time_t t, char *str)
@@ -1277,6 +1438,68 @@ int radec2azel(double *az, double *el, double ra, double dec, double lst, double
 
     // return success
     return 0;
+}
+
+// -----------------  CONVERT DELTA FROM AZ/EL TO AZ_CTR/EL_CTR -----------
+// -----------------       TO MINIMAL DISTORTED XRET/YRET       -----------
+
+// This routine converts the position of an object (az/el) from the sky_pane
+// center az_ctr/el_ctr to xret/yret which have minimal distortion; the xret/yret
+// range from -1 to +1, where a value of -1 or +1 is equivalent to the max arg.
+//
+// For example: 
+//   inputs: az_ctr=90  el_ctr=0
+//           az=95  el=0  max=5
+//   outputs: xret=1  yret=0
+//
+// This routine returns 
+//   0 on success, or 
+//  -1 if the az/el deviation from az_ctr/el_ctr by more than max
+//
+// XXX optimize number of calls to sin/cos
+
+int azel2xy(double az, double el, double max, double *xret, double *yret)
+{
+    double x,y,z;
+    double incl, az_adj;
+    double xrotate, yrotate, zrotate;
+    double rot = el_ctr * DEG2RAD;
+
+    // adjust az to be relative to az_ctr, and
+    // convert elevation to inclination, 
+    // both also converted to radians
+    az_adj = (az - az_ctr) * DEG2RAD;
+    incl   = (90 - el) * DEG2RAD;
+
+    // convert max to radians
+    max = max * DEG2RAD;
+
+    // determine cartesion coords on a r=1 sphere, where
+    // x is towards az_ctr
+    // y is left/right, relative to az_ctr
+    // z is up/down, relative to 0 elevation
+    // reference: https://en.wikipedia.org/wiki/Spherical_coordinate_system
+    x = sin(incl) * cos(az_adj);
+    y = sin(incl) * sin(az_adj);
+    z = cos(incl);
+
+    // rotate about y by angle el_ctr
+    // reference: https://en.wikipedia.org/wiki/Rotation_matrix#Basic_rotations
+    xrotate = x * cos(rot) + z * sin(rot);
+    yrotate = y;
+    zrotate = -x * sin(rot) + z * cos(rot);
+
+    // return the x,y coords of az,el relative to az_ctr,el_ctr;
+    // scaled to range -1..+1
+    *xret = yrotate / sin(max);
+    *yret = zrotate / sin(max);
+
+    // debug prints
+    DEBUG("az,el %f %f az_ctr,el_ctr %f %f  =>  %f %f (xrotate=%f)\n",
+          az, el, az_ctr, el_ctr, *xret, *yret, xrotate);
+
+    // return success when XXX, check this
+    return xrotate >= cos(max) ? 0 : -1;
 }
 
 // -----------------  TEST ALGORITHMS  ------------------------------------
