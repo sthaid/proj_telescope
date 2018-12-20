@@ -1,7 +1,9 @@
 // XXX reveiw and add comments throughout
 // XXX organize favorites
-// XXX should be able to pan az_ctr indefinitaly
-// XXX optimize number of calls to sin/cos; perhaps not needed because compiler does this
+// XXX copyright
+// XXX README.md
+// XXX USAGE
+// XXX move NOTES to subdir
 
 #include "common.h"
 
@@ -781,8 +783,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
 
             az_ctr -= dx * (az_span / 1800.);
-            if (az_ctr > 180) az_ctr = 180;
-            if (az_ctr < -180) az_ctr = -180;
+            if (az_ctr >  180) az_ctr -= 360;
+            if (az_ctr < -180) az_ctr += 360;
 
             el_ctr += dy * (el_span / 450.);
             if (el_ctr > 90) el_ctr = 90;
@@ -1473,7 +1475,6 @@ bool skip_solar_sys_obj(obj_t * x)
 #if 0
     if (strcmp(x->name, "Sun")     == 0) return true;
     if (strcmp(x->name, "Mercury") == 0) return true;
-#else  // vvvvv skip these vvvvv
     if (strcmp(x->name, "Venus")   == 0) return true;
     if (strcmp(x->name, "Mars")    == 0) return true;
     if (strcmp(x->name, "Jupiter") == 0) return true;
@@ -1482,6 +1483,7 @@ bool skip_solar_sys_obj(obj_t * x)
     if (strcmp(x->name, "Neptune") == 0) return true;
     if (strcmp(x->name, "Pluto")   == 0) return true;
     if (strcmp(x->name, "Moon")    == 0) return true;
+#else  // vvvvv skip these vvvvv
 #endif
 
     return false;
@@ -1510,7 +1512,7 @@ time_t sky_time_get_time(void)
         __sky_time_new_mode_req = SKY_TIME_MODE_CURRENT;
     }
 
-    // XXX what is this vvvv
+    // XXX comment this vvvv  OR could get this from the last time in solar sys data
     if (__sky_time > 1640834822 && __sky_time_new_mode_req != SKY_TIME_MODE_CURRENT) {
         __sky_time_new_mode_req = SKY_TIME_MODE_PAUSED;
     }
