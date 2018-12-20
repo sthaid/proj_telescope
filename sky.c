@@ -1557,7 +1557,7 @@ time_t sky_time_get_time(void)
 // - https://en.wikipedia.org/wiki/Epoch_(reference_date)#J2000.0
 //   The current standard epoch is called "J2000.0" This is defined by 
 //   international agreement to be equivalent to:
-//   . The Gregorian date January 1, 2000 at approximately 12:00 GMT (Greenwich Mean Time).
+//  . The Gregorian date January 1, 2000 at approximately 12:00 GMT (Greenwich Mean Time).
 //  . The Julian date 2451545.0 TT (Terrestrial Time).[8]
 //  . January 1, 2000, 11:59:27.816 TAI (International Atomic Time).[9]
 //  . January 1, 2000, 11:58:55.816 UTC (Coordinated Universal Time).[a]

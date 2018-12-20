@@ -81,3 +81,16 @@ Scripts Used to Acquire Stellar and SolarSys Data
 get_solar_sys_data
 get_stellar_data
 
+
+BACKUP INFO
+===========
+
+Sun or Moon Altitude/Azimuth Table
+----------------------------------
+
+Can be used to check my program's calculations of the location
+of the Moon and Sun.
+
+https://aa.usno.navy.mil/data/docs/AltAz.php
+
+
