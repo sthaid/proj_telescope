@@ -1292,9 +1292,9 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                 break;
             }
 
-            az_ctr -= dx * max / 250;
-            if (az_ctr > 180) az_ctr = 180;
-            if (az_ctr < -180) az_ctr = -180;
+            az_ctr -= dx * max / 250 / cos(el_ctr*DEG2RAD);
+            if (az_ctr >  180) az_ctr -= 360;
+            if (az_ctr < -180) az_ctr += 360;
 
             el_ctr += dy * max / 250;
             if (el_ctr > 90) el_ctr = 90;
