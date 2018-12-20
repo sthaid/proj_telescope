@@ -106,7 +106,7 @@ char * proc_ctl_pane_cmd(char * cmd_line);
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 void reset(bool all_sky);
 char * gmtime_str(time_t t, char *str);
-char * hr_str(double hr, char *str);
+char *localtime_str(time_t t, char *str);
 bool skip_solar_sys_obj(obj_t * x) ;
 void sky_time_set_mode(int new_mode_req);
 int sky_time_get_mode(void);
@@ -132,7 +132,8 @@ int sky_init(void)
     int ret;
     char str[100];
 
-    INFO("UTC now = %s UTC\n", gmtime_str(time(NULL),str));
+    INFO("UTC now = %s\n", gmtime_str(time(NULL),str));
+    INFO("LCL now = %s\n", localtime_str(time(NULL),str));
 
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
@@ -715,9 +716,9 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // display date & time
         fontsz = 24;
         color = (sky_time_get_mode() == SKY_TIME_MODE_CURRENT ? WHITE : RED);
-        sdl_render_printf(pane, COL2X(3,fontsz), 0, fontsz, color, BLACK, "%s %s UTC", 
+        sdl_render_printf(pane, COL2X(3,fontsz), 0, fontsz, color, BLACK, "%s %s", 
                           SKY_TIME_MODE_STR(sky_time_get_mode()),
-                          gmtime_str(sky_time,str));
+                          localtime_str(sky_time,str));
 
         // clear selected if the magnitude of the selected obj is no longer being displayed
         if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
@@ -1438,10 +1439,8 @@ char *gmtime_str(time_t t, char *str)
 {
     struct tm *tm;
 
-    // format:  yyyy-mmm-dd hh:mm
-    // example: 2018-Dec-01 00:00
     tm = gmtime(&t);
-    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d:%2.2d",
+    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d:%2.2d UTC",
             tm->tm_year+1900, 
             month_tbl[tm->tm_mon],
             tm->tm_mday,
@@ -1451,16 +1450,19 @@ char *gmtime_str(time_t t, char *str)
     return str;
 }
 
-char * hr_str(double hr, char *str)
+char *localtime_str(time_t t, char *str)
 {
-    int hour, min;
-    double seconds = hr * 3600;
+    struct tm *tm;
 
-    hour = seconds / 3600;
-    seconds -= 3600 * hour;
-    min = seconds / 60;
-    seconds -= min * 60;
-    sprintf(str, "%2.2d:%2.2d:%5.2f", hour, min, seconds);
+    tm = localtime(&t);
+    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d:%2.2d %s",
+            tm->tm_year+1900, 
+            month_tbl[tm->tm_mon],
+            tm->tm_mday,
+            tm->tm_hour,
+            tm->tm_min,
+            tm->tm_sec,
+            tzname[tm->tm_isdst]);
     return str;
 }
 
