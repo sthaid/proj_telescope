@@ -1,14 +1,7 @@
 // XXX reveiw and add comments throughout
 // XXX organize favorites
-
-// XXX display current UTC time in sky pane,  and also when testing is enabled, in red
-//         #define TIME_TEST 86400/4;
-// XXX time test mode
-// XXX new pane
-//  - zoom
-//  - display names
-//  - click on object ???
-// XXX cross hair
+// XXX should be able to pan az_ctr indefinitaly
+// XXX optimize number of calls to sin/cos; perhaps not needed because compiler does this
 
 #include "common.h"
 
@@ -16,27 +9,43 @@
 // defines
 //
 
-
-#define MAX_OBJ              200000
-#define MAX_OBJ_NAME         32
+#define MAX_OBJ      200000
+#define MAX_OBJ_NAME 32
 
 #define RAD2DEG (180. / M_PI)
 #define DEG2RAD (M_PI / 180.)
 #define HR2RAD  (M_PI / 12.)
 
-#define NO_VALUE 9999
+#define NO_VALUE     9999
 #define NO_VALUE_STR "9999"
 
-#define OBJTYPE_NONE             0
-#define OBJTYPE_STELLAR          1
-#define OBJTYPE_SOLAR            2
-#define OBJTYPE_PLACE_MARK       3
+#define OBJTYPE_NONE       0
+#define OBJTYPE_STELLAR    1
+#define OBJTYPE_SOLAR      2
+#define OBJTYPE_PLACE_MARK 3
 
 #define MIN_MAG     -5    // brightest
 #define MAX_MAG      22   // dimmest
 #define DEFAULT_MAG  7    // faintest naked-eye stars from dark rural area
 
 #define SIZEOF_SOLAR_SYS_OBJ_INFO_T(n) (sizeof(solar_sys_obj_info_t) + sizeof(struct info_s) * (n))
+
+#define SID_DAY_SECS  (23*3600 + 56*60 + 4)
+
+#define SKY_TIME_MODE_NONE    0
+#define SKY_TIME_MODE_CURRENT 1
+#define SKY_TIME_MODE_PAUSED  2
+#define SKY_TIME_MODE_FAST    3
+#define SKY_TIME_MODE_SID_DAY 4
+
+#define SKY_TIME_MODE_STR(x) \
+    ({ int mode = x; \
+       ((mode) == SKY_TIME_MODE_NONE    ? "NONE " : \
+        (mode) == SKY_TIME_MODE_CURRENT ? "CURR " : \
+        (mode) == SKY_TIME_MODE_PAUSED  ? "PAUSE" : \
+        (mode) == SKY_TIME_MODE_FAST    ? "FAST " : \
+        (mode) == SKY_TIME_MODE_SID_DAY ? "SDDAY" : \
+                                          "????"  );})
 
 //
 // typedefs
@@ -65,6 +74,8 @@ typedef struct {
     double y;
     double az;
     double el;
+    double xvp;
+    double yvp;
 } obj_t;
 
 //
@@ -80,26 +91,36 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 // prototypes
 //
 
+// init
 int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename);
 int read_place_marks(char * filename);
 int obj_sanity_checks(void);
 
+// pane support 
 char * proc_ctl_pane_cmd(char * cmd_line);
 
+// utils
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 void reset(bool all_sky);
 char * gmtime_str(time_t t, char *str);
 char * hr_str(double hr, char *str);
+bool skip_solar_sys_obj(obj_t * x) ;
+void sky_time_set_mode(int new_mode_req);
+int sky_time_get_mode(void);
+time_t sky_time_get_time(void);
 
+// convert ra,dec to az,el
 double jdconv(int yr, int mn, int day, double hour);
 double jdconv2(time_t t);
 double ct2lst(double lng, double jd);
 int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
 
+// convert az,el to minimally distorted x,y
 int azel2xy(double az, double el, double max, double *xret, double *yret);
 
-void test_algorithms(void);
+// unit test
+void unit_test_algorithms(void);
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
 
 // -----------------  SKY INIT  -------------------------------------------
@@ -109,10 +130,6 @@ int sky_init(void)
     int ret;
     char str[100];
 
-    //INFO("sizeof(obj)  = %ld MB\n", sizeof(obj)/MB);
-    //INFO("sizeof(M_PI) = %ld\n", sizeof(M_PI));
-    //INFO("sizeof(1.0)  = %ld\n", sizeof(1.0));
-    //INFO("sizeof(1.0l) = %ld\n", sizeof(1.0l));
     INFO("UTC now = %s UTC\n", gmtime_str(time(NULL),str));
 
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
@@ -137,7 +154,7 @@ int sky_init(void)
 
     INFO("max_object  = %d\n", max_obj);
 
-    test_algorithms();
+    unit_test_algorithms();
 
     return 0;
 }
@@ -264,13 +281,13 @@ int read_solar_sys_data(char * filename)
     //    2018-Dec-01 00:00, , ,207.30643, -9.79665,  -4.87,  1.44,
 
     FILE *fp;
-    int line=1, num_added=0, i, len, ret;
+    int line=1, num_added=0, len;
     obj_t *x = NULL;
     solar_sys_obj_info_t *ssinfo = NULL;
     char str[10000], *s, *name;
     char *date_str, *ra_str, *dec_str, *mag_str;
     char *not_used_str __attribute__ ((unused));
-    double ra, dec, mag, lst;
+    double ra, dec, mag;
     time_t t;
 
     // open
@@ -405,29 +422,6 @@ int read_solar_sys_data(char * filename)
     // print how many solar sys objects added
     INFO("added %d solar_sys_objects from %s\n", num_added, filename);
 
-    // print the list of solar_sys objects that have been input
-    //      xxxxxxxxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx xxxxxxxxxx
-    t = time(NULL);
-    lst = ct2lst(longitude, jdconv2(t));
-    INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
-    for (i = 0; i < max_obj; i++) {
-        obj_t *x = &obj[i];
-        double az, el;
-
-        if (x->type != OBJTYPE_SOLAR) {
-            continue;
-        }
-
-        compute_ss_obj_ra_dec_mag(x, t);
-        ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
-        if (ret != 0) {
-            ERROR("radec2azel failed\n");
-            return -1;
-        }
-
-        INFO("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
-    }
-
     // success
     return 0;
 }
@@ -501,8 +495,10 @@ int obj_sanity_checks(void)
     return 0;
 }
 
-// -----------------  PANE HANDLERS  --------------------------------------
+// -----------------  SKY PANE HANDLER  -----------------------------------
 
+time_t sky_time               = 0;
+double lst                    = 0;
 double az_ctr                 = 0;
 double az_span                = 360;
 double el_ctr                 = 45;
@@ -511,8 +507,6 @@ double mag                    = DEFAULT_MAG;
 int    selected               = -1;
 bool   tracking               = false;
 bool   tracking_last          = false;
-int    sky_view_scale_tbl_idx = 0;
-double sky_view_scale_tbl[]   = {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.5};
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
@@ -551,22 +545,30 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_az = (pane->w) / (min_az - max_az);
 
         int xcoord, ycoord, i, ptsz, color, fontsz, ret, ret_action;
-        double az, el, lst;
-        time_t t;
+        double az, el;
         double grid_sep, first_az_line, first_el_line;
+
+        char str[100];
 
         // reset all az, al, x, y to NO_VALUE
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
-            x->x  = NO_VALUE;
-            x->y  = NO_VALUE;
-            x->az = NO_VALUE;
-            x->el = NO_VALUE;
+            x->x   = NO_VALUE;
+            x->y   = NO_VALUE;
+            x->az  = NO_VALUE;
+            x->el  = NO_VALUE;
+            x->xvp = NO_VALUE;
+            x->yvp = NO_VALUE;
         }
 
+        // get sky_time, which can be one of the following:
+        // - current time
+        // - fast time
+        // - advance a siderial day at a time
+        sky_time = sky_time_get_time();
+
         // get local sidereal time        
-        t = time(NULL);
-        lst = ct2lst(longitude, jdconv2(t));
+        lst = ct2lst(longitude, jdconv2(sky_time));
 
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
@@ -577,12 +579,21 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 continue;
             }
 
-            // if processing solar-sys object then compute its current ra, dec, and mag
-            if (x->type == OBJTYPE_SOLAR) {
-                compute_ss_obj_ra_dec_mag(x, t);
+            // this program can be configured to skip certain solar sys objects;
+            // to do this the skip_solar_sys_obj routine needs to be adjusted and
+            // the program rebuilt
+            if (x->type == OBJTYPE_SOLAR && skip_solar_sys_obj(x)) {
+                continue;
             }
 
-            // magnitude too dim then skip
+            // if processing solar-sys object then compute its current ra, dec, and mag
+            if (x->type == OBJTYPE_SOLAR) {
+                compute_ss_obj_ra_dec_mag(x, sky_time);
+            }
+
+            // magnitude too dim then skip; 
+            // however don't skip when magnitude is NO_VALUE, such as
+            // for place marks or when a solar sys obj has 'n.a.' magnitude
             if (x->mag != NO_VALUE && x->mag > mag) {
                 continue;
             }
@@ -599,12 +610,12 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             // The azimuth returned from radec2azel is in range 0 to 360; 
             // however the min_az..max_az could be as low as -360 to 0;
             // so, if az is too large, try to correct by reducing it by 360.
-            // If az is still out of range min_az..maz_az then the display
-            // must be zoomed in, so skip this object.
             if (az > max_az) {
                 az -= 360;
             }
-            if (az < min_az || az > max_az) {
+
+            // if az or el out of range then skip
+            if (az < min_az || az > max_az || el < min_el || el > max_el) {
                 continue;
             }
 
@@ -623,8 +634,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
             // save the computed object's pane coords so that they can be used
             // when processing the right-click event, to find the object that is
-            // nearest the mouse's right-click x,y
-            // pane coordinates
+            // nearest the mouse's right-click x,y pane coordinates
             x->x = xcoord;
             x->y = ycoord;
 
@@ -653,9 +663,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         first_az_line = floor(min_az/grid_sep) * grid_sep;
         for (az = first_az_line; az <= max_az; az += grid_sep) {
             double adj_az = (az >= 0 ? az : az + 360);
-            char adj_az_str[20];
-            int len;
-            len = sprintf(adj_az_str, "%g", adj_az);
+            int len = sprintf(str, "%g", adj_az);
             xcoord = 0 + k_az * (min_az - az);
             sdl_render_line(pane, xcoord, 0, xcoord, pane->h-1, BLUE);
             if (xcoord < COL2X(len+2,fontsz)) {
@@ -680,6 +688,14 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g", el);
         }
 
+        // draw cross hair
+        sdl_render_line(pane, 
+                        pane->w/2-20, pane->h/2, pane->w/2+20, pane->h/2, 
+                        RED);
+        sdl_render_line(pane, 
+                        pane->w/2, pane->h/2-20, pane->w/2, pane->h/2+20, 
+                        RED);
+
         // if zoomed in then display names of the objects that have names
         fontsz = 18;
         for (i = 0; i < max_obj; i++) {
@@ -693,6 +709,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                                 fontsz, WHITE, BLACK, "%s", x->name);
             }
         }
+
+        // display date & time
+        fontsz = 24;
+        color = (sky_time_get_mode() == SKY_TIME_MODE_CURRENT ? WHITE : RED);
+        sdl_render_printf(pane, COL2X(3,fontsz), 0, fontsz, color, BLACK, "%s %s UTC", 
+                          SKY_TIME_MODE_STR(sky_time_get_mode()),
+                          gmtime_str(sky_time,str));
 
         // clear selected if the magnitude of the selected obj is no longer being displayed
         if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
@@ -794,10 +817,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             mag += (event->event_id == 'M' ? .1 : -.1);
             if (mag < MIN_MAG) mag = MIN_MAG;
             if (mag > MAX_MAG) mag = MAX_MAG;
-            if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
-                selected = -1;
-                tracking = false;
-            }
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_MOUSE_RIGHT_CLICK: {
             int mouse_x, mouse_y;
@@ -853,6 +872,18 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         case SDL_EVENT_KEY_PGDN:
             reset(true);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case '1':
+            sky_time_set_mode(SKY_TIME_MODE_CURRENT);
+            break;
+        case '2':
+            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
+            break;
+        case '3':
+            sky_time_set_mode(SKY_TIME_MODE_FAST);
+            break;
+        case '4':
+            sky_time_set_mode(SKY_TIME_MODE_SID_DAY);
+            break;
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -871,6 +902,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
 }
+
+// -----------------  SKY CONTROL PANE HANDLER  ---------------------------
 
 int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
@@ -902,8 +935,7 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
         rect_t * pane = &pane_cx->pane;
         int fontsz=24, ret;
         char name[200];
-        double az, el, lst, az_ctr1;
-        time_t t;
+        double az, el, az_ctr1;
 
         sdl_render_printf(pane, 0, ROW2Y(0,fontsz), fontsz, WHITE, BLACK, 
                           tracking ? "TRACKING" : "NOT_TRACKING");
@@ -923,8 +955,6 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
                               "%s", name);
             sdl_render_printf(pane, 0, ROW2Y(4,fontsz), fontsz, WHITE, BLACK,
                               "RA/DEC %8.4f %8.4f", x->ra, x->dec);
-            t = time(NULL);
-            lst = ct2lst(longitude, jdconv2(t));
             ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
             if (ret == 0) {
                 sdl_render_printf(pane, 0, ROW2Y(5,fontsz), fontsz, WHITE, BLACK,
@@ -971,11 +1001,13 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
                 }
             }
             if (ch == '\r') { // carriage return
-                vars->cmd_status = proc_ctl_pane_cmd(vars->cmd_line);
-                vars->cmd_status_time_us = microsec_timer();
-                strcpy(vars->cmd_line_last, vars->cmd_line);
-                vars->cmd_line_len = 0;
-                vars->cmd_line[0]  = '\0';          
+                if (vars->cmd_line_len > 0) {
+                    vars->cmd_status = proc_ctl_pane_cmd(vars->cmd_line);
+                    vars->cmd_status_time_us = microsec_timer();
+                    strcpy(vars->cmd_line_last, vars->cmd_line);
+                    vars->cmd_line_len = 0;
+                    vars->cmd_line[0]  = '\0';          
+                }
             }
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         }
@@ -1089,6 +1121,11 @@ char * proc_ctl_pane_cmd(char * cmd_line)
     return "error: invalid command";
 }
 
+// -----------------  SKY VIEW PANE HANDLER  ------------------------------
+
+int    sky_view_scale_tbl_idx = 0;
+double sky_view_scale_tbl[]   = {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.5};
+
 int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
     struct {
@@ -1098,6 +1135,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
 
     #define MAX_SCALE_TBL (sizeof(sky_view_scale_tbl)/sizeof(sky_view_scale_tbl[0]))
 
+    #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 1)
 
     // ----------------------------
@@ -1115,7 +1153,6 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
     // -------- RENDER --------
     // ------------------------
 
-//AAAAAAAAAAA
     if (request == PANE_HANDLER_REQ_RENDER) {
         rect_t * pane = &pane_cx->pane;
         int i, ret, ptsz, color, xcoord, ycoord;
@@ -1130,7 +1167,16 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                 continue;
             }
 
-            // magnitude too dim then skip
+            // this program can be configured to skip certain solar sys objects;
+            // to do this the skip_solar_sys_obj routine needs to be adjusted and
+            // the program rebuilt
+            if (x->type == OBJTYPE_SOLAR && skip_solar_sys_obj(x)) {
+                continue;
+            }
+
+            // magnitude too dim then skip;
+            // however don't skip when magnitude is NO_VALUE, such as
+            // for place marks or when a solar sys obj has 'n.a.' magnitude
             if (x->mag != NO_VALUE && x->mag > mag) {
                 continue;
             }
@@ -1162,6 +1208,10 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                 continue;
             }
 
+            // save the computed object's pane coords so that they can be used below
+            x->xvp = xcoord;
+            x->yvp = ycoord;
+
             // render the stellar object point
             color = (i == selected                 ? ORANGE :
                      x->type == OBJTYPE_STELLAR    ? WHITE  :
@@ -1175,12 +1225,35 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
 
+        // draw cross hair
+        sdl_render_line(pane,
+                        pane->w/2-20, pane->h/2, pane->w/2+20, pane->h/2,
+                        RED);
+        sdl_render_line(pane,
+                        pane->w/2, pane->h/2-20, pane->w/2, pane->h/2+20,
+                        RED);
+
+        // if zoomed in then display names of the objects that have names
+        fontsz = 18;
+        for (i = 0; i < max_obj; i++) {
+            obj_t * x = &obj[i];
+            if (x->name[0] != '\0' && 
+                x->xvp != NO_VALUE &&
+                (x->type == OBJTYPE_SOLAR || sky_view_scale_tbl[sky_view_scale_tbl_idx] <= 10))
+            {
+                sdl_render_printf(pane,
+                                x->xvp+6, x->yvp-ROW2Y(1,fontsz)/2,
+                                fontsz, WHITE, BLACK, "%s", x->name);
+            }
+        }
+
         // print the angle diameter of the sky_view pane
         sdl_render_printf(pane, 0, 0, fontsz, WHITE, BLACK,
-                          "DIAMETER %0.2g DEG", sky_view_scale_tbl[sky_view_scale_tbl_idx]*2);
+                          "RADIUS %0.2g DEG", sky_view_scale_tbl[sky_view_scale_tbl_idx]);
 
         // register control events 
         rect_t loc = {0,0,pane->w,pane->h};
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -1192,6 +1265,43 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
+        case SDL_EVENT_MOUSE_MOTION:
+        case SDL_EVENT_KEY_UP_ARROW:
+        case SDL_EVENT_KEY_DOWN_ARROW:
+        case SDL_EVENT_KEY_LEFT_ARROW:
+        case SDL_EVENT_KEY_RIGHT_ARROW: {
+            int dx=0, dy=0;
+            double max = sky_view_scale_tbl[sky_view_scale_tbl_idx];
+
+            if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
+                dx = event->mouse_motion.delta_x;
+                dy = event->mouse_motion.delta_y;
+            } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
+                dx = -5;
+            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
+                dx = 5;
+            } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
+                dy = -5;
+            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
+                dy = 5;
+            }
+
+            if (dx == 0 && dy == 0) {
+                break;
+            }
+
+            az_ctr -= dx * max / 250;
+            if (az_ctr > 180) az_ctr = 180;
+            if (az_ctr < -180) az_ctr = -180;
+
+            el_ctr += dy * max / 250;
+            if (el_ctr > 90) el_ctr = 90;
+            if (el_ctr < -90) el_ctr = -90;
+
+            DEBUG("MOUSE MOTION dx=%d dy=%d  az_ctr=%f el_ctr=%f\n", dx, dy, az_ctr, el_ctr);
+
+            tracking = false;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case SDL_EVENT_MOUSE_WHEEL: case 'z': case 'Z': {
             if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
                 if (event->mouse_motion.delta_y > 0) {
@@ -1209,8 +1319,30 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             if (sky_view_scale_tbl_idx >= MAX_SCALE_TBL) sky_view_scale_tbl_idx = MAX_SCALE_TBL-1;
             DEBUG("MOUSE WHEEL sky_view_scale_tbl_idx = %d\n", sky_view_scale_tbl_idx);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        case 'm': case 'M':
+            mag += (event->event_id == 'M' ? .1 : -.1);
+            if (mag < MIN_MAG) mag = MIN_MAG;
+            if (mag > MAX_MAG) mag = MAX_MAG;
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_PGUP:
+            reset(false);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_PGDN:
+            reset(true);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case '1':
+            sky_time_set_mode(SKY_TIME_MODE_CURRENT);
+            break;
+        case '2':
+            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
+            break;
+        case '3':
+            sky_time_set_mode(SKY_TIME_MODE_FAST);
+            break;
+        case '4':
+            sky_time_set_mode(SKY_TIME_MODE_SID_DAY);
+            break;
         }
-// ALSO others pgup/dn ,  etc
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -1227,6 +1359,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
 }
+
 // -----------------  GENERAL UTIL  ---------------------------------------
 
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
@@ -1270,7 +1403,7 @@ int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
 
 interpolate:
     // determine ra and dec return values by interpolation;
-    // don't bother interpolating mag
+    // don't interpolating mag, it can have NO_VALUE
     x->ra  = INTERPOLATE(t, info[idx].ra, info[idx+1].ra, info[idx].t, info[idx+1].t); 
     x->dec = INTERPOLATE(t, info[idx].dec, info[idx+1].dec, info[idx].t, info[idx+1].t); 
     x->mag = info[idx].mag;
@@ -1296,6 +1429,7 @@ void reset(bool all_sky)
     mag = DEFAULT_MAG;
     tracking = false;
     sky_view_scale_tbl_idx = 0;
+    sky_time_set_mode(SKY_TIME_MODE_CURRENT);
 }
 
 char *gmtime_str(time_t t, char *str)
@@ -1305,12 +1439,13 @@ char *gmtime_str(time_t t, char *str)
     // format:  yyyy-mmm-dd hh:mm
     // example: 2018-Dec-01 00:00
     tm = gmtime(&t);
-    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d",
+    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d:%2.2d",
             tm->tm_year+1900, 
             month_tbl[tm->tm_mon],
             tm->tm_mday,
             tm->tm_hour,
-            tm->tm_min);
+            tm->tm_min,
+            tm->tm_sec);
     return str;
 }
 
@@ -1326,6 +1461,93 @@ char * hr_str(double hr, char *str)
     sprintf(str, "%2.2d:%2.2d:%5.2f", hour, min, seconds);
     return str;
 }
+
+bool skip_solar_sys_obj(obj_t * x) 
+{
+    if (x->type != OBJTYPE_SOLAR) {
+        return false;
+    }
+
+    // uncomment the solar sys objects you want to skip
+
+#if 0
+    if (strcmp(x->name, "Sun")     == 0) return true;
+    if (strcmp(x->name, "Mercury") == 0) return true;
+#else  // vvvvv skip these vvvvv
+    if (strcmp(x->name, "Venus")   == 0) return true;
+    if (strcmp(x->name, "Mars")    == 0) return true;
+    if (strcmp(x->name, "Jupiter") == 0) return true;
+    if (strcmp(x->name, "Saturn")  == 0) return true;
+    if (strcmp(x->name, "Uranus")  == 0) return true;
+    if (strcmp(x->name, "Neptune") == 0) return true;
+    if (strcmp(x->name, "Pluto")   == 0) return true;
+    if (strcmp(x->name, "Moon")    == 0) return true;
+#endif
+
+    return false;
+}
+
+time_t __sky_time                  = 0;
+long   __sky_time_new_mode_req     = SKY_TIME_MODE_NONE;
+long   __sky_time_mode             = SKY_TIME_MODE_NONE;
+time_t __sky_time_mode_entry_time  = 0;
+long   __sky_time_mode_count    = 0;
+
+void sky_time_set_mode(int new_mode_req)
+{
+    __sky_time_new_mode_req = new_mode_req;
+}
+
+int sky_time_get_mode(void)
+{
+    return __sky_time_mode;
+}
+
+time_t sky_time_get_time(void) 
+{
+    if (__sky_time == 0) {
+        __sky_time = time(NULL);
+        __sky_time_new_mode_req = SKY_TIME_MODE_CURRENT;
+    }
+
+    // XXX what is this vvvv
+    if (__sky_time > 1640834822 && __sky_time_new_mode_req != SKY_TIME_MODE_CURRENT) {
+        __sky_time_new_mode_req = SKY_TIME_MODE_PAUSED;
+    }
+
+    if (__sky_time_new_mode_req != SKY_TIME_MODE_NONE) {
+        __sky_time_mode = __sky_time_new_mode_req;
+        __sky_time_mode_count = 0;
+        __sky_time_mode_entry_time = __sky_time;
+        __sky_time_new_mode_req = SKY_TIME_MODE_NONE;
+    }
+    __sky_time_mode_count++;
+
+    switch (__sky_time_mode) {
+    case SKY_TIME_MODE_CURRENT:
+        __sky_time = time(NULL);
+        break;
+    case SKY_TIME_MODE_PAUSED:
+        // no change to __sky_time.
+        break;
+    case SKY_TIME_MODE_FAST:
+        __sky_time = __sky_time_mode_entry_time +
+                     __sky_time_mode_count * 100;
+        break;
+    case SKY_TIME_MODE_SID_DAY:
+        __sky_time = __sky_time_mode_entry_time +
+                     __sky_time_mode_count * SID_DAY_SECS;
+        break;
+    default:
+        FATAL("invalid sky_time_mode %ld\n", __sky_time_mode);
+    }
+
+    DEBUG("sky_time=%ld mode=%s mode_entry_time=%ld mode_count=%ld \n",
+         __sky_time, SKY_TIME_MODE_STR(__sky_time_mode), 
+         __sky_time_mode_entry_time, __sky_time_mode_count);
+
+    return __sky_time;
+} 
 
 // -----------------  CONVERT RA/DEC TO AZ/EL UTILS  ----------------------
 
@@ -1455,8 +1677,6 @@ int radec2azel(double *az, double *el, double ra, double dec, double lst, double
 // This routine returns 
 //   0 on success, or 
 //  -1 if the az/el deviation from az_ctr/el_ctr by more than max
-//
-// XXX optimize number of calls to sin/cos
 
 int azel2xy(double az, double el, double max, double *xret, double *yret)
 {
@@ -1498,13 +1718,13 @@ int azel2xy(double az, double el, double max, double *xret, double *yret)
     DEBUG("az,el %f %f az_ctr,el_ctr %f %f  =>  %f %f (xrotate=%f)\n",
           az, el, az_ctr, el_ctr, *xret, *yret, xrotate);
 
-    // return success when XXX, check this
+    // return success when az/el deviation from az_ctr/el_ctr is less than max
     return xrotate >= cos(max) ? 0 : -1;
 }
 
 // -----------------  TEST ALGORITHMS  ------------------------------------
 
-void test_algorithms(void) 
+void unit_test_algorithms(void) 
 {
     double jd, lst, ra, dec, az, el, lat, lng, az_exp, el_exp;
     double deviation;
@@ -1560,6 +1780,27 @@ void test_algorithms(void)
         INFO("el deviation = %f, exceeds limit\n", deviation);
     }
     INFO("el deviation = %f\n", deviation);
+
+    // print list of solar_sys objects and their ra,dec,mag,az,el
+    t = time(NULL);
+    lst = ct2lst(longitude, jdconv2(t));
+    INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
+    for (i = 0; i < max_obj; i++) {
+        obj_t *x = &obj[i];
+        double az, el;
+
+        if (x->type != OBJTYPE_SOLAR) {
+            continue;
+        }
+
+        compute_ss_obj_ra_dec_mag(x, t);
+        ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
+        if (ret != 0) {
+            FATAL("radec2azel failed\n");
+        }
+
+        INFO("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
+    }
 
     // time how long to convert all stellar objects to az/el
     start_us = microsec_timer();

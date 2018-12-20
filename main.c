@@ -101,7 +101,7 @@ void display_handler(void)
         NULL,           // context
         NULL,           // called prior to pane handlers
         NULL,           // called after pane handlers
-        1000000,        // 0=continuous, -1=never, else us 
+        100000,         // 0=continuous, -1=never, else us 
         3,              // number of pane handler varargs that follow
         sky_pane_hndlr, NULL, sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h, PANE_BORDER_STYLE_MINIMAL,
         sky_ctl_pane_hndlr, NULL, sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h, PANE_BORDER_STYLE_MINIMAL,
