@@ -40,7 +40,7 @@ Using tcx.
   * PgDn resets display to default except Az/El pane shows objects above and below horizon
   * Mouse Right Click to select an object; Esc to cancel (only avail in Az/El Pane)
   * 'T' enables tracking the selected object; 't' cancel
-  * '1' current time; '2' pause time; '3' fast time; '4' sidereal day time step
+  * '1' current; '2' pause; '3' fwd; '4' rew; '5' sid day fwd; '6' sid day rew
 
 
 * Control Pane Commands (most useful is 'sel')
