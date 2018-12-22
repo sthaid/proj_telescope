@@ -1,3 +1,31 @@
+// XXX rethink the fast time controls
+//         realtime
+//         sidereal day
+//         sunset and sunrise
+//         sunset+x and sunrise+x
+//         specific localtime
+//    1 -> live     WHITE
+//    2 -> pause    RED
+//    3 -> rev      GREEN 
+//    4 -> fwd      GREEN
+//    5 -> steprev  GREEN BRIEFLY then RED  
+//    6 -> stepfwd  '                   '
+//        ctrl cmd to set the time mode, and display current mode
+//
+//   sky pane display      date-and-time    NORMAL
+//                         date-and-time  sunset  pause
+//                         date-and-time  sunset  fwd
+//                         date-and-time  sunset+1  rev     where + is 1.5 hours or 1:30 for hours and minutes
+//                         date-and-time  23:00:00  pause    or 23.12345
+//   ctrl pane
+//      MAG   xxxx
+//      TIME  sunset+xxx
+//
+// api  
+//    sunset(y,m,d)   returns linux time
+
+
+
 /*
 Copyright (c) 2018 Steven Haid
 
@@ -68,6 +96,14 @@ SOFTWARE.
         (mode) == SKY_TIME_MODE_SD_REW  ? "SD_REW" : \
                                           "??????"  );})
 
+#define SIND(x)   (sin((x)*DEG2RAD))
+#define COSD(x)   (cos((x)*DEG2RAD))
+#define TAND(x)   (tan((x)*DEG2RAD))
+#define ACOSD(x)  (acos(x)*RAD2DEG)
+#define ASIND(x)  (asin(x)*RAD2DEG)
+
+#define JD2000 2451545.0
+
 //
 // typedefs
 //
@@ -126,6 +162,8 @@ int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 void reset(bool all_sky);
 char * gmtime_str(time_t t, char *str);
 char *localtime_str(time_t t, char *str);
+void hr2hms(double hr, int * hour, int * minute, double * seconds);
+char * hr_str(double hr, char *str);
 bool skip_solar_sys_obj(obj_t * x) ;
 void sky_time_set_mode(int new_mode_req);
 int sky_time_get_mode(void);
@@ -134,11 +172,17 @@ time_t sky_time_get_time(void);
 // convert ra,dec to az,el
 double jdconv(int yr, int mn, int day, double hour);
 double jdconv2(time_t t);
+void jd2ymdh(double jd, int *year, int *month, int *day, double *hour);
 double ct2lst(double lng, double jd);
 int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
 
 // convert az,el to minimally distorted x,y
 int azel2xy(double az, double el, double max, double *xret, double *yret);
+
+// sunrise and sunset times
+time_t sunset(int year, int month, int day);
+time_t sunrise(int year, int month, int day);
+time_t sunrise_sunset_common(int year_arg, int month_arg, int day_arg, bool sunset_flag_arg);
 
 // unit test
 void unit_test_algorithms(void);
@@ -1515,6 +1559,27 @@ char *localtime_str(time_t t, char *str)
     return str;
 }
 
+void hr2hms(double hr, int * hour, int * minute, double * seconds)
+{
+    double secs = hr * 3600;
+
+    *hour = secs / 3600;
+    secs -= 3600 * *hour;
+    *minute = secs / 60;
+    secs -= *minute * 60;
+    *seconds = secs;
+}
+
+char * hr_str(double hr, char *str)
+{
+    int hour, minute;
+    double seconds;
+
+    hr2hms(hr, &hour, &minute, &seconds);
+    sprintf(str, "%2.2d:%2.2d:%05.2f", hour, minute, seconds);
+    return str;
+}
+
 bool skip_solar_sys_obj(obj_t * x) 
 {
     if (x->type != OBJTYPE_SOLAR) {
@@ -1660,20 +1725,53 @@ double jdconv2(time_t t)
     return jdconv(year, month, day, hour);
 }
 
+// based on https://aa.usno.navy.mil/faq/docs/JD_Formula.php
+void jd2ymdh(double jd, int *year, int *month, int *day, double *hour)
+{
+    // 
+    // COMPUTES THE GREGORIAN CALENDAR DATE (YEAR,MONTH,DAY)
+    // GIVEN THE JULIAN DATE (JD).
+    // 
+
+    int JD = jd + .5;
+    int I,J,K,L,N;
+
+    L= JD+68569;
+    N= 4*L/146097;
+    L= L-(146097*N+3)/4;
+    I= 4000*(L+1)/1461001;
+    L= L-1461*I/4+31;
+    J= 80*L/2447;
+    K= L-2447*J/80;
+    L= J/11;
+    J= J+2-12*L;
+    I= 100*(N-49)+I+L;
+
+    *year= I;
+    *month= J;
+    *day = K;
+
+    double jd0 = jdconv(*year, *month, *day, 0);
+    *hour = (jd - jd0) * 24;
+}
+
 // https://idlastro.gsfc.nasa.gov/ftp/pro/astro/ct2lst.pro
 // To convert from Local Civil Time to Local Mean Sidereal Time.
 double ct2lst(double lng, double jd)
 {
-    static double c[4] = {280.46061837, 360.98564736629, 0.000387933, 38710000.0} ;
-    static double jd2000 = 2451545.0;
+    #define C0 280.46061837
+    #define C1 360.98564736629
+    #define C2 0.000387933
+    #define C3 38710000.0
 
-    double t0, t, theta, lst;
+    double t0, theta, lst;
+    double t;
 
-    t0 = jd - jd2000;
+    t0 = jd - JD2000;
     t = t0 / 36525;
 
     // Compute GST in seconds.
-    theta = c[0] + (c[1] * t0) + t * t * (c[2] - t / c[3]);
+    theta = C0 + (C1 * t0) + t * t * (C2 - t / C3);
 
     // Compute LST in hours.
     lst = (theta + lng) / 15.0;
@@ -1785,35 +1883,143 @@ int azel2xy(double az, double el, double max, double *xret, double *yret)
     return xrotate >= cos(max) ? 0 : -1;
 }
 
+// -----------------  SUNRISE & SUNSET TIMES  -----------------------------
+
+time_t sunset(int year, int month, int day) 
+{
+    return sunrise_sunset_common(year, month, day, true);
+}
+
+time_t sunrise(int year, int month, int day) 
+{
+    return sunrise_sunset_common(year, month, day, false);
+}
+
+// https://en.wikipedia.org/wiki/Sunrise_equation#Hour_angle
+time_t sunrise_sunset_common(int year_arg, int month_arg, int day_arg, bool sunset_flag_arg)
+{
+    int n;
+    double jd, jstar, M, C, lambda, jtransit, declination, hour_angle, jresult;
+
+    // XXX check constants copied correctly, and double check equations
+
+    // calculate current julian day
+    jd = jdconv(year_arg, month_arg, day_arg, 13);
+    n = jd - JD2000;
+
+    // mean solar noon
+    jstar = n - longitude / 360;
+
+    // solar mean anomaly
+    M = (357.5291 + .98560028 * jstar);
+    if (M < 0) FATAL("M < 0\n");  // XXX better mod
+    while (M > 360) M -= 360; 
+
+    // equation of the center
+    C = 1.9148 * SIND(M) + 0.0200 * SIND(2*M) + 0.0003 * SIND(3*M);
+
+    // ecliptic longitude
+    lambda = (M +  C + 180 + 102.9372);
+    if (lambda < 0) FATAL("lambda < 0\n");  // XXX better mod
+    while (lambda > 360) lambda -= 360;
+
+    // solar transit
+    jtransit = JD2000 + jstar + 0.0053 * SIND(M) - 0.0069 * SIND(2*lambda);
+
+    // declination of the sun
+    declination = ASIND(SIND(lambda) * SIND(23.44));
+
+#if 0
+    // hour angle for sun center and no refraction correction
+    hour_angle = ACOSD(-TAND(latitude) * TAND(declination));
+#else
+    // hour angle with correction for refraction and disc diameter
+    hour_angle = ACOSD( (SIND(-0.83) - SIND(latitude) * SIND(declination)) /
+                       (COSD(latitude) * COSD(declination)));
+#endif
+
+    // calculate sunrise or sunset
+    if (sunset_flag_arg) {
+        jresult = jtransit + hour_angle / 360;
+    } else {
+        jresult = jtransit - hour_angle / 360;
+    }
+
+    // convert jresult to linux time
+    int year, month, day, hour, minute;
+    double hr, seconds;
+    time_t t;
+    struct tm tm;
+    jd2ymdh(jresult, &year, &month, &day, &hr);
+    hr2hms(hr, &hour, &minute, &seconds);
+    memset(&tm,0,sizeof(tm));
+    tm.tm_sec   = seconds;
+    tm.tm_min   = minute;
+    tm.tm_hour  = hour;
+    tm.tm_mday  = day;
+    tm.tm_mon   = month - 1;       // 0 to 11
+    tm.tm_year  = year - 1900;   // based 1900
+    t = timegm(&tm);
+
+    // return linux time
+    return t;
+}
+
 // -----------------  TEST ALGORITHMS  ------------------------------------
 
 void unit_test_algorithms(void) 
 {
-    double jd, lst, ra, dec, az, el, lat, lng, az_exp, el_exp;
-    double deviation;
-    int i, ret;
-    unsigned long start_us, duration_us;
-    time_t t;
-
     // test jdconv ...
     // https://www.aavso.org/jd-calculator; also
     // refer to https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
-    jd =  jdconv(2000,1,1,12);
+    { double jd;
+    jd = jdconv(2000,1,1,12);
     if (jd != 2451545.0) {
         FATAL("jd %f should be 2451545.0\n", jd);
+    } }
+
+    // test jd2ymdh
+    { int y_act, m_act, d_act; double h_act;
+      int y_exp, m_exp, d_exp; double h_exp;
+      double jd, devi;
+
+    y_exp = 2000; m_exp = 1; d_exp = 1; h_exp = 0;
+    jd = jdconv(y_exp, m_exp, d_exp, h_exp);
+    jd2ymdh(jd, &y_act, &m_act, &d_act, &h_act);
+    if (y_act != y_exp || m_act != m_exp || d_act != d_exp || !is_close(h_act,h_exp,.000001,&devi)) {
+        FATAL("jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
+              y_exp, m_exp, d_exp, h_exp, y_act, m_act, d_act, h_act);
     }
+
+    y_exp = 2010; m_exp = 6; d_exp = 29; h_exp = 15.1234;
+    jd = jdconv(y_exp, m_exp, d_exp, h_exp);
+    jd2ymdh(jd, &y_act, &m_act, &d_act, &h_act);
+    if (y_act != y_exp || m_act != m_exp || d_act != d_exp || !is_close(h_act,h_exp,.000001,&devi)) {
+        FATAL("jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
+              y_exp, m_exp, d_exp, h_exp, y_act, m_act, d_act, h_act);
+    }
+
+    y_exp = 2018; m_exp = 12; d_exp = 22; h_exp = 15.75;
+    jd = jdconv(y_exp, m_exp, d_exp, h_exp);
+    jd2ymdh(jd, &y_act, &m_act, &d_act, &h_act);
+    if (y_act != y_exp || m_act != m_exp || d_act != d_exp || !is_close(h_act,h_exp,.000001,&devi)) {
+        FATAL("jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
+              y_exp, m_exp, d_exp, h_exp, y_act, m_act, d_act, h_act);
+    } }
 
     // test local sidereal time ...
     // from date cmd: Fri Dec  7 20:53:37 EST 2018
     // from https://tycho.usno.navy.mil/cgi-bin/sidereal-post.sh
     //    02:12:44.9 LST         2+12/60+44.9/3600 = 2.21247
     //    Longitude -72 00 00
+    { double jd, lst, lst_deviation;
     jd = jdconv(2018,12,8,1.8936);  
     lst = ct2lst(-72, jd);
-    if (!is_close(lst, 2.21247, 0.000010, &deviation)) {
-        FATAL("lst deviation = %f, exceeds limit\n", deviation);
+    if (!is_close(lst, 2.21247, 0.00001, &lst_deviation)) {
+        FATAL("lst_deviation = %f, exceeds limit\n", lst_deviation);
     }
-    INFO("lst deviation = %f\n", deviation);
+    INFO("lst_deviation = %f\n", lst_deviation);
+    }
 
     // this webiste has a radec2azel convert code, which I did not use; 
     // however I did use the sample problem provided in the comments ...
@@ -1822,6 +2028,8 @@ void unit_test_algorithms(void)
     // Worked Example: http://www.stargazing.net/kepler/altaz.html
     // [Az El] = RaDec2AzEl(344.95,42.71667,52.5,-1.91667,'1997/03/14 19:00:00')
     // [311.92258 22.40100] = RaDec2AzEl(344.95,42.71667,52.5,-1.91667,'1997/03/14 19:00:00')
+    { double ra, dec, az, el, lat, lng, jd, lst, az_exp, el_exp, az_deviation, el_deviation;
+      int ret;
     ra  = 344.95;
     dec = 42.71667;
     lat = 52.5;
@@ -1835,22 +2043,24 @@ void unit_test_algorithms(void)
         FATAL("radec2azel failed\n");
     }
     DEBUG("calc: az=%f el=%f  expected: az=%f el=%f\n", az, el, az_exp, el_exp);
-    if (!is_close(az, az_exp, 0.000010, &deviation)) {
-        INFO("az deviation = %f, exceeds limit\n", deviation);
+    if (!is_close(az, az_exp, 0.00001, &az_deviation)) {
+        FATAL("az_deviation = %f, exceeds limit\n", az_deviation);
     }
-    INFO("az deviation = %f\n", deviation);
-    if (!is_close(el, el_exp, 0.000010, &deviation)) {
-        INFO("el deviation = %f, exceeds limit\n", deviation);
+    if (!is_close(el, el_exp, 0.00001, &el_deviation)) {
+        FATAL("el_deviation = %f, exceeds limit\n", el_deviation);
     }
-    INFO("el deviation = %f\n", deviation);
+    INFO("az_deviatin = %f  el_deviation = %f\n", az_deviation, el_deviation);
+    }
 
     // print list of solar_sys objects and their ra,dec,mag,az,el
+    { time_t t;
+      double lst, az, el;
+      int i, ret;
     t = time(NULL);
     lst = ct2lst(longitude, jdconv2(t));
     INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
     for (i = 0; i < max_obj; i++) {
         obj_t *x = &obj[i];
-        double az, el;
 
         if (x->type != OBJTYPE_SOLAR) {
             continue;
@@ -1863,9 +2073,13 @@ void unit_test_algorithms(void)
         }
 
         INFO("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
-    }
+    } }
 
     // time how long to convert all stellar objects to az/el
+    { double lst, az, el;
+      time_t t;
+      int i, ret;
+      unsigned long start_us, duration_us;
     start_us = microsec_timer();
     t = time(NULL);
     lst = ct2lst(longitude, jdconv2(t));
@@ -1881,6 +2095,33 @@ void unit_test_algorithms(void)
     }
     duration_us = microsec_timer() - start_us;
     INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
+    }
+
+    // test sunrise and sunset
+    // https://www.timeanddate.com/sun/usa/marlborough?month=3&year=2018
+    { time_t t;
+      struct tm *tm;
+    t = sunset(2018, 3, 13);
+    tm = localtime(&t);
+    if (tm->tm_year   != 2018-1900 ||
+        tm->tm_mon    != 3-1 ||
+        tm->tm_mday   != 13 ||
+        tm->tm_hour   != 18 ||
+        tm->tm_min != 50) 
+    {
+        FATAL("sunset %s\n", asctime(tm));
+    }
+    
+    t = sunrise(2018, 3, 13);
+    tm = localtime(&t);
+    if (tm->tm_year   != 2018-1900 ||
+        tm->tm_mon    != 3-1 ||
+        tm->tm_mday   != 13 ||
+        tm->tm_hour   != 7 ||
+        tm->tm_min != 2) 
+    {
+        FATAL("sunset %s\n", asctime(tm));
+    } }
 
     INFO("tests passed\n");
 }
@@ -1888,7 +2129,19 @@ void unit_test_algorithms(void)
 bool is_close(double act, double exp, double allowed_deviation, double * deviation)
 {
     bool is_close;
-    *deviation = fabs((act - exp) / exp);
-    is_close = (*deviation < 0.000010);
+
+    if (act == exp) {
+        *deviation = 0;
+        return true;
+    }
+
+    if (exp != 0) {
+        *deviation = fabs((act - exp) / exp);
+    } else {
+        *deviation = fabs((act - exp) / act);
+    }
+
+    is_close = (*deviation < allowed_deviation);
+
     return is_close;
 }
