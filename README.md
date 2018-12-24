@@ -22,7 +22,7 @@ using the get_stellar_data and get_solar_sys_data shell scripts.
 * I use display resolution 1920x1080; others should work.
 * Run program: ./tcx
 
-Using tcx. XXX TBD
+Using tcx.
 
 * You should see three panes:
 
@@ -40,16 +40,23 @@ Using tcx. XXX TBD
   * PgDn resets display to default except Az/El pane shows objects above and below horizon
   * Mouse Right Click to select an object; Esc to cancel (only avail in Az/El Pane)
   * 'T' enables tracking the selected object; 't' cancel
-  * '1' current; '2' pause; '3' fwd; '4' rew; '5' sid day fwd; '6' sid day rew
+  * '1' current; '2' pause; '3' reverse; '4' forward; '5' reverse-step; '6' forward-step
 
 
-* Control Pane Commands (most useful is 'sel')
+* Control Pane Commands:
 
   * sel [<object_name>]: select an object by name, example "sel mars"
   * trk <on|off>: enable or disable tracking of selected object
   * reset [<all_sky>]: reset display to default
   * zoom <1..52>
   * mag <min_display_magnitude>
+  * tstep <delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh>: set the time step mode, relating to forward & reverse; examples:
+    * tstep delta_t     --- current time + 180 secs
+    * tstep sunset      --- next day sunset
+    * tstep sunset+2.5  --- next day sunset + 2 1/2 hours
+    * tstep sidday      --- current time + SID_DAY_SECS
+    * tstep 23.25       --- 23:15:00 UTC of the next day 
+
   * quit
 
 
@@ -57,7 +64,7 @@ Using tcx. XXX TBD
 
 Sky Chart testing:
 
-* Refer to the unit_test_algorithms routine in sky.c.
+* Refer to the unit_test routine in sky.c.
 
 Credits:
 

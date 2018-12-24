@@ -811,7 +811,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         }
 
         // display date & time
-        // XXX not green on single step
         fontsz = 24;
         sky_time_get_mode(&mode);
         color = (mode == SKY_TIME_MODE_CURRENT ? WHITE :
@@ -1084,7 +1083,10 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
 
         // display the time step mode setting
         sky_time_get_step_mode(&step_mode, &step_mode_hr_param);
-        if (step_mode_hr_param == 0) {
+        if (step_mode == SKY_TIME_STEP_MODE_TIMEOFDAY) {
+            sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
+                            "TSTEP: %0.3g", step_mode_hr_param);
+        } else if (step_mode_hr_param == 0) {
             sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
                             "TSTEP: %s", SKY_TIME_STEP_MODE_STR(step_mode));
         } else {
@@ -1276,7 +1278,7 @@ char * proc_ctl_pane_cmd(char * cmd_line)
             return "okay";
         } else if (strncasecmp(arg1, "sunrise", 7) == 0) {
             if (arg1[7] == '+' || arg1[7] == '-') {
-                if (sscanf(arg1+6, "%lf", &hr) != 1) {
+                if (sscanf(arg1+7, "%lf", &hr) != 1) {
                     return "error: invalid hour";
                 }
             } else if (arg1[7] != '\0') {
@@ -1723,13 +1725,14 @@ void get_prior_day(int * year, int * month, int * day)
 // -----------------  SKY TIME  -------------------------------------------
 
 time_t __sky_time                    = 0;
+long   __sky_time_new_mode_req       = SKY_TIME_MODE_NONE;
 long   __sky_time_mode               = SKY_TIME_MODE_CURRENT;
 int    __sky_time_step_mode          = SKY_TIME_STEP_MODE_DELTA_T;
 double __sky_time_step_mode_hr_param = 0;
 
 void sky_time_set_mode(int mode)
 {
-    __sky_time_mode = mode;
+    __sky_time_new_mode_req = mode;
 }
 
 void sky_time_get_mode(int * mode)
@@ -1755,6 +1758,7 @@ time_t sky_time_get_time(void)
     unsigned long time_now;
 
     static unsigned long time_of_last_call;
+    static double jdss;  // jd for sunrise/sunset step mode
 
     // if this is an early call (less than 100 ms from last call) then
     // return the same sky_time as before; the reason being that when 
@@ -1766,10 +1770,17 @@ time_t sky_time_get_time(void)
     }
     time_of_last_call = time_now;
 
+    // handle request to change the time mode
+    if (__sky_time_new_mode_req != SKY_TIME_MODE_NONE) {
+        __sky_time_mode = __sky_time_new_mode_req;
+        __sky_time_new_mode_req = SKY_TIME_MODE_NONE;
+    }
+
     // determine return time based on time mode
     switch (__sky_time_mode) {
     case SKY_TIME_MODE_CURRENT:
         __sky_time = time(NULL);
+        jdss = 0;
         break;
     case SKY_TIME_MODE_PAUSED:
         // no change to __sky_time.
@@ -1779,20 +1790,25 @@ time_t sky_time_get_time(void)
         switch (__sky_time_step_mode) {
         case SKY_TIME_STEP_MODE_DELTA_T:
             __sky_time = __sky_time + DELTA_T;
+            jdss = 0;
             break;
         case SKY_TIME_STEP_MODE_SUNRISE:
-            sunrise_sunset(jdconv2(__sky_time)+1, &trise, &tset);
+            jdss = (jdss == 0 ? jdconv2(__sky_time) : jdss + 1);
+            sunrise_sunset(jdss, &trise, &tset);
             __sky_time = trise + __sky_time_step_mode_hr_param * 3600;
             break;
         case SKY_TIME_STEP_MODE_SUNSET:
-            sunrise_sunset(jdconv2(__sky_time)+1, &trise, &tset);
+            jdss = (jdss == 0 ? jdconv2(__sky_time) : jdss + 1);
+            sunrise_sunset(jdss, &trise, &tset);
             __sky_time = tset + __sky_time_step_mode_hr_param * 3600;
             break;
         case SKY_TIME_STEP_MODE_SIDDAY:
             __sky_time = __sky_time + SID_DAY_SECS;
+            jdss = 0;
             break;
         case SKY_TIME_STEP_MODE_TIMEOFDAY:
             __sky_time = sky_time_tod_next(__sky_time, __sky_time_step_mode_hr_param);
+            jdss = 0;
             break;
         default:
             FATAL("BUG: invalid __sky_time_step_mode %d\n", __sky_time_step_mode);
@@ -1806,20 +1822,25 @@ time_t sky_time_get_time(void)
         switch (__sky_time_step_mode) {
         case SKY_TIME_STEP_MODE_DELTA_T:
             __sky_time = __sky_time - DELTA_T;
+            jdss = 0;
             break;
         case SKY_TIME_STEP_MODE_SUNRISE:
-            sunrise_sunset(jdconv2(__sky_time)-1, &trise, &tset);
+            jdss = (jdss == 0 ? jdconv2(__sky_time) : jdss - 1);
+            sunrise_sunset(jdss, &trise, &tset);
             __sky_time = trise + __sky_time_step_mode_hr_param * 3600;
             break;
         case SKY_TIME_STEP_MODE_SUNSET:
-            sunrise_sunset(jdconv2(__sky_time)-1, &trise, &tset);
+            jdss = (jdss == 0 ? jdconv2(__sky_time) : jdss - 1);
+            sunrise_sunset(jdss, &trise, &tset);
             __sky_time = tset + __sky_time_step_mode_hr_param * 3600;
             break;
         case SKY_TIME_STEP_MODE_SIDDAY:
             __sky_time = __sky_time - SID_DAY_SECS;
+            jdss = 0;
             break;
         case SKY_TIME_STEP_MODE_TIMEOFDAY:
             __sky_time = sky_time_tod_prior(__sky_time, __sky_time_step_mode_hr_param);
+            jdss = 0;
             break;
         default:
             FATAL("BUG: invalid __sky_time_step_mode %d\n", __sky_time_step_mode);
