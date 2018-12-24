@@ -1,31 +1,3 @@
-// XXX rethink the fast time controls
-//         realtime
-//         sidereal day
-//         sunset and sunrise
-//         sunset+x and sunrise+x
-//         specific localtime
-//    1 -> live     WHITE
-//    2 -> pause    RED
-//    3 -> rev      GREEN 
-//    4 -> fwd      GREEN
-//    5 -> steprev  GREEN BRIEFLY then RED  
-//    6 -> stepfwd  '                   '
-//        ctrl cmd to set the time mode, and display current mode
-//
-//   sky pane display      date-and-time    NORMAL
-//                         date-and-time  sunset  pause
-//                         date-and-time  sunset  fwd
-//                         date-and-time  sunset+1  rev     where + is 1.5 hours or 1:30 for hours and minutes
-//                         date-and-time  23:00:00  pause    or 23.12345
-//   ctrl pane
-//      MAG   xxxx
-//      TIME  sunset+xxx
-//
-// api  
-//    sunset(y,m,d)   returns linux time
-
-
-
 /*
 Copyright (c) 2018 Steven Haid
 
@@ -57,44 +29,48 @@ SOFTWARE.
 #define MAX_OBJ      200000
 #define MAX_OBJ_NAME 32
 
-#define RAD2DEG (180. / M_PI)
-#define DEG2RAD (M_PI / 180.)
-#define HR2RAD  (M_PI / 12.)
-
-#define NO_VALUE     9999
-#define NO_VALUE_STR "9999"
-
 #define OBJTYPE_NONE       0
 #define OBJTYPE_STELLAR    1
 #define OBJTYPE_SOLAR      2
 #define OBJTYPE_PLACE_MARK 3
 
-#define MIN_MAG     -5    // brightest
-#define MAX_MAG      22   // dimmest
-#define DEFAULT_MAG  7    // faintest naked-eye stars from dark rural area
-
 #define SIZEOF_SOLAR_SYS_OBJ_INFO_T(n) (sizeof(solar_sys_obj_info_t) + sizeof(struct info_s) * (n))
 
-#define SID_DAY_SECS  (23*3600 + 56*60 + 4)
+#define SKY_TIME_MODE_NONE      0
+#define SKY_TIME_MODE_CURRENT   1
+#define SKY_TIME_MODE_PAUSED    2
+#define SKY_TIME_MODE_REV       3
+#define SKY_TIME_MODE_FWD       4
+#define SKY_TIME_MODE_REV_STEP  5
+#define SKY_TIME_MODE_FWD_STEP  6
 
-#define SKY_TIME_MODE_NONE    0
-#define SKY_TIME_MODE_CURRENT 1
-#define SKY_TIME_MODE_PAUSED  2
-#define SKY_TIME_MODE_FWD     3
-#define SKY_TIME_MODE_REW     4
-#define SKY_TIME_MODE_SD_FWD  5
-#define SKY_TIME_MODE_SD_REW  6
+#define SKY_TIME_STEP_MODE_NONE      0
+#define SKY_TIME_STEP_MODE_DELTA_T   1
+#define SKY_TIME_STEP_MODE_SUNRISE   2
+#define SKY_TIME_STEP_MODE_SUNSET    3
+#define SKY_TIME_STEP_MODE_SIDDAY    4
+#define SKY_TIME_STEP_MODE_TIMEOFDAY 5
 
 #define SKY_TIME_MODE_STR(x) \
-    ({ int mode = x; \
-       ((mode) == SKY_TIME_MODE_NONE    ? "NONE  " : \
-        (mode) == SKY_TIME_MODE_CURRENT ? "CURR  " : \
-        (mode) == SKY_TIME_MODE_PAUSED  ? "PAUSE " : \
-        (mode) == SKY_TIME_MODE_FWD     ? "FWD   " : \
-        (mode) == SKY_TIME_MODE_REW     ? "REW   " : \
-        (mode) == SKY_TIME_MODE_SD_FWD  ? "SD_FWD" : \
-        (mode) == SKY_TIME_MODE_SD_REW  ? "SD_REW" : \
-                                          "??????"  );})
+    ({ int _mode = (x); \
+       (_mode == SKY_TIME_MODE_NONE      ? "NONE"     : \
+        _mode == SKY_TIME_MODE_CURRENT   ? "CURR"     : \
+        _mode == SKY_TIME_MODE_PAUSED    ? "PAUSE"    : \
+        _mode == SKY_TIME_MODE_FWD       ? "FWD"      : \
+        _mode == SKY_TIME_MODE_REV       ? "REV"      : \
+        _mode == SKY_TIME_MODE_FWD_STEP  ? "FWD_STEP" : \
+        _mode == SKY_TIME_MODE_REV_STEP  ? "REV_STEP" : \
+                                           "???"  );})
+
+#define SKY_TIME_STEP_MODE_STR(x) \
+    ({ int _step_mode = (x); \
+       (_step_mode == SKY_TIME_STEP_MODE_NONE      ? "NONE"      : \
+        _step_mode == SKY_TIME_STEP_MODE_DELTA_T   ? "DELTA_T"   : \
+        _step_mode == SKY_TIME_STEP_MODE_SUNRISE   ? "SUNRISE"   : \
+        _step_mode == SKY_TIME_STEP_MODE_SUNSET    ? "SUNSET"    : \
+        _step_mode == SKY_TIME_STEP_MODE_SIDDAY    ? "SIDDAY"    : \
+        _step_mode == SKY_TIME_STEP_MODE_TIMEOFDAY ? "TIMEOFDAY" : \
+                                                     "???"  );})
 
 #define SIND(x)   (sin((x)*DEG2RAD))
 #define COSD(x)   (cos((x)*DEG2RAD))
@@ -102,7 +78,22 @@ SOFTWARE.
 #define ACOSD(x)  (acos(x)*RAD2DEG)
 #define ASIND(x)  (asin(x)*RAD2DEG)
 
+#define RAD2DEG (180. / M_PI)
+#define DEG2RAD (M_PI / 180.)
+#define HR2RAD  (M_PI / 12.)
+
+#define MIN_MAG     -5    // brightest
+#define MAX_MAG      22   // dimmest
+#define DEFAULT_MAG  7    // faintest naked-eye stars from dark rural area
+
+#define SID_DAY_SECS  (23*3600 + 56*60 + 4)
+
 #define JD2000 2451545.0
+
+#define DELTA_T 180
+
+#define NO_VALUE     9999
+#define NO_VALUE_STR "9999"
 
 //
 // typedefs
@@ -150,7 +141,7 @@ char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 
 // init
 int read_stellar_data(char * filename);
-int read_solar_sys_data(char * filename);
+int read_solar_sys_data(char * filename, char **incl_ss_obj, int max_incl_ss_obj);
 int read_place_marks(char * filename);
 int obj_sanity_checks(void);
 
@@ -164,10 +155,15 @@ char * gmtime_str(time_t t, char *str);
 char *localtime_str(time_t t, char *str);
 void hr2hms(double hr, int * hour, int * minute, double * seconds);
 char * hr_str(double hr, char *str);
-bool skip_solar_sys_obj(obj_t * x) ;
-void sky_time_set_mode(int new_mode_req);
-int sky_time_get_mode(void);
+void get_next_day(int * year, int * month, int * day);
+void get_prior_day(int * year, int * month, int * day);
+void sky_time_set_mode(int mode);
+void sky_time_get_mode(int * mode);
+void sky_time_set_step_mode(int step_mode, double step_mode_hr_param);
+void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param);
 time_t sky_time_get_time(void);
+time_t sky_time_tod_next(time_t t, double hr);
+time_t sky_time_tod_prior(time_t t, double hr);
 
 // convert ra,dec to az,el
 double jdconv(int yr, int mn, int day, double hour);
@@ -180,48 +176,70 @@ int radec2azel(double *az, double *el, double ra, double dec, double lst, double
 int azel2xy(double az, double el, double max, double *xret, double *yret);
 
 // sunrise and sunset times
-time_t sunset(int year, int month, int day);
-time_t sunrise(int year, int month, int day);
-time_t sunrise_sunset_common(int year_arg, int month_arg, int day_arg, bool sunset_flag_arg);
+void sunrise_sunset(double jd, time_t *trise, time_t *tset);
 
 // unit test
-void unit_test_algorithms(void);
+void unit_test(void);
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
 
 // -----------------  SKY INIT  -------------------------------------------
 
-int sky_init(void) 
+int sky_init(char *incl_ss_obj_str)
 {
     int ret;
     char str[100];
+    bool first = true;
+    char *incl_ss_obj[100];
+    int max_incl_ss_obj = 0;
 
     INFO("UTC now = %s\n", gmtime_str(time(NULL),str));
     INFO("LCL now = %s\n", localtime_str(time(NULL),str));
 
+    // parse incl_ss_obj_str, which is a comma seperated list of 
+    // solar sys objects to be included; if the list is not supplied
+    // then all solar sys objects will be included
+    if (incl_ss_obj_str) {
+        while (true) {
+            char *name = strtok(first ? incl_ss_obj_str : NULL, ",");
+            first = false;
+            if (name == NULL) {
+                break;
+            }
+            incl_ss_obj[max_incl_ss_obj++] = name;
+        }
+    }
+
+    // read positions of stars from hygdata_v3.csv"
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
         return ret;
     }
 
-    ret = read_solar_sys_data("sky_data/solar_sys_data.csv");
+    // read positions of solar sys objects (planets, moons, etc) from solar_sys_data.csv
+    ret = read_solar_sys_data("sky_data/solar_sys_data.csv", incl_ss_obj, max_incl_ss_obj);
     if (ret < 0) {
         return ret;
     }
 
+    // read additional place markers from place_marks.dat
     ret = read_place_marks("sky_data/place_marks.dat");
     if (ret < 0) {
         return ret;
     }
 
+    // do some sanity checks on the objects that have been read by the calls made above
     ret = obj_sanity_checks();
     if (ret < 0) {
         return ret;
     }
 
+    // debug print the total number of objects that have been read
     INFO("max_object  = %d\n", max_obj);
 
-    unit_test_algorithms();
+    // run some unit tests (optional)
+    unit_test();
 
+    // success
     return 0;
 }
 
@@ -340,14 +358,14 @@ int read_stellar_data(char * filename)
     return 0;
 }
 
-int read_solar_sys_data(char * filename)
+int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
 {
     // format, example:
     //   # Venus
     //    2018-Dec-01 00:00, , ,207.30643, -9.79665,  -4.87,  1.44,
 
     FILE *fp;
-    int line=1, num_added=0, len;
+    int line=1, num_added=0, len, i;
     obj_t *x = NULL;
     solar_sys_obj_info_t *ssinfo = NULL;
     char str[10000], *s, *name;
@@ -355,6 +373,7 @@ int read_solar_sys_data(char * filename)
     char *not_used_str __attribute__ ((unused));
     double ra, dec, mag;
     time_t t;
+    bool skipping_this_ss_obj=false;
 
     // open
     fp = fopen(filename, "r");
@@ -386,6 +405,24 @@ int read_solar_sys_data(char * filename)
             len = strlen(name);
             if (len > 0 && name[len-1] == '\n') name[len-1] = 0;
 
+            // if a list of solar sys objects to include has been provided then
+            // check the list for presenced of 'name'; if not found then this object
+            // will be skipped
+            if (max_incl_ss_obj > 0) {
+                skipping_this_ss_obj = true;
+                for (i = 0; i < max_incl_ss_obj; i++) {
+                    if (strcasecmp(name, incl_ss_obj[i]) == 0) {
+                        skipping_this_ss_obj = false;
+                        break;
+                    }
+                }
+            } else {
+                skipping_this_ss_obj = false;
+            }
+            if (skipping_this_ss_obj) {
+                continue;
+            }
+
             // alloc ssinfo, it will be realloced in increments of 10000 struct info_s as needed
             ssinfo = malloc(SIZEOF_SOLAR_SYS_OBJ_INFO_T(0));
             ssinfo->max_info = 0;
@@ -406,6 +443,11 @@ int read_solar_sys_data(char * filename)
             line++;
             continue;
         } 
+
+        // if skipping this object then continue
+        if (skipping_this_ss_obj) {
+            continue;
+        }
 
         // get fields for the object currently being input
         GET_FIELD(date_str);
@@ -606,7 +648,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_el = (pane->h) / (max_el - min_el);
         double k_az = (pane->w) / (min_az - max_az);
 
-        int xcoord, ycoord, i, ptsz, color, fontsz, ret, ret_action;
+        int xcoord, ycoord, i, ptsz, color, fontsz, ret, ret_action, mode;
         double az, el;
         double grid_sep, first_az_line, first_el_line;
 
@@ -639,13 +681,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
             // if obj type is not valid then continue
             if (x->type == OBJTYPE_NONE) {
-                continue;
-            }
-
-            // this program can be configured to skip certain solar sys objects;
-            // to do this the skip_solar_sys_obj routine needs to be adjusted and
-            // the program rebuilt
-            if (x->type == OBJTYPE_SOLAR && skip_solar_sys_obj(x)) {
                 continue;
             }
 
@@ -776,10 +811,14 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         }
 
         // display date & time
+        // XXX not green on single step
         fontsz = 24;
-        color = (sky_time_get_mode() == SKY_TIME_MODE_CURRENT ? WHITE : RED);
-        sdl_render_printf(pane, COL2X(3,fontsz), 0, fontsz, color, BLACK, "%s %s", 
-                          SKY_TIME_MODE_STR(sky_time_get_mode()),
+        sky_time_get_mode(&mode);
+        color = (mode == SKY_TIME_MODE_CURRENT ? WHITE :
+                 mode == SKY_TIME_MODE_PAUSED  ? RED   :
+                                                 GREEN);
+        sdl_render_printf(pane, COL2X(3,fontsz), 0, fontsz, color, BLACK, "%8s %s", 
+                          SKY_TIME_MODE_STR(mode),
                           localtime_str(sky_time,str));
 
         // clear selected if the magnitude of the selected obj is no longer being displayed
@@ -944,16 +983,16 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             sky_time_set_mode(SKY_TIME_MODE_PAUSED);
             break;
         case '3':
-            sky_time_set_mode(SKY_TIME_MODE_FWD);
+            sky_time_set_mode(SKY_TIME_MODE_REV);
             break;
         case '4':
-            sky_time_set_mode(SKY_TIME_MODE_REW);
+            sky_time_set_mode(SKY_TIME_MODE_FWD);
             break;
         case '5':
-            sky_time_set_mode(SKY_TIME_MODE_SD_FWD);
+            sky_time_set_mode(SKY_TIME_MODE_REV_STEP);
             break;
         case '6':
-            sky_time_set_mode(SKY_TIME_MODE_SD_REW);
+            sky_time_set_mode(SKY_TIME_MODE_FWD_STEP);
             break;
         }
 
@@ -1003,9 +1042,9 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int fontsz=24, ret;
+        int fontsz=24, ret, step_mode;
         char name[200];
-        double az, el, az_ctr1;
+        double az, el, az_ctr1, step_mode_hr_param;
 
         // display tracking state
         sdl_render_printf(pane, 0, ROW2Y(0,fontsz), fontsz, WHITE, BLACK, 
@@ -1041,16 +1080,26 @@ int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl
 
         // display the minimum object magnitude that will be displayed
         sdl_render_printf(pane, 0, ROW2Y(8,fontsz), fontsz, WHITE, BLACK,
-                          "DISPLAY_MAG   %0.1f", mag);
+                          "MAG:   %0.1f", mag);
+
+        // display the time step mode setting
+        sky_time_get_step_mode(&step_mode, &step_mode_hr_param);
+        if (step_mode_hr_param == 0) {
+            sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
+                            "TSTEP: %s", SKY_TIME_STEP_MODE_STR(step_mode));
+        } else {
+            sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
+                            "TSTEP: %s%+0.3g", SKY_TIME_STEP_MODE_STR(step_mode), step_mode_hr_param);
+        }
 
         // display the cmd_line and cmd_status
         if (microsec_timer() - vars->cmd_status_time_us < 2500000) {
-            sdl_render_printf(pane, 0, ROW2Y(10,fontsz), fontsz, WHITE, BLACK,
-                              "> %s", vars->cmd_line_last);
             sdl_render_printf(pane, 0, ROW2Y(11,fontsz), fontsz, WHITE, BLACK,
+                              "> %s", vars->cmd_line_last);
+            sdl_render_printf(pane, 0, ROW2Y(12,fontsz), fontsz, WHITE, BLACK,
                               "  %s", vars->cmd_status);
         } else {
-            sdl_render_printf(pane, 0, ROW2Y(10,fontsz), fontsz, WHITE, BLACK,
+            sdl_render_printf(pane, 0, ROW2Y(11,fontsz), fontsz, WHITE, BLACK,
                               "> %s%c", vars->cmd_line, '_');
         }
 
@@ -1112,7 +1161,8 @@ char * proc_ctl_pane_cmd(char * cmd_line)
     // tokenize cmd_line into cmd, arg1
     strcpy(cmd_line_copy, cmd_line);
     cmd = strtok(cmd_line_copy, " ");
-    arg1 = strtok(NULL, " ");
+    arg1 = strtok(NULL, "");
+    INFO("cmd='%s' arg1='%s'\n", cmd, arg1);
 
     // ignore blank cmd_line
     if (cmd == NULL) {
@@ -1188,6 +1238,61 @@ char * proc_ctl_pane_cmd(char * cmd_line)
             mag = new_mag;
         }
         return "okay";
+    } else if (strcasecmp(cmd, "tstep") == 0) {
+        // process: tstep <delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh>
+        //
+        // This command sets the time-mode that is used when SKY_TIME_MODE_REV/FWD
+        // is enabled. SKY_TIME_MODE_xxx is controlled using the key cmds 1,2,3,4,5,6
+        // in the sky pane or sky view pane.
+        // 
+        // EXAMPLES          TIME OF NEXT DISPLAY UPDATE IN SKY_TIME_MODE_FWD
+        // --------           ------------------------------------------------
+        // tstep delta_t      current time + 120 secs
+        // tstep sunset       next day sunset
+        // tstep sunset+2.5   next day sunset + 2 1/2 hours
+        // tstep sidday       current time + SID_DAY_SECS
+        // tstep 23.25        23:15:00 UTC of the next day 
+
+        double hr = 0;
+        if (arg1 == NULL) {
+            return "error: arg required";
+        }
+
+        if (strcasecmp(arg1, "delta_t") == 0) {
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, 0);
+            return "okay";
+        } else if (strcasecmp(arg1, "sidday") == 0) {
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SIDDAY, 0);
+            return "okay";
+        } else if (strncasecmp(arg1, "sunset", 6) == 0) {
+            if (arg1[6] == '+' || arg1[6] == '-') {
+                if (sscanf(arg1+6, "%lf", &hr) != 1) {
+                    return "error: invalid hour";
+                }
+            } else if (arg1[6] != '\0') {
+                return "error: invalid hour";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SUNSET, hr);
+            return "okay";
+        } else if (strncasecmp(arg1, "sunrise", 7) == 0) {
+            if (arg1[7] == '+' || arg1[7] == '-') {
+                if (sscanf(arg1+6, "%lf", &hr) != 1) {
+                    return "error: invalid hour";
+                }
+            } else if (arg1[7] != '\0') {
+                return "error: invalid hour";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SUNRISE, hr);
+            return "okay";
+        } else if (sscanf(arg1, "%lf", &hr) == 1) {
+            if (hr < 0 || hr >= 24) {
+                return "error: invalid hour";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_TIMEOFDAY, hr);
+            return "okay";
+        } else {
+            return "error: invalid arg";
+        }
     } else if (strcasecmp(cmd, "quit") == 0) {
         exit(0);
         // not reached
@@ -1239,13 +1344,6 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
 
             // if obj type is not valid then continue
             if (x->type == OBJTYPE_NONE) {
-                continue;
-            }
-
-            // this program can be configured to skip certain solar sys objects;
-            // to do this the skip_solar_sys_obj routine needs to be adjusted and
-            // the program rebuilt
-            if (x->type == OBJTYPE_SOLAR && skip_solar_sys_obj(x)) {
                 continue;
             }
 
@@ -1412,18 +1510,19 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             sky_time_set_mode(SKY_TIME_MODE_PAUSED);
             break;
         case '3':
-            sky_time_set_mode(SKY_TIME_MODE_FWD);
+            sky_time_set_mode(SKY_TIME_MODE_REV);
             break;
         case '4':
-            sky_time_set_mode(SKY_TIME_MODE_REW);
+            sky_time_set_mode(SKY_TIME_MODE_FWD);
             break;
         case '5':
-            sky_time_set_mode(SKY_TIME_MODE_SD_FWD);
+            sky_time_set_mode(SKY_TIME_MODE_REV_STEP);
             break;
         case '6':
-            sky_time_set_mode(SKY_TIME_MODE_SD_REW);
+            sky_time_set_mode(SKY_TIME_MODE_FWD_STEP);
             break;
         }
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -1459,7 +1558,7 @@ int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
 
     // this routine is only to be called for OBJTYPE_SOLAR
     if (x->type != OBJTYPE_SOLAR) {
-        FATAL("bug: called for invalid obj type %d\n",x->type);
+        FATAL("BUG: called for invalid obj type %d\n",x->type);
     }
 
     // preset returns to NO_VALUE
@@ -1493,7 +1592,7 @@ int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
 
     // if time is now not in range, that is a bug
     if (t < info[idx].t || t > info[idx+1].t) {
-        FATAL("bug: t=%ld info[%d].t=%ld info[%d].t=%ld\n",
+        FATAL("BUG: t=%ld info[%d].t=%ld info[%d].t=%ld\n",
               t, idx, info[idx].t, idx+1, info[idx+1].t);
     }
 
@@ -1526,6 +1625,7 @@ void reset(bool all_sky)
     tracking = false;
     sky_view_scale_tbl_idx = 0;
     sky_time_set_mode(SKY_TIME_MODE_CURRENT);
+    sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T,0);
 }
 
 char *gmtime_str(time_t t, char *str)
@@ -1580,65 +1680,91 @@ char * hr_str(double hr, char *str)
     return str;
 }
 
-bool skip_solar_sys_obj(obj_t * x) 
+void get_next_day(int * year, int * month, int * day)
 {
-    if (x->type != OBJTYPE_SOLAR) {
-        return false;
+                                    // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+    static char days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+
+    days_in_month[2] = ((*year % 4) != 0) ? 28 : 29;  // not correct for 2100
+
+    if (*day < days_in_month[*month]) {
+        *day = *day + 1;
+    } else {
+        *day = 1;
+        if (*month < 12) {
+            *month = *month + 1;
+        } else {
+            *month = 1;
+            *year = *year + 1;
+        }
     }
-
-    // modify this routine to skip solar sys objects
-
-#if 0
-    if (strcmp(x->name, "Sun")     == 0) return true;
-    if (strcmp(x->name, "Mercury") == 0) return true;
-    if (strcmp(x->name, "Venus")   == 0) return true;
-    if (strcmp(x->name, "Mars")    == 0) return true;
-    if (strcmp(x->name, "Jupiter") == 0) return true;
-    if (strcmp(x->name, "Saturn")  == 0) return true;
-    if (strcmp(x->name, "Uranus")  == 0) return true;
-    if (strcmp(x->name, "Neptune") == 0) return true;
-    if (strcmp(x->name, "Pluto")   == 0) return true;
-    if (strcmp(x->name, "Moon")    == 0) return true;
-#else  // vvvvv skip these vvvvv
-#endif
-
-    return false;
 }
 
-time_t __sky_time                  = 0;
-long   __sky_time_new_mode_req     = SKY_TIME_MODE_NONE;
-long   __sky_time_mode             = SKY_TIME_MODE_NONE;
-time_t __sky_time_mode_entry_time  = 0;
-long   __sky_time_mode_count       = 0;
-
-void sky_time_set_mode(int new_mode_req)
+void get_prior_day(int * year, int * month, int * day)
 {
-    __sky_time_new_mode_req = new_mode_req;
+                                    // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+    static char days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+
+    days_in_month[2] = ((*year % 4) != 0) ? 28 : 29;  // not correct for 2100
+
+    if (*day > 1) {
+        *day = *day - 1;
+    } else {
+        if (*month > 1) {
+            *month = *month - 1;
+        } else {
+            *month = 12;
+            *year = *year - 1;
+        }
+        *day = days_in_month[*month];
+    }
 }
 
-int sky_time_get_mode(void)
+// -----------------  SKY TIME  -------------------------------------------
+
+time_t __sky_time                    = 0;
+long   __sky_time_mode               = SKY_TIME_MODE_CURRENT;
+int    __sky_time_step_mode          = SKY_TIME_STEP_MODE_DELTA_T;
+double __sky_time_step_mode_hr_param = 0;
+
+void sky_time_set_mode(int mode)
 {
-    return __sky_time_mode;
+    __sky_time_mode = mode;
+}
+
+void sky_time_get_mode(int * mode)
+{
+    *mode = __sky_time_mode;
+}
+
+void sky_time_set_step_mode(int step_mode, double step_mode_hr_param)
+{
+    __sky_time_step_mode = step_mode;
+    __sky_time_step_mode_hr_param = step_mode_hr_param;
+}
+
+void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param)
+{
+    *step_mode = __sky_time_step_mode;
+    *step_mode_hr_param = __sky_time_step_mode_hr_param;
 }
 
 time_t sky_time_get_time(void) 
 {
-    // init on first call
-    if (__sky_time == 0) {
-        __sky_time = time(NULL);
-        __sky_time_new_mode_req = SKY_TIME_MODE_CURRENT;
-    }
+    time_t trise, tset;
+    unsigned long time_now;
 
-    // handle request to change the time mode
-    if (__sky_time_new_mode_req != SKY_TIME_MODE_NONE) {
-        __sky_time_mode = __sky_time_new_mode_req;
-        __sky_time_mode_count = 0;
-        __sky_time_mode_entry_time = __sky_time;
-        __sky_time_new_mode_req = SKY_TIME_MODE_NONE;
-    }
+    static unsigned long time_of_last_call;
 
-    // keep track of how many iterations we've been in this time mode
-    __sky_time_mode_count++;
+    // if this is an early call (less than 100 ms from last call) then
+    // return the same sky_time as before; the reason being that when 
+    // the display is being panned the display updates more frequently
+    // than the normal 100 ms interval
+    time_now = microsec_timer();
+    if (time_now - time_of_last_call < 90000) {
+        return __sky_time;
+    }
+    time_of_last_call = time_now;
 
     // determine return time based on time mode
     switch (__sky_time_mode) {
@@ -1649,31 +1775,118 @@ time_t sky_time_get_time(void)
         // no change to __sky_time.
         break;
     case SKY_TIME_MODE_FWD:
-        __sky_time = __sky_time_mode_entry_time +
-                     __sky_time_mode_count * 100;
+    case SKY_TIME_MODE_FWD_STEP:
+        switch (__sky_time_step_mode) {
+        case SKY_TIME_STEP_MODE_DELTA_T:
+            __sky_time = __sky_time + DELTA_T;
+            break;
+        case SKY_TIME_STEP_MODE_SUNRISE:
+            sunrise_sunset(jdconv2(__sky_time)+1, &trise, &tset);
+            __sky_time = trise + __sky_time_step_mode_hr_param * 3600;
+            break;
+        case SKY_TIME_STEP_MODE_SUNSET:
+            sunrise_sunset(jdconv2(__sky_time)+1, &trise, &tset);
+            __sky_time = tset + __sky_time_step_mode_hr_param * 3600;
+            break;
+        case SKY_TIME_STEP_MODE_SIDDAY:
+            __sky_time = __sky_time + SID_DAY_SECS;
+            break;
+        case SKY_TIME_STEP_MODE_TIMEOFDAY:
+            __sky_time = sky_time_tod_next(__sky_time, __sky_time_step_mode_hr_param);
+            break;
+        default:
+            FATAL("BUG: invalid __sky_time_step_mode %d\n", __sky_time_step_mode);
+        }
+        if (__sky_time_mode == SKY_TIME_MODE_FWD_STEP) {
+            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
+        }
         break;
-    case SKY_TIME_MODE_REW:
-        __sky_time = __sky_time_mode_entry_time -
-                     __sky_time_mode_count * 100;
-        break;
-    case SKY_TIME_MODE_SD_FWD:
-        __sky_time = __sky_time_mode_entry_time +
-                     __sky_time_mode_count * SID_DAY_SECS;
-        break;
-    case SKY_TIME_MODE_SD_REW:
-        __sky_time = __sky_time_mode_entry_time -
-                     __sky_time_mode_count * SID_DAY_SECS;
+    case SKY_TIME_MODE_REV:
+    case SKY_TIME_MODE_REV_STEP:
+        switch (__sky_time_step_mode) {
+        case SKY_TIME_STEP_MODE_DELTA_T:
+            __sky_time = __sky_time - DELTA_T;
+            break;
+        case SKY_TIME_STEP_MODE_SUNRISE:
+            sunrise_sunset(jdconv2(__sky_time)-1, &trise, &tset);
+            __sky_time = trise + __sky_time_step_mode_hr_param * 3600;
+            break;
+        case SKY_TIME_STEP_MODE_SUNSET:
+            sunrise_sunset(jdconv2(__sky_time)-1, &trise, &tset);
+            __sky_time = tset + __sky_time_step_mode_hr_param * 3600;
+            break;
+        case SKY_TIME_STEP_MODE_SIDDAY:
+            __sky_time = __sky_time - SID_DAY_SECS;
+            break;
+        case SKY_TIME_STEP_MODE_TIMEOFDAY:
+            __sky_time = sky_time_tod_prior(__sky_time, __sky_time_step_mode_hr_param);
+            break;
+        default:
+            FATAL("BUG: invalid __sky_time_step_mode %d\n", __sky_time_step_mode);
+        }
+        if (__sky_time_mode == SKY_TIME_MODE_REV_STEP) {
+            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
+        }
         break;
     default:
         FATAL("invalid sky_time_mode %ld\n", __sky_time_mode);
     }
 
     // return the time
-    DEBUG("sky_time=%ld mode=%s mode_entry_time=%ld mode_count=%ld \n",
-         __sky_time, SKY_TIME_MODE_STR(__sky_time_mode), 
-         __sky_time_mode_entry_time, __sky_time_mode_count);
     return __sky_time;
 } 
+
+time_t sky_time_tod_next(time_t t, double hr) 
+{
+    int year, month, day, hour, minute;
+    double second;
+    struct tm *tm, tm1;
+
+    tm = gmtime(&t);
+    year  = tm->tm_year + 1900;
+    month = tm->tm_mon + 1;
+    day   = tm->tm_mday;
+
+    get_next_day(&year, &month, &day);
+
+    hr2hms(hr, &hour, &minute, &second);
+
+    memset(&tm1, 0, sizeof(struct tm));
+    tm1.tm_year  = year-1900;   // based 1900
+    tm1.tm_mon   = month-1;     // 0 to 11
+    tm1.tm_mday  = day;
+    tm1.tm_hour  = hour;
+    tm1.tm_min   = minute;
+    tm1.tm_sec   = second;
+
+    return timegm(&tm1);
+}
+
+time_t sky_time_tod_prior(time_t t, double hr) 
+{
+    int year, month, day, hour, minute;
+    double second;
+    struct tm *tm, tm1;
+
+    tm = gmtime(&t);
+    year  = tm->tm_year + 1900;
+    month = tm->tm_mon + 1;
+    day   = tm->tm_mday;
+
+    get_prior_day(&year, &month, &day);
+
+    hr2hms(hr, &hour, &minute, &second);
+
+    memset(&tm1, 0, sizeof(struct tm));
+    tm1.tm_year  = year-1900;   // based 1900
+    tm1.tm_mon   = month-1;     // 0 to 11
+    tm1.tm_mday  = day;
+    tm1.tm_hour  = hour;
+    tm1.tm_min   = minute;
+    tm1.tm_sec   = second;
+
+    return timegm(&tm1);
+}
 
 // -----------------  CONVERT RA/DEC TO AZ/EL UTILS  ----------------------
 
@@ -1885,26 +2098,19 @@ int azel2xy(double az, double el, double max, double *xret, double *yret)
 
 // -----------------  SUNRISE & SUNSET TIMES  -----------------------------
 
-time_t sunset(int year, int month, int day) 
-{
-    return sunrise_sunset_common(year, month, day, true);
-}
-
-time_t sunrise(int year, int month, int day) 
-{
-    return sunrise_sunset_common(year, month, day, false);
-}
-
 // https://en.wikipedia.org/wiki/Sunrise_equation#Hour_angle
-time_t sunrise_sunset_common(int year_arg, int month_arg, int day_arg, bool sunset_flag_arg)
+void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 {
     int n;
-    double jd, jstar, M, C, lambda, jtransit, declination, hour_angle, jresult;
+    double jstar, M, C, lambda, jtransit, declination, hour_angle, jset, jrise;
+
+    int year, month, day, hour, minute;
+    double hr, seconds;
+    struct tm tm;
 
     // XXX check constants copied correctly, and double check equations
 
-    // calculate current julian day
-    jd = jdconv(year_arg, month_arg, day_arg, 13);
+    // calculate number of julian days since JD2000 epoch
     n = jd - JD2000;
 
     // mean solar noon
@@ -1938,37 +2144,51 @@ time_t sunrise_sunset_common(int year_arg, int month_arg, int day_arg, bool suns
                        (COSD(latitude) * COSD(declination)));
 #endif
 
-    // calculate sunrise or sunset
-    if (sunset_flag_arg) {
-        jresult = jtransit + hour_angle / 360;
-    } else {
-        jresult = jtransit - hour_angle / 360;
+    // calculate sunrise and sunset
+    jset = jtransit + hour_angle / 360;
+    jrise = jtransit - hour_angle / 360;
+
+    // convert jrise to linux time
+    if (trise) {
+        jd2ymdh(jrise, &year, &month, &day, &hr);
+        hr2hms(hr, &hour, &minute, &seconds);
+        memset(&tm,0,sizeof(tm));
+        tm.tm_sec   = seconds;
+        tm.tm_min   = minute;
+        tm.tm_hour  = hour;
+        tm.tm_mday  = day;
+        tm.tm_mon   = month - 1;       // 0 to 11
+        tm.tm_year  = year - 1900;   // based 1900
+        *trise = timegm(&tm);
     }
 
-    // convert jresult to linux time
-    int year, month, day, hour, minute;
-    double hr, seconds;
-    time_t t;
-    struct tm tm;
-    jd2ymdh(jresult, &year, &month, &day, &hr);
-    hr2hms(hr, &hour, &minute, &seconds);
-    memset(&tm,0,sizeof(tm));
-    tm.tm_sec   = seconds;
-    tm.tm_min   = minute;
-    tm.tm_hour  = hour;
-    tm.tm_mday  = day;
-    tm.tm_mon   = month - 1;       // 0 to 11
-    tm.tm_year  = year - 1900;   // based 1900
-    t = timegm(&tm);
-
-    // return linux time
-    return t;
+    // convert jset to linux time
+    if (tset) {
+        jd2ymdh(jset, &year, &month, &day, &hr);
+        hr2hms(hr, &hour, &minute, &seconds);
+        memset(&tm,0,sizeof(tm));
+        tm.tm_sec   = seconds;
+        tm.tm_min   = minute;
+        tm.tm_hour  = hour;
+        tm.tm_mday  = day;
+        tm.tm_mon   = month - 1;       // 0 to 11
+        tm.tm_year  = year - 1900;   // based 1900
+        *tset = timegm(&tm);
+    }
 }
 
 // -----------------  TEST ALGORITHMS  ------------------------------------
 
-void unit_test_algorithms(void) 
+void unit_test(void) 
 {
+    double lat_save, long_save;
+
+    // save latitude and longitude, and replace them with unit test values
+    lat_save = latitude;
+    long_save = longitude;
+    latitude = 42.422986;
+    longitude= -71.623798;
+
     // test jdconv ...
     // https://www.aavso.org/jd-calculator; also
     // refer to https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
@@ -2099,29 +2319,36 @@ void unit_test_algorithms(void)
 
     // test sunrise and sunset
     // https://www.timeanddate.com/sun/usa/marlborough?month=3&year=2018
-    { time_t t;
+    { time_t trise, tset;
       struct tm *tm;
-    t = sunset(2018, 3, 13);
-    tm = localtime(&t);
+      double jd;
+
+    jd = jdconv(2018, 3, 13, 12.01);
+    sunrise_sunset(jd, &trise, &tset);
+
+    tm = localtime(&tset);
     if (tm->tm_year   != 2018-1900 ||
         tm->tm_mon    != 3-1 ||
         tm->tm_mday   != 13 ||
         tm->tm_hour   != 18 ||
-        tm->tm_min != 50) 
+        tm->tm_min    != 50) 
     {
         FATAL("sunset %s\n", asctime(tm));
     }
     
-    t = sunrise(2018, 3, 13);
-    tm = localtime(&t);
+    tm = localtime(&trise);
     if (tm->tm_year   != 2018-1900 ||
         tm->tm_mon    != 3-1 ||
         tm->tm_mday   != 13 ||
         tm->tm_hour   != 7 ||
-        tm->tm_min != 2) 
+        tm->tm_min    != 2) 
     {
         FATAL("sunset %s\n", asctime(tm));
     } }
+
+    // restore latite/longitude
+    latitude = lat_save;
+    longitude = long_save;
 
     INFO("tests passed\n");
 }

@@ -49,23 +49,24 @@ int main(int argc, char ** argv)
 {
     int ret;
     char *lat_str, *long_str;
+    char *incl_ss_obj_str = NULL;
 
-    // get latitude and longitude from env variables MY_LAT and MY_LONG;
+    // get latitude and longitude from env variables TCX_LAT and TCX_LONG;
     // notes
     // - east longitude is positive
     // - solar_sys_data.csv should be created using a Horizons observer site code
-    //   near the MY_LAT,MY_LONG; if this is not done the position of the Moon could
+    //   near the TCX_LAT,TCX_LONG; if this is not done the position of the Moon could
     //   be in error by as much as 2 degrees
     // - Horizons Observer Site Code seems to include observatory codes, refer to
     //   https://en.wikipedia.org/wiki/List_of_observatory_codes
     // - my location is specified as follows in .bash_profile
     //     # from https://www.latlong.net for Bolton Mass USA
-    //     export MY_LAT=42.422986
-    //     export MY_LONG=-71.623798
-    lat_str = getenv("MY_LAT");
-    long_str = getenv("MY_LONG");
+    //     export TCX_LAT=42.422986
+    //     export TCX_LONG=-71.623798
+    lat_str = getenv("TCX_LAT");
+    long_str = getenv("TCX_LONG");
     if (lat_str == NULL || long_str == NULL) {
-        FATAL("latitude and longitude must be supplied in environment variables MY_LAT and MY_LONG\n");
+        FATAL("latitude and longitude must be supplied in environment variables TCX_LAT and TCX_LONG\n");
     }
     if (sscanf(lat_str, "%lf", &latitude) != 1 || latitude < -90 || latitude > 90) {
         FATAL("invalid latitude '%s' \n", lat_str);
@@ -74,9 +75,24 @@ int main(int argc, char ** argv)
         FATAL("invalid longitude '%s' \n", lat_str);
     }
     INFO("latitude = %0.6lf  longitude = %0.6lf\n", latitude, longitude);
+
+    // get and process options
+    while (true) {
+        char opt_char = getopt(argc, argv, "i:");
+        if (opt_char == -1) {
+            break;
+        }
+        switch (opt_char) {
+        case 'i':
+            incl_ss_obj_str = optarg;
+            break;
+        default:
+            return 1;
+        }
+    }
     
     // initialize sky module
-    ret = sky_init();
+    ret = sky_init(incl_ss_obj_str);
     if (ret < 0) {
         FATAL("sky_init ret %d\n", ret);
     }

@@ -22,7 +22,7 @@ using the get_stellar_data and get_solar_sys_data shell scripts.
 * I use display resolution 1920x1080; others should work.
 * Run program: ./tcx
 
-Using tcx.
+Using tcx. XXX TBD
 
 * You should see three panes:
 

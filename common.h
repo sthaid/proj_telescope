@@ -44,7 +44,7 @@ double longitude;
 // prototypes
 //
 
-int sky_init(void);
+int sky_init(char *incl_ss_obj_str);
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
