@@ -345,7 +345,7 @@ Using C API
 https://www.pololu.com/docs/0J71/12.10
 
 ---- BUILDING POLOLU TIC SOFTWARE FROM SOURCE ----
----- ON FEDORA 26                             ----
+---- ON FEDORA 26 & RASBIAN                   ----
 
 # After cloning, refer to tic/BUILDING.md
 
@@ -355,10 +355,14 @@ cd ~/pololu
 git clone https://github.com/pololu/pololu-tic-software.git tic
 git clone https://github.com/pololu/libusbp -b v1-latest
 
-# install packages needed to build on fedora
+# install packages needed to build 
+# - on fedora ...
 sudo yum install cmake 
 sudo yum install systemd-devel
 sudo yum install qt5-qtbase-devel
+# - on raspbian ...
+sudo apt-get update
+sudo apt-get install build-essential git cmake libudev-dev qtbase5-dev
 
 # build libusbp-1.so
 cd libusbp/
@@ -380,9 +384,13 @@ cmake ..
 make
 sudo make install
 
+# make sure udev rule file is present, and then plug in the usb device
+$ cat /etc/udev/rules.d/99-pololu.rules 
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1ffb", MODE="0666"
+
 # check that ticcmd works
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib    # put this in .bash_profile
-ticcmd 
+ticcmd -s
 
 ---- BUILDING A TEST PROGRAM  ----
 
