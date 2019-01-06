@@ -112,7 +112,7 @@ void open_tic()
         fprintf(stderr, "device %d serial_number = %s\n", i, tic_device_get_serial_number(list[i]));
     }
     if (count != 1) {
-        fprintf(stderr, "ERROR must be just one device, but count=%ld\n", count);
+        fprintf(stderr, "ERROR must be just one device, but count=%zd\n", count);
         exit(1);
     }
 
