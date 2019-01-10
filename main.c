@@ -76,10 +76,10 @@ int main(int argc, char ** argv)
     }
     INFO("latitude = %0.6lf  longitude = %0.6lf\n", latitude, longitude);
 
-    // get tele_ctlr env variable
-    tele_ctlr = getenv("TCX_TELE_CTLR");
-    if (tele_ctlr == NULL) {
-        FATAL("tele_ctlr must be supplied in environment variables TCX_TELE_CTLR\n");
+    // get ctlr_ip env variable
+    ctlr_ip = getenv("TCX_CTLR_IP");
+    if (ctlr_ip == NULL) {
+        FATAL("ctlr_ip must be supplied in environment variables TCX_CTLR_IP\n");
     }
 
     // get and process options

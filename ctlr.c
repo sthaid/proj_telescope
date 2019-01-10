@@ -119,6 +119,11 @@ reconnect:
         FATAL("setsockopt SO_RCVTIMEO, %s", strerror(errno));
     }
 
+    // send connected msg
+    memset(&msg,0,sizeof(msg_t));
+    msg.id = MSG_ID_CONNECTED;
+    send_msg(&msg);
+
     // receive msgs from tele_ctlr, and
     // process them
     while (true) {

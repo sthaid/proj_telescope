@@ -163,24 +163,35 @@ void * tele_thread(void * cx)
     msg_t msg;
 
 reconnect:
-    // connect to tele_ctlr  (raspberry pi)
+    // connect to telescope ctlr  (raspberry pi)
     sfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (getsockaddr(tele_ctlr, TELE_CTLR_PORT, &addr) < 0) {
-        FATAL("failed to get address of %s\n", tele_ctlr);
+    if (getsockaddr(ctlr_ip, TELE_CTLR_PORT, &addr) < 0) {
+        FATAL("failed to get address of %s\n", ctlr_ip);
     }
     do {
         rc = connect(sfd, (struct sockaddr *)&addr, sizeof(addr));
         if (rc == -1) {
-            ERROR("failed connect to %s, %s\n", tele_ctlr, strerror(errno));
+            ERROR("failed connect to %s, %s\n", ctlr_ip, strerror(errno));
             sleep(1);
         }
     } while (rc == -1);
-    connected = true;
 
     // set 1 second timeout for recv
     setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto));
 
-    // receive msgs from tele_ctlr, and
+    // on new connection should first recv MSG_ID_CONNECTED
+    len = do_recv(sfd, &msg, sizeof(msg_t));
+    if (len != sizeof(msg_t)) {
+        ERROR("recvd initial msg with invalid len %d, %s\n", len, strerror(errno));
+        goto lost_connection;
+    }
+    if (msg.id != MSG_ID_CONNECTED) {
+        ERROR("recvd invalid initial msg, id=%lld\n", msg.id);
+        goto lost_connection;
+    }
+    connected = true;
+
+    // receive msgs from ctlr_ip, and
     // process them
     while (true) {
         // recv msg  XXX data later
@@ -195,6 +206,7 @@ reconnect:
         process_recvd_msg(&msg);
     }
 
+lost_connection:
     // lost connection; reconnect
     connected = false;
     sfd_temp = sfd;

@@ -37,6 +37,7 @@
 #define MSG_ID_ENABLE    3
 #define MSG_ID_DISABLE   4
 #define MSG_ID_HEARTBEAT 5
+#define MSG_ID_CONNECTED 6
 
 #define MSG_ID_STR(x) \
    ((x) == MSG_ID_RESET     ? "MSG_ID_RESET"     : \
@@ -44,6 +45,7 @@
     (x) == MSG_ID_ENABLE    ? "MSG_ID_ENABLE"    : \
     (x) == MSG_ID_DISABLE   ? "MSG_ID_DISABLE"   : \
     (x) == MSG_ID_HEARTBEAT ? "MSG_ID_HEARTBEAT" : \
+    (x) == MSG_ID_CONNECTED ? "MSG_ID_CONNECTED" : \
                               "????")
 
 //
@@ -64,7 +66,7 @@ typedef struct {
 
 double latitude;
 double longitude;
-char *tele_ctlr;
+char *ctlr_ip;
 
 //
 // prototypes
