@@ -1,5 +1,10 @@
 # Overview
 
+UNDER CONSTRUCTION
+UNDER CONSTRUCTION
+UNDER CONSTRUCTION
+UNDER CONSTRUCTION
+
 The goal of this project is to retrofit a homemade 4 1/4 inch reflector
 telescope, that was built about 1970. The mirror was ground from an
 Edmund Scientific mirror grinding kit. The stand, equatorial mount, and

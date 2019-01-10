@@ -76,6 +76,12 @@ int main(int argc, char ** argv)
     }
     INFO("latitude = %0.6lf  longitude = %0.6lf\n", latitude, longitude);
 
+    // get tele_ctlr env variable
+    tele_ctlr = getenv("TCX_TELE_CTLR");
+    if (tele_ctlr == NULL) {
+        FATAL("tele_ctlr must be supplied in environment variables TCX_TELE_CTLR\n");
+    }
+
     // get and process options
     while (true) {
         char opt_char = getopt(argc, argv, "i:");
@@ -91,10 +97,14 @@ int main(int argc, char ** argv)
         }
     }
     
-    // initialize sky module
+    // initialize 
     ret = sky_init(incl_ss_obj_str);
     if (ret < 0) {
         FATAL("sky_init ret %d\n", ret);
+    }
+    ret = tele_init(incl_ss_obj_str);
+    if (ret < 0) {
+        FATAL("tele_init ret %d\n", ret);
     }
 
     // draw display and handle user inputs
@@ -109,8 +119,8 @@ void display_handler(void)
     int win_width  = DEFAULT_WIN_WIDTH;
     int win_height = DEFAULT_WIN_HEIGHT;
     int sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h;
-    int sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h;
     int sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h;
+    int tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h;
 
     if (sdl_init(&win_width, &win_height, true) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
@@ -123,17 +133,17 @@ void display_handler(void)
     sky_pane_h     = win_height / 2;
     INFO("sky_pane x,y,w,h = %d %d %d %d\n", sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h);
 
-    sky_ctl_pane_x = 0;
-    sky_ctl_pane_y = sky_pane_h;;
-    sky_ctl_pane_w = 420  ;
-    sky_ctl_pane_h = win_height - sky_pane_h;
-    INFO("sky_ctl_pane x,y,w,h = %d %d %d %d\n", sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h);
-
-    sky_view_pane_x = sky_ctl_pane_w;
+    sky_view_pane_x = 0;
     sky_view_pane_y = sky_pane_h;  
     sky_view_pane_w = win_height - sky_pane_h;
     sky_view_pane_h = win_height - sky_pane_h;
     INFO("sky_view_pane x,y,w,h = %d %d %d %d\n", sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h);
+
+    tele_pane_x = sky_view_pane_w;
+    tele_pane_y = sky_pane_h;  
+    tele_pane_w = win_height - sky_pane_h;
+    tele_pane_h = win_height - sky_pane_h;
+    INFO("tele_pane x,y,w,h = %d %d %d %d\n", tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h);
 
     sdl_pane_manager(
         NULL,           // context
@@ -142,7 +152,9 @@ void display_handler(void)
         100000,         // 0=continuous, -1=never, else us 
         3,              // number of pane handler varargs that follow
         sky_pane_hndlr, NULL, sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        sky_ctl_pane_hndlr, NULL, sky_ctl_pane_x, sky_ctl_pane_y, sky_ctl_pane_w, sky_ctl_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        sky_view_pane_hndlr, NULL, sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h, PANE_BORDER_STYLE_MINIMAL
+        sky_view_pane_hndlr, NULL, sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h, PANE_BORDER_STYLE_MINIMAL,
+        tele_pane_hndlr, NULL, tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h, PANE_BORDER_STYLE_MINIMAL
                         );
+
+// XXX set focus to sky_pane_hndlr
 }

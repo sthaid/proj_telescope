@@ -146,7 +146,9 @@ int read_place_marks(char * filename);
 int obj_sanity_checks(void);
 
 // pane support 
-char * proc_ctl_pane_cmd(char * cmd_line);
+char * trk_str(void);
+char * ident_str(void);
+char * sky_pane_cmd(char * cmd_line);
 
 // utils
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
@@ -170,7 +172,8 @@ double jdconv(int yr, int mn, int day, double hour);
 double jdconv2(time_t t);
 void jd2ymdh(double jd, int *year, int *month, int *day, double *hour);
 double ct2lst(double lng, double jd);
-int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
+void radec2azel(double *az, double *el, double ra, double dec, double lst, double lat);
+void azel2radec(double *ra, double *dec, double az, double el, double lst, double lat);
 
 // convert az,el to minimally distorted x,y
 int azel2xy(double az, double el, double max, double *xret, double *yret);
@@ -603,21 +606,30 @@ int obj_sanity_checks(void)
 
 // -----------------  SKY PANE HANDLER  -----------------------------------
 
-time_t sky_time               = 0;
-double lst                    = 0;
-double az_ctr                 = 0;
-double az_span                = 360;
-double el_ctr                 = 45;
-double el_span                = 90;  
-double mag                    = DEFAULT_MAG;
-int    selected               = -1;
-bool   tracking               = false;
-bool   tracking_last          = false;
+#define TRACKING_OFF   -1
+#define TRACKING_RADEC -2
+#define IDENT_OFF      -1
+
+time_t sky_time     = 0;
+double lst          = 0;
+double az_ctr       = 0;
+double az_span      = 360;
+double el_ctr       = 45;
+double el_span      = 90;  
+double mag          = DEFAULT_MAG;
+int    tracking     = TRACKING_OFF;
+double tracking_ra  = 0;
+double tracking_dec = 0;
+int    ident        = IDENT_OFF;
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
     struct {
-        int not_used;
+        char   cmd_line[1000];
+        char   cmd_line_last[1000];
+        int    cmd_line_len;
+        char * cmd_status;
+        long   cmd_status_time_us;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -648,11 +660,11 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_el = (pane->h) / (max_el - min_el);
         double k_az = (pane->w) / (min_az - max_az);
 
-        int xcoord, ycoord, i, ptsz, color, fontsz, ret, ret_action, mode;
+        int xcoord, ycoord, i, ptsz, color, fontsz, row, mode, step_mode;
         double az, el;
         double grid_sep, first_az_line, first_el_line;
-
-        char str[100];
+        double step_mode_hr_param;
+        char str[100], time_mode_str[100], *s;
 
         // reset all az, al, x, y to NO_VALUE
         for (i = 0; i < max_obj; i++) {
@@ -700,10 +712,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
             // get az/el from ra/dec, and
             // save az/el in obj_t for later use
-            ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
-            if (ret != 0) {
-                continue;
-            }
+            radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
             x->az = az;
             x->el = el;
 
@@ -739,14 +748,14 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             x->y = ycoord;
 
             // render the stellar object point
-            color = (i == selected                 ? ORANGE :
+            color = (i == tracking                 ? RED    :
+                     i == ident                    ? ORANGE :
                      x->type == OBJTYPE_STELLAR    ? WHITE  :
                      x->type == OBJTYPE_SOLAR      ? YELLOW :
                      x->type == OBJTYPE_PLACE_MARK ? PURPLE :
                                                      BLACK);
             if (color == BLACK) {
-                WARN("obj %d '%s' invalid type %d\n", i, x->name, x->type);
-                continue;
+                FATAL("BUG: obj %d '%s' invalid type %d\n", i, x->name, x->type);
             }
             sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
@@ -759,7 +768,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                    az_span > 10  ? 2 :
                    az_span > 6   ? 1 :
                                    0.5;
-        fontsz = 24;
+        fontsz = 20;
         first_az_line = floor(min_az/grid_sep) * grid_sep;
         for (az = first_az_line; az <= max_az; az += grid_sep) {
             double adj_az = (az >= 0 ? az : az + 360);
@@ -810,39 +819,74 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
         }
 
-        // display date & time
-        fontsz = 24;
+        // display the date/time, az and el of center, and magnitude;
+        // also display time mode if it is not SKY_TIME_MODE_CURRENT
+        fontsz = 20;
+        row = 0;
         sky_time_get_mode(&mode);
+        sky_time_get_step_mode(&step_mode, &step_mode_hr_param);
+        if (mode != SKY_TIME_MODE_CURRENT) {
+            sprintf(time_mode_str, "%s:%s", 
+                    SKY_TIME_STEP_MODE_STR(step_mode), 
+                    SKY_TIME_MODE_STR(mode));
+            if (mode == SKY_TIME_STEP_MODE_TIMEOFDAY) {
+                sprintf(time_mode_str+strlen(time_mode_str), "%0.2f", step_mode_hr_param);
+            }
+        } else {
+            time_mode_str[0] = '\0';
+        }
         color = (mode == SKY_TIME_MODE_CURRENT ? WHITE :
                  mode == SKY_TIME_MODE_PAUSED  ? RED   :
                                                  GREEN);
-        sdl_render_printf(pane, COL2X(3,fontsz), 0, fontsz, color, BLACK, "%8s %s", 
-                          SKY_TIME_MODE_STR(mode),
-                          localtime_str(sky_time,str));
+        sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, color, BLACK, 
+                          "%s  AZ=%-5.2f  EL=%-5.2f  MAG=%0.1f  %s",
+                          localtime_str(sky_time,str), 
+                          (az_ctr < 0 ? az_ctr + 360 : az_ctr), el_ctr, 
+                          mag, time_mode_str);
+        row++;
 
-        // clear selected if the magnitude of the selected obj is no longer being displayed
-        if (selected != -1 && obj[selected].mag != NO_VALUE && obj[selected].mag > mag) {
-            selected = -1;
+        // display tracking string, if present
+        s = trk_str();
+        if (s[0]) {
+            sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, WHITE, BLACK, "%s", s);
+            row++;
         }
 
-        // if we're tracking the selected obj, and there is no longer a selected obj
-        // then turn tracking off
-        if (tracking && selected == -1) {
-            tracking = false;
+        // display ident string, if present
+        s = ident_str();
+        if (s[0]) {
+            sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, WHITE, BLACK, "%s", s);
+            row++;
+        }
+
+        // display the cmd_line and cmd_status
+        if (microsec_timer() - vars->cmd_status_time_us < 2500000) {
+            sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, WHITE, BLACK,
+                              "> %s", vars->cmd_line_last);
+            sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row+1,fontsz), fontsz, WHITE, BLACK,
+                              "  %s", vars->cmd_status);  // XXX AAA put this on same line as cmd
+        } else {
+            sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, WHITE, BLACK,
+                              "> %s%c", vars->cmd_line, '_');
+        }
+
+        // clear tracking/ident if the magnitude of the selected obj is no longer being displayed
+        if (tracking >= 0 && obj[tracking].mag != NO_VALUE && obj[tracking].mag > mag) {
+            tracking = TRACKING_OFF;
+        }
+        if (ident >= 0 && obj[ident].mag != NO_VALUE && obj[ident].mag > mag) {
+            ident = IDENT_OFF;
         }
 
         // if we're tracking then update the az/el of sky_pane center to the
-        // az/el of the selected object
-        if (tracking) {
-            radec2azel(&az_ctr, &el_ctr, obj[selected].ra, obj[selected].dec, lst, latitude);
+        // az/el of the tracking object
+        if (tracking >= 0) {
+            radec2azel(&az_ctr, &el_ctr, obj[tracking].ra, obj[tracking].dec, lst, latitude);
+            if (az_ctr > 180) az_ctr -= 360;
+        } else if (tracking == TRACKING_RADEC) {
+            radec2azel(&az_ctr, &el_ctr, tracking_ra, tracking_dec, lst, latitude);
             if (az_ctr > 180) az_ctr -= 360;
         }
-
-        // if tracking has been enabled then do an immediae display redraw
-        ret_action = (tracking && !tracking_last 
-                      ? PANE_HANDLER_RET_DISPLAY_REDRAW
-                      : PANE_HANDLER_RET_NO_ACTION);
-        tracking_last = tracking;
 
         // register control events 
         rect_t loc = {0,0,pane->w,pane->h};
@@ -850,7 +894,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
         sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_RIGHT_CLICK, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
 
-        return ret_action;;
+        //return ret_action;;
+        return PANE_HANDLER_RET_NO_ACTION;
     }
 
     // -----------------------
@@ -872,11 +917,11 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
                 dx = -5;
             } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
-                dx = 5;
+                dx = +5;
             } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
                 dy = -5;
             } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
-                dy = 5;
+                dy = +5;
             }
 
             if (dx == 0 && dy == 0) {
@@ -891,21 +936,16 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             if (el_ctr > 90) el_ctr = 90;
             if (el_ctr < -90) el_ctr = -90;
 
-            tracking = false;
+            if (tracking != TRACKING_OFF) {
+                tracking = TRACKING_RADEC;
+                azel2radec(&tracking_ra, &tracking_dec, az_ctr, el_ctr, lst, latitude);
+            }
 
             DEBUG("MOUSE MOTION dx=%d dy=%d  az_ctr=%f el_ctr=%f\n", dx, dy, az_ctr, el_ctr);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case SDL_EVENT_MOUSE_WHEEL: case 'z': case 'Z': {
-            int dy;
 
-            if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
-                dy = event->mouse_motion.delta_y;
-            } else if (event->event_id == 'z') {
-                dy = -1;
-            } else {
-                dy = 1;
-            }
-
+        case SDL_EVENT_MOUSE_WHEEL: {
+            int dy = event->mouse_motion.delta_y;
             if (dy < 0 && az_span < 359.99) {
                 az_span *= 1.1;
                 el_span *= 1.1;
@@ -916,11 +956,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
             DEBUG("MOUSE WHEEL dy=%d  az_span=%f el_span=%f\n", dy, az_span, el_span);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case 'm': case 'M':
-            mag += (event->event_id == 'M' ? .1 : -.1);
-            if (mag < MIN_MAG) mag = MIN_MAG;
-            if (mag > MAX_MAG) mag = MAX_MAG;
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+
         case SDL_EVENT_MOUSE_RIGHT_CLICK: {
             int mouse_x, mouse_y;
             int dist, best_dist, best_i, i, delta_x, delta_y;
@@ -959,40 +995,64 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                     best_i = i;
                 }
             }
-            selected = (best_dist != 999999 ? best_i : -1);
-            tracking = false;
+            ident = (best_dist != 999999 ? best_i : IDENT_OFF);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case 27: {  // ESC
-            selected = -1;
-            tracking = false;
+
+        case 1 ... 127: {
+            char ch = event->event_id;
+            if (ch >= 32 && ch <= 126) {
+                vars->cmd_line[vars->cmd_line_len++] = ch;
+                vars->cmd_line[vars->cmd_line_len] = '\0';
+            }
+            if (ch == '\b') { // backspace
+                if (vars->cmd_line_len > 0) {
+                    vars->cmd_line_len--;
+                    vars->cmd_line[vars->cmd_line_len] = '\0';
+                }
+            }
+            if (ch == '\r') { // carriage return
+                if (vars->cmd_line_len > 0) {
+                    vars->cmd_status = sky_pane_cmd(vars->cmd_line);
+                    vars->cmd_status_time_us = microsec_timer();
+                    strcpy(vars->cmd_line_last, vars->cmd_line);
+                    vars->cmd_line_len = 0;
+                    vars->cmd_line[0]  = '\0';
+                }
+            }
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case 't': case 'T':
-            tracking = (event->event_id == 'T' && selected != -1);
+
+        case SDL_EVENT_KEY_ALT + 'm': 
+        case SDL_EVENT_KEY_ALT + 'M':
+            mag += (event->event_id == SDL_EVENT_KEY_ALT + 'M' ? .1 : -.1);
+            if (mag < MIN_MAG) mag = MIN_MAG;
+            if (mag > MAX_MAG) mag = MAX_MAG;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
+
+        case SDL_EVENT_KEY_ALT + '1':
+            sky_time_set_mode(SKY_TIME_MODE_CURRENT);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_ALT + '2':  // XXX need way to cycle tep_mode
+            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_ALT + '3':
+            sky_time_set_mode(SKY_TIME_MODE_REV);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_ALT + '4':
+            sky_time_set_mode(SKY_TIME_MODE_FWD);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_ALT + '5':
+            sky_time_set_mode(SKY_TIME_MODE_REV_STEP);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+        case SDL_EVENT_KEY_ALT + '6':
+            sky_time_set_mode(SKY_TIME_MODE_FWD_STEP);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+
         case SDL_EVENT_KEY_PGUP:
             reset(false);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGDN:
             reset(true);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case '1':
-            sky_time_set_mode(SKY_TIME_MODE_CURRENT);
-            break;
-        case '2':
-            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
-            break;
-        case '3':
-            sky_time_set_mode(SKY_TIME_MODE_REV);
-            break;
-        case '4':
-            sky_time_set_mode(SKY_TIME_MODE_FWD);
-            break;
-        case '5':
-            sky_time_set_mode(SKY_TIME_MODE_REV_STEP);
-            break;
-        case '6':
-            sky_time_set_mode(SKY_TIME_MODE_FWD_STEP);
-            break;
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -1012,149 +1072,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
-// -----------------  SKY CONTROL PANE HANDLER  ---------------------------
-
-int sky_ctl_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
-{
-    struct {
-        char   cmd_line[1000];
-        char   cmd_line_last[1000];
-        int    cmd_line_len;
-        char * cmd_status;
-        long   cmd_status_time_us;
-    } * vars = pane_cx->vars;
-    rect_t * pane = &pane_cx->pane;
-
-    // ----------------------------
-    // -------- INITIALIZE --------
-    // ----------------------------
-
-    if (request == PANE_HANDLER_REQ_INITIALIZE) {
-        vars = pane_cx->vars = calloc(1,sizeof(*vars));
-        DEBUG("PANE x,y,w,h  %d %d %d %d\n",
-            pane->x, pane->y, pane->w, pane->h);
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    // ------------------------
-    // -------- RENDER --------
-    // ------------------------
-
-    if (request == PANE_HANDLER_REQ_RENDER) {
-        int fontsz=24, ret, step_mode;
-        char name[200];
-        double az, el, az_ctr1, step_mode_hr_param;
-
-        // display tracking state
-        sdl_render_printf(pane, 0, ROW2Y(0,fontsz), fontsz, WHITE, BLACK, 
-                          tracking ? "TRACKING" : "NOT_TRACKING");
-
-        // display az/el of the center the sky az/el, and sky view pane
-        az_ctr1 = (az_ctr >= 0 ? az_ctr : az_ctr + 360);
-        sdl_render_printf(pane, 0, ROW2Y(1,fontsz), fontsz, WHITE, BLACK,
-                          "AZ/EL  %8.4f %8.4f", az_ctr1, el_ctr);
-        
-        // if there is a selected object, then display it's info
-        if (selected != -1) {
-            obj_t *x = &obj[selected];
-            if (x->name[0] != '\0') {
-                strcpy(name, x->name);
-            } else {
-                sprintf(name, "Object-%d", selected);
-            }
-            sdl_render_printf(pane, 0, ROW2Y(3,fontsz), fontsz, WHITE, BLACK,
-                              "%s", name);
-            sdl_render_printf(pane, 0, ROW2Y(4,fontsz), fontsz, WHITE, BLACK,
-                              "RA/DEC %8.4f %8.4f", x->ra, x->dec);
-            ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
-            if (ret == 0) {
-                sdl_render_printf(pane, 0, ROW2Y(5,fontsz), fontsz, WHITE, BLACK,
-                                  "AZ/EL  %8.4f %8.4f", az, el);
-            }
-            if (x->mag != NO_VALUE) {
-                sdl_render_printf(pane, 0, ROW2Y(6,fontsz), fontsz, WHITE, BLACK,
-                                  "MAG   %0.1f", x->mag);
-            }
-        }
-
-        // display the minimum object magnitude that will be displayed
-        sdl_render_printf(pane, 0, ROW2Y(8,fontsz), fontsz, WHITE, BLACK,
-                          "MAG:   %0.1f", mag);
-
-        // display the time step mode setting
-        sky_time_get_step_mode(&step_mode, &step_mode_hr_param);
-        if (step_mode == SKY_TIME_STEP_MODE_TIMEOFDAY) {
-            sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
-                            "TSTEP: %0.3g", step_mode_hr_param);
-        } else if (step_mode_hr_param == 0) {
-            sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
-                            "TSTEP: %s", SKY_TIME_STEP_MODE_STR(step_mode));
-        } else {
-            sdl_render_printf(pane, 0, ROW2Y(9,fontsz), fontsz, WHITE, BLACK,
-                            "TSTEP: %s%+0.3g", SKY_TIME_STEP_MODE_STR(step_mode), step_mode_hr_param);
-        }
-
-        // display the cmd_line and cmd_status
-        if (microsec_timer() - vars->cmd_status_time_us < 2500000) {
-            sdl_render_printf(pane, 0, ROW2Y(11,fontsz), fontsz, WHITE, BLACK,
-                              "> %s", vars->cmd_line_last);
-            sdl_render_printf(pane, 0, ROW2Y(12,fontsz), fontsz, WHITE, BLACK,
-                              "  %s", vars->cmd_status);
-        } else {
-            sdl_render_printf(pane, 0, ROW2Y(11,fontsz), fontsz, WHITE, BLACK,
-                              "> %s%c", vars->cmd_line, '_');
-        }
-
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    // -----------------------
-    // -------- EVENT --------
-    // -----------------------
-
-    if (request == PANE_HANDLER_REQ_EVENT) {
-        switch (event->event_id) {
-        case 1 ... 127: {
-            char ch = event->event_id;
-            if (ch >= 32 && ch <= 126) {
-                vars->cmd_line[vars->cmd_line_len++] = ch;            
-                vars->cmd_line[vars->cmd_line_len] = '\0';          
-            }
-            if (ch == '\b') { // backspace
-                if (vars->cmd_line_len > 0) {
-                    vars->cmd_line_len--;
-                    vars->cmd_line[vars->cmd_line_len] = '\0';          
-                }
-            }
-            if (ch == '\r') { // carriage return
-                if (vars->cmd_line_len > 0) {
-                    vars->cmd_status = proc_ctl_pane_cmd(vars->cmd_line);
-                    vars->cmd_status_time_us = microsec_timer();
-                    strcpy(vars->cmd_line_last, vars->cmd_line);
-                    vars->cmd_line_len = 0;
-                    vars->cmd_line[0]  = '\0';          
-                }
-            }
-            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        }
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    // ---------------------------
-    // -------- TERMINATE --------
-    // ---------------------------
-
-    if (request == PANE_HANDLER_REQ_TERMINATE) {
-        free(vars);
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    // not reached
-    assert(0);
-    return PANE_HANDLER_RET_NO_ACTION;
-}
-
-char * proc_ctl_pane_cmd(char * cmd_line)
+char * sky_pane_cmd(char * cmd_line)
 {
     int i;
     char *cmd, *arg1;
@@ -1171,136 +1089,156 @@ char * proc_ctl_pane_cmd(char * cmd_line)
         return "";
     }
 
-    if (strcasecmp(cmd, "sel") == 0) {
-        // process: sel [<object_name>]
-        selected = -1;
+    // cmd: trk <[objname]|ident|curr|off>
+    if (strcasecmp(cmd, "trk") == 0) {
         if (arg1 == NULL) {
-            return "okay";
+            return "error: arg expected";
         }
-        for (i = 0; i < max_obj; i++) {
-            obj_t *x = &obj[i];
-            if (strcasecmp(arg1, x->name) == 0) {
-                if (obj[i].mag != NO_VALUE && obj[i].mag > mag) {
-                    return "error: obj too dim";
-                }
-                selected = i;
-                tracking = false;
+
+        if (strcasecmp(arg1, "ident") == 0) {
+            if (ident == IDENT_OFF) {
+                tracking = TRACKING_OFF;
+                return "error: no ident";
+            } else {
+                tracking = ident;
+                ident = IDENT_OFF;
                 return "okay";
             }
-        }
-        return "error: not found";
-    } else if (strcasecmp(cmd, "trk") == 0) {
-        // process: trk <on|off>
-        if ((arg1 != NULL) && (strcasecmp(arg1, "on") && strcasecmp(arg1, "off"))) {
-            return "error: expected 'on', 'off'";
-        }
-        if (arg1 == NULL || strcasecmp(arg1, "on") == 0) {
-            if (selected == -1) {
-                return "error: no selection";
+        } else if (strcasecmp(arg1, "curr") == 0) {
+            tracking = TRACKING_RADEC;
+            azel2radec(&tracking_ra, &tracking_dec, az_ctr, el_ctr, lst, latitude);
+            return "okay";
+        } else if (strcasecmp(arg1, "off") == 0) {
+            tracking = TRACKING_OFF;
+            return "okay";
+        } else {
+            for (i = 0; i < max_obj; i++) {
+                obj_t *x = &obj[i];
+                if (strcasecmp(arg1, x->name) == 0) {
+                    if (obj[i].mag != NO_VALUE && obj[i].mag > mag) {
+                        return "error: obj too dim";
+                    }
+                    tracking = i;
+                    return "okay";
+                }
             }
-            tracking = true;
-        } else {
-            tracking = false;
+            tracking = TRACKING_OFF;
+            return "error: not found";
         }
-        return "okay";
-    } else if (strcasecmp(cmd, "reset") == 0) {
-        // process: reset [<all_sky>]
-        if (arg1 != NULL && strcasecmp(arg1, "all_sky")) {
-            return "error: expected '', 'all_sky'";
-        }
-        reset(arg1 ? true : false);
-        return "okay";
-    } else if (strcasecmp(cmd, "zoom") == 0) {
-        int n;
-        // process: zoom <1..52>
-        if (arg1 == NULL || sscanf(arg1, "%d", &n) != 1 || n < 1 || n > 52) {
-            return "error: expected 1..52";
-        }
-        if (az_span/el_span > 3.9999) {
-            az_span  = 360;
-            el_span  = 90;
-        } else {
-            az_span  = 360;
-            el_span  = 180;
-        }
-        for (i = 1; i < n; i++) {
-            az_span /= 1.1;
-            el_span /= 1.1;
-        }
-        return "okay";
-    } else if (strcasecmp(cmd, "mag") == 0) {
-        // process: mag <mag> 
-        if (arg1 == NULL) {
-            mag = DEFAULT_MAG;
-        } else {
-            int new_mag;
-            if (sscanf(arg1, "%d", &new_mag) != 1 || new_mag < MIN_MAG || new_mag > MAX_MAG) {
-                return "error: invalid mag";
-            }
-            mag = new_mag;
-        }
-        return "okay";
-    } else if (strcasecmp(cmd, "tstep") == 0) {
-        // process: tstep <delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh>
-        //
-        // This command sets the time-mode that is used when SKY_TIME_MODE_REV/FWD
-        // is enabled. SKY_TIME_MODE_xxx is controlled using the key cmds 1,2,3,4,5,6
-        // in the sky pane or sky view pane.
-        // 
-        // EXAMPLES          TIME OF NEXT DISPLAY UPDATE IN SKY_TIME_MODE_FWD
-        // --------           ------------------------------------------------
-        // tstep delta_t      current time + 120 secs
-        // tstep sunset       next day sunset
-        // tstep sunset+2.5   next day sunset + 2 1/2 hours
-        // tstep sidday       current time + SID_DAY_SECS
-        // tstep 23.25        23:15:00 UTC of the next day 
+        FATAL("BUG: shouldn't be here\n");
+    }
 
-        double hr = 0;
+    // cmd: ident <[objname]|off>
+    if (strcasecmp(cmd, "ident") == 0) {
         if (arg1 == NULL) {
-            return "error: arg required";
+            return "error: arg expected";
         }
 
-        if (strcasecmp(arg1, "delta_t") == 0) {
-            sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, 0);
-            return "okay";
-        } else if (strcasecmp(arg1, "sidday") == 0) {
-            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SIDDAY, 0);
-            return "okay";
-        } else if (strncasecmp(arg1, "sunset", 6) == 0) {
-            if (arg1[6] == '+' || arg1[6] == '-') {
-                if (sscanf(arg1+6, "%lf", &hr) != 1) {
-                    return "error: invalid hour";
-                }
-            } else if (arg1[6] != '\0') {
-                return "error: invalid hour";
-            }
-            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SUNSET, hr);
-            return "okay";
-        } else if (strncasecmp(arg1, "sunrise", 7) == 0) {
-            if (arg1[7] == '+' || arg1[7] == '-') {
-                if (sscanf(arg1+7, "%lf", &hr) != 1) {
-                    return "error: invalid hour";
-                }
-            } else if (arg1[7] != '\0') {
-                return "error: invalid hour";
-            }
-            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SUNRISE, hr);
-            return "okay";
-        } else if (sscanf(arg1, "%lf", &hr) == 1) {
-            if (hr < 0 || hr >= 24) {
-                return "error: invalid hour";
-            }
-            sky_time_set_step_mode(SKY_TIME_STEP_MODE_TIMEOFDAY, hr);
+        if (strcasecmp(arg1, "off") == 0) {
+            ident = IDENT_OFF;
             return "okay";
         } else {
-            return "error: invalid arg";
+            for (i = 0; i < max_obj; i++) {
+                obj_t *x = &obj[i];
+                if (strcasecmp(arg1, x->name) == 0) {
+                    if (obj[i].mag != NO_VALUE && obj[i].mag > mag) {
+                        return "error: obj too dim";
+                    }
+                    ident = i;
+                    return "okay";
+                }
+            }
+            ident = IDENT_OFF;
+            return "error: not found";
         }
-    } else if (strcasecmp(cmd, "quit") == 0) {
+        FATAL("BUG: shouldn't be here\n");
+    }
+
+    // cmd: quit
+    if (strcasecmp(cmd, "quit") == 0) {
         exit(0);
         // not reached
     }
 
+    // invalid command
     return "error: invalid command";
+}
+
+char * trk_str(void)
+{
+    static char str[200];
+
+    switch (tracking) {
+    case TRACKING_OFF:
+        // not tracking
+        str[0] = '\0';
+        break;
+    case TRACKING_RADEC:
+        // tracking ra/dec
+        sprintf(str, "TRK   %0.2f %0.2f", tracking_ra, tracking_dec);
+        break;
+    default: {
+        // tracking an object
+        obj_t *x = &obj[tracking];
+        char name_str[100], mag_str[100];
+        double az, el;
+
+        if (x->name[0] != '\0') {
+            strcpy(name_str, x->name);
+        } else {
+            sprintf(name_str, "Object-%d", tracking);
+        }
+
+        if (x->mag != NO_VALUE) {
+            sprintf(mag_str, "%0.1f", x->mag);
+        } else {
+            mag_str[0] = '\0';
+        }
+
+        radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
+
+        sprintf(str, "TRK   %s %0.2f %0.2f %s : %0.2f %0.2f",
+                name_str, x->ra, x->dec, mag_str, az, el);
+        break; }
+    }
+
+    return str;
+}
+
+char * ident_str(void)
+{
+    static char str[200];
+
+    switch (ident) {
+    case IDENT_OFF:
+        str[0] = '\0';
+        break;
+    default: {
+        // ident an object
+        obj_t *x = &obj[ident];
+        char name_str[100], mag_str[100];
+        double az, el;
+
+        if (x->name[0] != '\0') {
+            strcpy(name_str, x->name);
+        } else {
+            sprintf(name_str, "Object-%d", ident);
+        }
+
+        if (x->mag != NO_VALUE) {
+            sprintf(mag_str, "%0.1f", x->mag);
+        } else {
+            mag_str[0] = '\0';
+        }
+
+        radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
+
+        sprintf(str, "IDENT %s %0.2f %0.2f %s : %0.2f %0.2f",
+                name_str, x->ra, x->dec, mag_str, az, el);
+        break; }
+    }
+
+    return str;
 }
 
 // -----------------  SKY VIEW PANE HANDLER  ------------------------------
@@ -1388,14 +1326,14 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             x->yvp = ycoord;
 
             // render the stellar object point
-            color = (i == selected                 ? ORANGE :
+            color = (i == tracking                 ? RED    :
+                     i == ident                    ? ORANGE :
                      x->type == OBJTYPE_STELLAR    ? WHITE  :
                      x->type == OBJTYPE_SOLAR      ? YELLOW :
                      x->type == OBJTYPE_PLACE_MARK ? PURPLE :
                                                      BLACK);
             if (color == BLACK) {
-                WARN("obj %d '%s' invalid type %d\n", i, x->name, x->type);
-                continue;
+                FATAL("BUG: obj %d '%s' invalid type %d\n", i, x->name, x->type);
             }
             sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
@@ -1454,11 +1392,11 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
                 dx = -5;
             } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
-                dx = 5;
+                dx = +5;
             } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
                 dy = -5;
             } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
-                dy = 5;
+                dy = +5;
             }
 
             if (dx == 0 && dy == 0) {
@@ -1473,56 +1411,24 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             if (el_ctr > 90) el_ctr = 90;
             if (el_ctr < -90) el_ctr = -90;
 
-            tracking = false;
+            if (tracking != TRACKING_OFF) {
+                tracking = TRACKING_RADEC;
+                azel2radec(&tracking_ra, &tracking_dec, az_ctr, el_ctr, lst, latitude);
+            }
 
             DEBUG("MOUSE MOTION dx=%d dy=%d  az_ctr=%f el_ctr=%f\n", dx, dy, az_ctr, el_ctr);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case SDL_EVENT_MOUSE_WHEEL: case 'z': case 'Z': {
-            if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
-                if (event->mouse_motion.delta_y > 0) {
-                    sky_view_scale_tbl_idx++;
-                } else if (event->mouse_motion.delta_y < 0) {
-                    sky_view_scale_tbl_idx--;
-                }
-            } else if (event->event_id == 'z') {
-                sky_view_scale_tbl_idx--;
-            } else {
+        case SDL_EVENT_MOUSE_WHEEL: {
+            if (event->mouse_motion.delta_y > 0) {
                 sky_view_scale_tbl_idx++;
+            } else if (event->mouse_motion.delta_y < 0) {
+                sky_view_scale_tbl_idx--;
             }
 
             if (sky_view_scale_tbl_idx < 0) sky_view_scale_tbl_idx = 0;
             if (sky_view_scale_tbl_idx >= MAX_SCALE_TBL) sky_view_scale_tbl_idx = MAX_SCALE_TBL-1;
             DEBUG("MOUSE WHEEL sky_view_scale_tbl_idx = %d\n", sky_view_scale_tbl_idx);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
-        case 'm': case 'M':
-            mag += (event->event_id == 'M' ? .1 : -.1);
-            if (mag < MIN_MAG) mag = MIN_MAG;
-            if (mag > MAX_MAG) mag = MAX_MAG;
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_PGUP:
-            reset(false);
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_PGDN:
-            reset(true);
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case '1':
-            sky_time_set_mode(SKY_TIME_MODE_CURRENT);
-            break;
-        case '2':
-            sky_time_set_mode(SKY_TIME_MODE_PAUSED);
-            break;
-        case '3':
-            sky_time_set_mode(SKY_TIME_MODE_REV);
-            break;
-        case '4':
-            sky_time_set_mode(SKY_TIME_MODE_FWD);
-            break;
-        case '5':
-            sky_time_set_mode(SKY_TIME_MODE_REV_STEP);
-            break;
-        case '6':
-            sky_time_set_mode(SKY_TIME_MODE_FWD_STEP);
-            break;
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -1624,7 +1530,8 @@ void reset(bool all_sky)
         el_span = 90; 
     }
     mag = DEFAULT_MAG;
-    tracking = false;
+    tracking = TRACKING_OFF;
+    ident = IDENT_OFF;
     sky_view_scale_tbl_idx = 0;
     sky_time_set_mode(SKY_TIME_MODE_CURRENT);
     sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T,0);
@@ -1740,6 +1647,7 @@ void sky_time_get_mode(int * mode)
     *mode = __sky_time_mode;
 }
 
+// XXX need code to call this, and to set the hr_param
 void sky_time_set_step_mode(int step_mode, double step_mode_hr_param)
 {
     __sky_time_step_mode = step_mode;
@@ -2024,7 +1932,7 @@ double ct2lst(double lng, double jd)
 //  http://cosmology.berkeley.edu/group/cmbanalysis/forecast/idl/radec2azel.pro
 //  To convert from celestial coordinates (right ascension-declination)
 //  to horizon coordinates (azimuth-elevation)
-int radec2azel(double *az, double *el, double ra, double dec, double lst, double lat)
+void radec2azel(double *az, double *el, double ra, double dec, double lst, double lat)
 {
     double rha, rdec, rel, raz, rlat;
 
@@ -2050,11 +1958,36 @@ int radec2azel(double *az, double *el, double ra, double dec, double lst, double
     if (*el < -90 || *el > 90 || *az < 0 || *az > 360) {
         WARN("ra=%f dec=%f cvt to az=%f el=%f, result out of range\n",
              ra, dec, *az, *el);
-        return -1;
     }
+}
 
-    // return success
-    return 0;
+// http://cosmology.berkeley.edu/group/cmbanalysis/forecast/idl/azel2radec.pro
+// To convert from horizon coordinates (azimuth-elevation)
+// to celestial coordinates (right ascension-declination)
+void azel2radec(double *ra, double *dec, double az, double el, double lst, double lat)
+{
+    double rlat, raz, rel, rdec, rha;
+
+    // converting from degrees to radians
+    // note: I added the '- 180'
+    rlat = lat * DEG2RAD;
+    raz = (az - 180) * DEG2RAD;
+    rel = el * DEG2RAD;
+
+    // working out declination
+    rdec = asin( sin(rel)*sin(rlat)-cos(rel)*cos(raz)*cos(rlat) );
+    *dec = rdec * RAD2DEG;
+
+    // working out right ascension
+    rha = atan2(cos(rel)*sin(raz), sin(rel)*cos(rlat)+cos(rel)*cos(raz)*sin(rlat));
+    *ra = ((lst * HR2RAD) - rha) * RAD2DEG;
+    if (*ra < 0) *ra += 360;
+
+    // sanity check
+    if (*ra < 0 || *ra > 360 || *dec < -90 || *dec > 90) {
+        WARN("az=%f el=%f cvt to ra=%f dec=%f, result of of range\n",
+             az, el, *ra, *dec);
+    }
 }
 
 // -----------------  CONVERT DELTA FROM AZ/EL TO AZ_CTR/EL_CTR -----------
@@ -2270,7 +2203,6 @@ void unit_test(void)
     // [Az El] = RaDec2AzEl(344.95,42.71667,52.5,-1.91667,'1997/03/14 19:00:00')
     // [311.92258 22.40100] = RaDec2AzEl(344.95,42.71667,52.5,-1.91667,'1997/03/14 19:00:00')
     { double ra, dec, az, el, lat, lng, jd, lst, az_exp, el_exp, az_deviation, el_deviation;
-      int ret;
     ra  = 344.95;
     dec = 42.71667;
     lat = 52.5;
@@ -2279,10 +2211,7 @@ void unit_test(void)
     lst = ct2lst(lng, jd);
     az_exp = 311.92258;
     el_exp = 22.40100;
-    ret = radec2azel(&az, &el, ra, dec, lst, lat);
-    if (ret != 0) {
-        FATAL("radec2azel failed\n");
-    }
+    radec2azel(&az, &el, ra, dec, lst, lat);
     DEBUG("calc: az=%f el=%f  expected: az=%f el=%f\n", az, el, az_exp, el_exp);
     if (!is_close(az, az_exp, 0.00001, &az_deviation)) {
         FATAL("az_deviation = %f, exceeds limit\n", az_deviation);
@@ -2290,13 +2219,20 @@ void unit_test(void)
     if (!is_close(el, el_exp, 0.00001, &el_deviation)) {
         FATAL("el_deviation = %f, exceeds limit\n", el_deviation);
     }
-    INFO("az_deviatin = %f  el_deviation = %f\n", az_deviation, el_deviation);
+    INFO("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
+
+    // XXX
+    INFO("XXX azel %f %f\n", az,el);
+    double ra2, dec2;
+    azel2radec(&ra2, &dec2, az, el, lst, lat);
+    INFO("XXX %f %f\n", ra, ra2);
+    INFO("XXX %f %f\n", dec, dec2);
     }
 
     // print list of solar_sys objects and their ra,dec,mag,az,el
     { time_t t;
       double lst, az, el;
-      int i, ret;
+      int i;
     t = time(NULL);
     lst = ct2lst(longitude, jdconv2(t));
     INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
@@ -2308,10 +2244,7 @@ void unit_test(void)
         }
 
         compute_ss_obj_ra_dec_mag(x, t);
-        ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
-        if (ret != 0) {
-            FATAL("radec2azel failed\n");
-        }
+        radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
 
         INFO("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
     } }
@@ -2319,7 +2252,7 @@ void unit_test(void)
     // time how long to convert all stellar objects to az/el
     { double lst, az, el;
       time_t t;
-      int i, ret;
+      int i;
       unsigned long start_us, duration_us;
     start_us = microsec_timer();
     t = time(NULL);
@@ -2329,14 +2262,37 @@ void unit_test(void)
         if (obj->type == OBJTYPE_SOLAR) {
             compute_ss_obj_ra_dec_mag(x, t);
         }
-        ret = radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
-        if (ret != 0) {
-            FATAL("radec2azel failed\n");
-        }
+        radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
     }
     duration_us = microsec_timer() - start_us;
     INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
     }
+
+    // XXX
+    { time_t t;
+      int i;
+      double lst, az, el, ra, dec;
+      double ra_deviation, dec_deviation;
+      bool ra_is_close, dec_is_close;
+    t = time(NULL);
+    lst = ct2lst(longitude, jdconv2(t));
+    for (i = 0; i < max_obj; i++) {
+        obj_t * x = &obj[i];
+        if (obj->type == OBJTYPE_SOLAR) {
+            compute_ss_obj_ra_dec_mag(x, t);
+        }
+        radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
+        azel2radec(&ra, &dec, az, el, lst, latitude);
+
+        ra_is_close = is_close(ra, x->ra, .0000001, &ra_deviation);
+        dec_is_close = is_close(dec, x->dec, .0000001, &dec_deviation);
+        if (!ra_is_close || !dec_is_close) {
+            // XXX FATAL
+            WARN("radec %f %f -> azel %f %f -> radec %f %f (deviation %f %f)\n",
+                 x->ra, x->dec, az, el, ra, dec,
+                 ra_deviation, dec_deviation);
+        }
+    } }
 
     // test sunrise and sunset
     // https://www.timeanddate.com/sun/usa/marlborough?month=3&year=2018
