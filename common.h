@@ -30,32 +30,32 @@
 
 #define MB 0x100000
 
-#define TELE_CTLR_PORT 9000 // XXX tbd
+#define TELE_CTLR_PORT 9000
 
 #define MSG_ID_RESET     1
 #define MSG_ID_CAL       2
 #define MSG_ID_ENABLE    3
 #define MSG_ID_DISABLE   4
+#define MSG_ID_HEARTBEAT 5
 
-#define MAX_MSG_DATA 100000
-
+#define MSG_ID_STR(x) \
+   ((x) == MSG_ID_RESET     ? "MSG_ID_RESET"     : \
+    (x) == MSG_ID_CAL       ? "MSG_ID_CAL"       : \
+    (x) == MSG_ID_ENABLE    ? "MSG_ID_ENABLE"    : \
+    (x) == MSG_ID_DISABLE   ? "MSG_ID_DISABLE"   : \
+    (x) == MSG_ID_HEARTBEAT ? "MSG_ID_HEARTBEAT" : \
+                              "????")
 
 //
 // typedefs
 //
 
 typedef struct {
-    struct {
-        int id;  // XXX
-        int data_len;
-    } hdr;
-    union {
-        struct {
-            double az;
-            double el;
-        } cal;
-        unsigned char data[MAX_MSG_DATA];
-    } data;
+    long long id;
+    double val1;
+    double val2;
+    long long data_len;
+    unsigned char data[0];
 } msg_t;
 
 //

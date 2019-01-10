@@ -34,13 +34,15 @@ SOFTWARE.
 // variables
 //
 
-int sfd;
+int sfd = -1;
+bool connected;
 
 //
 // prototypes
 //
 
 void * tele_thread(void * cx);
+void * heartbeat_thread(void * cx);
 void process_recvd_msg(msg_t * msg);
 void send_msg(msg_t * msg);
 
@@ -143,18 +145,19 @@ int tele_init(char *incl_ss_obj_str)
 {
     pthread_t thread_id;
 
-    // create tele_thread
+    // create threads
     pthread_create(&thread_id, NULL, tele_thread, NULL);
+    pthread_create(&thread_id, NULL, heartbeat_thread, NULL);
 
     // return success
     return 0;
 }
 
-// -----------------  TELE THREAD  ----------------------------------------
+// -----------------  THREADS  --------------------------------------------
 
 void * tele_thread(void * cx)
 {
-    int rc;
+    int rc, sfd_temp, len;
     struct sockaddr_in addr;
     struct timeval rcvto = {1, 0};  // sec, usec
     msg_t msg;
@@ -169,8 +172,10 @@ reconnect:
         rc = connect(sfd, (struct sockaddr *)&addr, sizeof(addr));
         if (rc == -1) {
             ERROR("failed connect to %s, %s\n", tele_ctlr, strerror(errno));
+            sleep(1);
         }
     } while (rc == -1);
+    connected = true;
 
     // set 1 second timeout for recv
     setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto));
@@ -178,15 +183,12 @@ reconnect:
     // receive msgs from tele_ctlr, and
     // process them
     while (true) {
-        // recv msg and msg's data
-        if (do_recv(sfd, &msg, sizeof(msg.hdr)) != sizeof(msg.hdr)) {
+        // recv msg  XXX data later
+        // XXX or just call send and recv
+        len = do_recv(sfd, &msg, sizeof(msg_t));
+        if (len != sizeof(msg_t)) {
+            ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
-        }
-        // XXX check range of msg.data_len
-        if (msg.hdr.data_len) {
-            if (do_recv(sfd, &msg.data, msg.hdr.data_len) != msg.hdr.data_len) {
-                break;
-            }
         }
 
         // process the recvd msg
@@ -194,7 +196,11 @@ reconnect:
     }
 
     // lost connection; reconnect
-    close(sfd);
+    connected = false;
+    sfd_temp = sfd;
+    sfd = -1;
+    close(sfd_temp);
+    ERROR("lost connection to telescope, attempting to reconnect\n");
     goto reconnect;
 
     return NULL;
@@ -202,7 +208,9 @@ reconnect:
 
 void process_recvd_msg(msg_t * msg)
 {
-    switch (msg->hdr.id) {
+    INFO("received %s\n", MSG_ID_STR(msg->id));
+#if 0
+    switch (msg->id) {
     case MSG_ID_RESET:
         break;
     case MSG_ID_CAL:
@@ -214,11 +222,34 @@ void process_recvd_msg(msg_t * msg)
     default:
         break;
     }
+#endif
 }
 
 void send_msg(msg_t * msg)
 {
-    do_send(sfd, msg, sizeof(msg->hdr) + msg->hdr.data_len);
+    int len;
+
+    INFO("sending %s\n", MSG_ID_STR(msg->id));
+
+    len = do_send(sfd, msg, sizeof(msg_t));
+    if (len != sizeof(msg_t)) {
+        ERROR("send failed, len=%d, %s\n", len, strerror(errno));
+    }
+}
+
+void * heartbeat_thread(void * cx)
+{
+    msg_t msg;
+
+    memset(&msg,0,sizeof(msg_t));
+    msg.id = MSG_ID_HEARTBEAT;
+
+    while (true) {
+        if (connected) {
+            send_msg(&msg);
+        }
+        usleep(200000);
+    }
 }
 
 // -----------------  TELE PANE HNDLR  ------------------------------------
