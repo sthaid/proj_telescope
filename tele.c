@@ -177,7 +177,14 @@ reconnect:
     } while (rc == -1);
 
     // set 1 second timeout for recv
-    setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto));
+    if (setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto)) == -1) {
+        FATAL("setsockopt SO_RCVTIMEO, %s", strerror(errno));
+    }
+
+    // send connected msg
+    memset(&msg,0,sizeof(msg_t));
+    msg.id = MSG_ID_CONNECTED;
+    send_msg(&msg);
 
     // on new connection should first recv MSG_ID_CONNECTED
     len = do_recv(sfd, &msg, sizeof(msg_t));

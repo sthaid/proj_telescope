@@ -124,6 +124,18 @@ reconnect:
     msg.id = MSG_ID_CONNECTED;
     send_msg(&msg);
 
+    // on new connection should first recv MSG_ID_CONNECTED
+    len = do_recv(sfd, &msg, sizeof(msg_t));
+    if (len != sizeof(msg_t)) {
+        ERROR("recvd initial msg with invalid len %d, %s\n", len, strerror(errno));
+        goto lost_connection;
+    }
+    if (msg.id != MSG_ID_CONNECTED) {
+        ERROR("recvd invalid initial msg, id=%lld\n", msg.id);
+        goto lost_connection;
+    }
+    connected = true;
+
     // receive msgs from tele_ctlr, and
     // process them
     while (true) {
@@ -138,6 +150,7 @@ reconnect:
         process_recvd_msg(&msg);
     }
 
+lost_connection:
     // lost connection; reconnect
     connected = false;
     sfd_temp = sfd;
