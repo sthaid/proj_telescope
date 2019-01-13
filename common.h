@@ -15,10 +15,12 @@
 #include <assert.h>
 #include <pthread.h>
 #include <math.h>
+#include <signal.h>
+
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-#include <sys/socket.h>
 
 #include "util_sdl.h"
 #include "util_sdl_predefined_panes.h"

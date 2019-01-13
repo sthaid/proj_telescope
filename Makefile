@@ -1,4 +1,4 @@
-TARGETS = tcx ctlr
+TARGETS = tcx 
 
 CC = gcc
 OUTPUT_OPTION=-MMD -MP -o $@
@@ -13,15 +13,10 @@ SRC_TCX = main.c \
           util/util_jpeg.c \
           util/util_png.c \
           util/util_misc.c
-SRC_CTLR = \
-          ctlr.c \
-          util/util_misc.c
 
 OBJ_TCX=$(SRC_TCX:.c=.o)
-OBJ_CTLR=$(SRC_CTLR:.c=.o)
 
-DEP=$(SRC_TCX:.c=.d) \
-    $(SRC_CTLR:.c=.d) 
+DEP=$(SRC_TCX:.c=.d)
 
 #
 # build rules
@@ -33,9 +28,6 @@ tcx: $(OBJ_TCX)
 	$(CC) -pthread -lrt -lm -lreadline -lpng -ljpeg -lSDL2 -lSDL2_ttf -lSDL2_mixer \
               -o $@ $(OBJ_TCX)
 
-ctlr: $(OBJ_CTLR) 
-	$(CC) -pthread -lrt -lm -o $@ $(OBJ_CTLR)
-
 -include $(DEP)
 
 #
@@ -43,5 +35,5 @@ ctlr: $(OBJ_CTLR)
 #
 
 clean:
-	rm -f $(TARGETS) $(OBJ_TCX) $(OBJ_CTLR) $(DEP) gmon.out
+	rm -f $(TARGETS) $(OBJ_TCX) $(DEP)
 
