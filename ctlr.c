@@ -20,9 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-// XXX review FATALs
-// XXX motor err chks
-
 #include "common.h"
 #include <tic.h>
 
@@ -282,6 +279,8 @@ void * comm_heartbeat_thread(void * cx)
 }
 
 // -----------------  MOTOR  ----------------------------------------------
+
+// XXX more motor err chks
 
 //
 // defines
@@ -874,7 +873,11 @@ void motor_check_settings(int h, bool verbose)
     //
     // To accel to max speed in 10 secs ==> max_accel = max_speed / 1000
     //
-    //      max_accel = 3,200,000 / 1000  =>  3,200
+    //      max_accel = 3,200,000 / (10 * 100)  =>  3,200
+    //
+    // To accel to max speed in 3.333 secs ==> max_accel = max_speed / 1000
+    //
+    //      max_accel = 3,200,000 / (3.333 * 100)  =>  9,600
 
     // check settings register values, and exit program if error; 
     // the settings should be programmed with ticgui
@@ -889,6 +892,10 @@ void motor_check_settings(int h, bool verbose)
             } \
         } while (0)
 
+    int expected_max_speed = rint(DEG2MICROSTEP(MAX_SPEED) * 10000);
+    int expected_max_accel = rint(DEG2MICROSTEP(MAX_ACCEL) * 100);
+    INFO("expected_max_speed/accel = %d %d\n", expected_max_speed, expected_max_accel);
+
     CHECK_SETTING(control_mode, 0);                      // 0 => Serial/I2C/USB
     CHECK_SETTING(disable_safe_start, 0);                // 0 => safe start not disabled
     CHECK_SETTING(soft_error_response, 2);               // 2 => decel to hold
@@ -897,9 +904,9 @@ void motor_check_settings(int h, bool verbose)
     CHECK_SETTING(current_limit_code_during_error, 255); // 0xff => feature disabled
     CHECK_SETTING(step_mode, 5);                         // 5 => 1/32 step
     CHECK_SETTING(decay_mode, 2);                        // 2 => fast
-    CHECK_SETTING(max_speed, 3200000);                   // 3200000 => shaft 18 deg/sec
+    CHECK_SETTING(max_speed, expected_max_speed);        // 3200000 => shaft 18 deg/sec
     CHECK_SETTING(starting_speed, 0);                    // 0 => disallow instant accel or decel
-    CHECK_SETTING(max_accel, 9600);                      // 9600 => accel to max speed in 3.333 secs
+    CHECK_SETTING(max_accel, expected_max_accel);        // 9600 => accel to max speed in 3.333 secs
     CHECK_SETTING(max_decel, 0);                         // 0 => max_decel is same as max_accel
     CHECK_SETTING(invert_motor_direction,0);             // 0 => do not invert direction   
 
