@@ -41,10 +41,10 @@ bool connected;
 // prototypes
 //
 
-void * tele_thread(void * cx);
-void * heartbeat_thread(void * cx);
-void process_recvd_msg(msg_t * msg);
-void send_msg(msg_t * msg);
+void * comm_thread(void * cx);
+void * comm_heartbeat_thread(void * cx);
+int comm_process_recvd_msg(msg_t * msg);
+void comm_send_msg(msg_t * msg);
 
 //
 // design
@@ -52,9 +52,9 @@ void send_msg(msg_t * msg);
 
 #if 0
 // -----------------------------------------------------------------------------------
-// | CONNECTED CALIBRATED ENABLED                                            RESET   |  
-// | TGT az el ACHIEVED                                                      CAL     |
-// | ACT az el                                                               DISABLE |
+// | TGT az el DISABLED                                                  MOTORS_CLOSE|  
+// | ACT az el                                                           CALIBRATE   |
+// |                                                                     DISABLE     |
 // |                                                                                 |
 // |                                                                                 |
 // |                                                                                 |
@@ -69,74 +69,48 @@ void send_msg(msg_t * msg);
 // |                                                                                 |
 // |                                                                                 |
 // |                                                                                 |
-// | ADJ az el                                                                       |
-// | CAL_AZ az motor_pos                                                             |
-// | CAL_EL el motor_pos                                                             |
+// |                                                                                 |
+// |                                                                                 |
+// | ADJ az el                                                                STATUS |
 // -----------------------------------------------------------------------------------
 //
 // STATUS LINE 1
-//   CONNECTED or CONNECTING
-//   CALIBRATED or CAL_REQUIRED
-//   ENABLED or DISABLED
+//   DISCONNECTED
+//   MOTORS_CLOSED
+//   MOTORS_ERROR
+//   UNCALIBRATED
+//   TGT az el DISABLED|INVALID|ACQUIRING|ACHIEVED
 //   
-// STATUS LINE 2/3  (when calibrated)
-//    TGT az el ACHIEVED|ACQUIRING|INVALID
-//    ACT az el
+// STATUS LINE 2
+//    ACT az el       (when calibrated)
+//    MOTOR xxx xxx   (when not calibrated)
 //
-// STATUS LINE 2/3  (when not calibrated)
-//    MOTOR xxx xxx
+// STATUS LINE 2  
+//    ip_address      (when connecting)
 //
-// STATUS LINE 2/3  (when connecting)
-//    ip_address
+// Message Definitions
 //
-// XXX tbd - display camera status
+// Status Variables
+//   connected
+//   motors_opened
+//   motors_error
+//   calibrated
+//
+// Ctrl routines
+//    motor_open_all    - on event
+//    motor_close_all    - on event
+//    motor_adv_pos(int h, double deg, double max_deg)  - on arrow keys
+//    motor_set_pos(int h, double deg);    - tele_pos_thread
+//    motor_request_all_stop - on disable event
+//
+// Status screen
+//   connected   and ip_addr
+//   motors_opened
+//   motors_error
+//   calibrated  and CAL az/el/pos
+//   az motor info   - blank if nothing recvd within 1 sec
+//   el motor info   - blank if nothing recvd within 1 sec
 
-Message Definitions
-
-Routines
-- tele_init
-  . create the tele_thread
-- tele_thread
-  . connect to raspberrypi service
-  . receive msgs from rpi
-    . status msg
-    . cam msg  TBD later
-    . if tout then go to disconnected state,  the status msg should be rcvd 10 times per second
-- tele_pane_hndlr
-  . display
-    - camera data
-    - status / control text
-  . controls
-    - reset: send msg to rpi    CALL send_msg routine
-    - cal: send msg to rpi
-    - disable/enable: send msg to rpi
-    - arrow keys, and shift arrow keys: send msg to rpi
-      . arrow keys are .1 degrees, shift arrow is .01
-      . these are handled by rpi based on whether or not calibrated
-
-RPI
-- service (msg thread)
-    top: listen and accept connection
-    while true
-       recv msg with 100ms tout
-       if msg rcvd then
-          process msg
-       endif
-       send status msg,  maybe including result of the msg processed
-       send camera msg whenever new image is available from the camera
-    endwhile
-    disconnect
-    goto top
-- camera thread
-  . for now - just make a canned image available once per second
-
-- process_recvd_msg()
-  - reset: disable motor motion, clear calibration, stay connected
-  - cal: save calibration data
-  - disable/enable: set flag
-- send_status_msg()
-  - 
-  - define the fields
 #endif
 
 // -----------------  TELE INIT  ------------------------------------------
@@ -146,8 +120,9 @@ int tele_init(char *incl_ss_obj_str)
     pthread_t thread_id;
 
     // create threads
-    pthread_create(&thread_id, NULL, tele_thread, NULL);
-    pthread_create(&thread_id, NULL, heartbeat_thread, NULL);
+    // XXX need tele_pos_thread
+    pthread_create(&thread_id, NULL, comm_thread, NULL);
+    pthread_create(&thread_id, NULL, comm_heartbeat_thread, NULL);
 
     // return success
     return 0;
@@ -155,12 +130,13 @@ int tele_init(char *incl_ss_obj_str)
 
 // -----------------  THREADS  --------------------------------------------
 
-void * tele_thread(void * cx)
+void * comm_thread(void * cx)
 {
     int rc, sfd_temp, len;
     struct sockaddr_in addr;
     struct timeval rcvto = {1, 0};  // sec, usec
-    msg_t msg;
+    char msg_buffer[1000];
+    msg_t * msg = (msg_t*)msg_buffer;
 
 reconnect:
     // connect to telescope ctlr  (raspberry pi)
@@ -182,18 +158,18 @@ reconnect:
     }
 
     // send connected msg
-    memset(&msg,0,sizeof(msg_t));
-    msg.id = MSG_ID_CONNECTED;
-    send_msg(&msg);
+    memset(msg,0,sizeof(msg_t));
+    msg->id = MSGID_CONNECTED;
+    comm_send_msg(msg);
 
-    // on new connection should first recv MSG_ID_CONNECTED
-    len = do_recv(sfd, &msg, sizeof(msg_t));
+    // on new connection should first recv MSGID_CONNECTED
+    len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
     if (len != sizeof(msg_t)) {
         ERROR("recvd initial msg with invalid len %d, %s\n", len, strerror(errno));
         goto lost_connection;
     }
-    if (msg.id != MSG_ID_CONNECTED) {
-        ERROR("recvd invalid initial msg, id=%lld\n", msg.id);
+    if (msg->id != MSGID_CONNECTED) {
+        ERROR("recvd invalid initial msg, id=%lld\n", msg->id);
         goto lost_connection;
     }
     connected = true;
@@ -201,16 +177,23 @@ reconnect:
     // receive msgs from ctlr_ip, and
     // process them
     while (true) {
-        // recv msg  XXX data later
-        // XXX or just call send and recv
-        len = do_recv(sfd, &msg, sizeof(msg_t));
+        // recv msg
+        len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
         if (len != sizeof(msg_t)) {
             ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
+        len = recv(sfd, msg->data, msg->datalen, MSG_WAITALL);
+        if (len != msg->datalen) {
+            ERROR("recvd msg data with invalid len %d, %s\n", len, strerror(errno));
+            break;
+        }
 
         // process the recvd msg
-        process_recvd_msg(&msg);
+        rc = comm_process_recvd_msg(msg);
+        if (rc != 0) {
+            break;
+        }
     }
 
 lost_connection:
@@ -225,47 +208,73 @@ lost_connection:
     return NULL;
 }
 
-void process_recvd_msg(msg_t * msg)
+int comm_process_recvd_msg(msg_t * msg)
 {
-    INFO("received %s\n", MSG_ID_STR(msg->id));
-#if 0
+    #define CHECK_DATALEN(explen) \
+        do { \
+            if (msg->datalen != explen) { \
+                ERROR("incorrect datalen %lld in %s\n", msg->datalen, MSGID_STR(msg->id)); \
+                break; \
+            } \
+        } while (0)
+
+    if (msg->id != MSGID_HEARTBEAT && msg->id != MSGID_STATUS) {
+        INFO("received %s datalen %lld\n", MSGID_STR(msg->id), msg->datalen);
+    }
+
     switch (msg->id) {
-    case MSG_ID_RESET:
-        break;
-    case MSG_ID_CAL:
-        break;
-    case MSG_ID_ENABLE:
-        break;
-    case MSG_ID_DISABLE:
+    case MSGID_STATUS: {
+        CHECK_DATALEN(sizeof(msg_status_data_t));
+        msg_status_data_t * d = (void*)msg->data;
+        INFO("opened               %32lld %32lld\n", d->motor[0].opened, d->motor[1].opened);
+        INFO("energized            %32lld %32lld\n", d->motor[0].energized, d->motor[1].energized);
+        INFO("vin_voltage_v        %32.2f %32.2f\n", d->motor[0].vin_voltage_v, d->motor[1].vin_voltage_v);
+        INFO("curr_pos_deg         %32.2f %32.2f\n", d->motor[0].curr_pos_deg, d->motor[1].curr_pos_deg);
+        INFO("tgt_pos_deg          %32.2f %32.2f\n", d->motor[0].tgt_pos_deg, d->motor[1].tgt_pos_deg);
+        INFO("curr_vel_degpersec   %32.2f %32.2f\n", d->motor[0].curr_vel_degpersec, d->motor[1].curr_vel_degpersec);
+        INFO("operation_state_str  %32s %32s\n",     d->motor[0].operation_state_str, d->motor[1].operation_state_str);
+        INFO("error_status_str     %32s %32s\n",     d->motor[0].error_status_str, d->motor[1].error_status_str);
+        // XXX save satus info, and time tagg it was recvd
+        break; }
+    case MSGID_HEARTBEAT:
+        CHECK_DATALEN(0);
         break;
     default:
-        break;
+        ERROR("invalid msgid %lld\n", msg->id);
+        return -1;
     }
-#endif
+
+    return 0;
 }
 
-void send_msg(msg_t * msg)
+void comm_send_msg(msg_t * msg)
 {
     int len;
 
-    INFO("sending %s\n", MSG_ID_STR(msg->id));
+    if (!connected && msg->id != MSGID_CONNECTED) {
+        return;
+    }
 
-    len = do_send(sfd, msg, sizeof(msg_t));
+    if (msg->id != MSGID_HEARTBEAT) {
+        INFO("sending %s\n", MSGID_STR(msg->id));
+    }
+
+    len = send(sfd, msg, sizeof(msg_t), MSG_NOSIGNAL);
     if (len != sizeof(msg_t)) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
 }
 
-void * heartbeat_thread(void * cx)
+void * comm_heartbeat_thread(void * cx)
 {
     msg_t msg;
 
     memset(&msg,0,sizeof(msg_t));
-    msg.id = MSG_ID_HEARTBEAT;
+    msg.id = MSGID_HEARTBEAT;
 
     while (true) {
         if (connected) {
-            send_msg(&msg);
+            comm_send_msg(&msg);
         }
         usleep(200000);
     }

@@ -59,7 +59,8 @@ int motor_set_pos(int h, double deg);
 int motor_adv_pos(int h, double deg, double max_deg);
 int motor_request_stop(int h);
 int motor_wait_for_stopped(int h);
-int motor_stop_all(void);
+int motor_request_all_stop(void); 
+int motor_wait_for_all_stopped(void); 
 void motor_unit_test(void);
 
 // -----------------  MAIN  -----------------------------------------------
@@ -121,9 +122,9 @@ bool connected;
 // prototypes
 //
 
-void * comm_ctlr_thread(void * cx);
+void * comm_thread(void * cx);
 void * comm_heartbeat_thread(void * cx);
-void comm_process_recvd_msg(msg_t * msg);
+int comm_process_recvd_msg(msg_t * msg);
 
 //
 // code
@@ -133,21 +134,22 @@ int comm_init(void)
 {
     pthread_t thread_id;
 
-    pthread_create(&thread_id, NULL, comm_ctlr_thread, NULL);
+    pthread_create(&thread_id, NULL, comm_thread, NULL);
     pthread_create(&thread_id, NULL, comm_heartbeat_thread, NULL);
 
     return 0;
 }
 
-void * comm_ctlr_thread(void * cx)
+void * comm_thread(void * cx)
 {
-    int listen_sfd, len, sfd_temp;
+    int listen_sfd, len, sfd_temp, rc;
     struct sockaddr_in addr;
     socklen_t addrlen;
     char str[100];
     int reuseaddr = 1;
     struct timeval rcvto = {1, 0};  // sec, usec
-    msg_t msg;
+    char msg_buffer[1000];
+    msg_t * msg = (msg_t*)msg_buffer; 
 
     // create listen socket
     listen_sfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -191,18 +193,18 @@ reconnect:
     }
 
     // send connected msg
-    memset(&msg,0,sizeof(msg_t));
-    msg.id = MSG_ID_CONNECTED;
-    comm_send_msg(&msg);
+    memset(msg,0,sizeof(msg_t));
+    msg->id = MSGID_CONNECTED;
+    comm_send_msg(msg);
 
-    // on new connection should first recv MSG_ID_CONNECTED
-    len = do_recv(sfd, &msg, sizeof(msg_t));
+    // on new connection should first recv MSGID_CONNECTED
+    len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
     if (len != sizeof(msg_t)) {
         ERROR("recvd initial msg with invalid len %d, %s\n", len, strerror(errno));
         goto lost_connection;
     }
-    if (msg.id != MSG_ID_CONNECTED) {
-        ERROR("recvd invalid initial msg, id=%lld\n", msg.id);
+    if (msg->id != MSGID_CONNECTED) {
+        ERROR("recvd invalid initial msg, id=%lld\n", msg->id);
         goto lost_connection;
     }
     connected = true;
@@ -211,14 +213,22 @@ reconnect:
     // process them
     while (true) {
         // recv msg  
-        len = do_recv(sfd, &msg, sizeof(msg_t));
+        len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
         if (len != sizeof(msg_t)) {
             ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
+        len = recv(sfd, msg->data, msg->datalen, MSG_WAITALL);
+        if (len != msg->datalen) {
+            ERROR("recvd msg data with invalid len %d, %s\n", len, strerror(errno));
+            break;
+        }
 
         // process the recvd msg
-        comm_process_recvd_msg(&msg);
+        rc = comm_process_recvd_msg(msg);
+        if (rc != 0) {
+            break;
+        }
     }
 
 lost_connection:
@@ -231,34 +241,71 @@ lost_connection:
     goto reconnect;
 }
 
-void comm_process_recvd_msg(msg_t * msg)
+int comm_process_recvd_msg(msg_t * msg)
 {
-    INFO("received %s\n", MSG_ID_STR(msg->id));
-#if 0
-    // XXX
+    #define CHECK_DATALEN(explen) \
+        do { \
+            if (msg->datalen != explen) { \
+                ERROR("incorrect datalen %lld in %s\n", msg->datalen, MSGID_STR(msg->id)); \
+                break; \
+            } \
+        } while (0)
+
+    if (msg->id != MSGID_HEARTBEAT) {
+        INFO("received %s\n", MSGID_STR(msg->id));
+    }
+
     switch (msg->id) {
-    case MSG_ID_RESET:
-        break;
-    case MSG_ID_CAL:
-        break;
-    case MSG_ID_ENABLE:
-        break;
-    case MSG_ID_DISABLE:
+    case MSGID_OPEN_ALL: {
+        CHECK_DATALEN(0);
+        motor_open_all();
+        break; }
+    case MSGID_CLOSE_ALL: {
+        CHECK_DATALEN(0);
+        motor_close_all();
+        break; }
+    case MSGID_STOP_ALL: {
+        CHECK_DATALEN(0);
+        motor_request_all_stop();
+        break; }
+    case MSGID_ADV_POS_SINGLE: {
+        CHECK_DATALEN(sizeof(msg_adv_pos_single_data_t));
+        msg_adv_pos_single_data_t * d = (void*)msg->data;
+        motor_adv_pos(d->h, d->deg, d->max_deg);
+        break; }
+    case MSGID_SET_POS_ALL: {
+        CHECK_DATALEN(sizeof(msg_set_pos_all_data_t));
+        msg_set_pos_all_data_t * d = (void*)msg->data;
+        int h;
+        for (h = 0; h < MAX_MOTOR; h++) {
+            motor_set_pos(h, d->deg[h]);
+        }
+        break; }
+    case MSGID_HEARTBEAT:
+        CHECK_DATALEN(0);
         break;
     default:
-        break;
+        ERROR("invalid msgid %lld\n", msg->id);
+        return -1;
     }
-#endif
+
+    return 0;
 }
 
 void comm_send_msg(msg_t * msg)
 {
     int len;
 
-    INFO("sending %s\n", MSG_ID_STR(msg->id));
+    if (!connected && msg->id != MSGID_CONNECTED) {
+        return;
+    }
 
-    len = do_send(sfd, msg, sizeof(msg_t));
-    if (len != sizeof(msg_t)) {
+    if (msg->id != MSGID_HEARTBEAT && msg->id != MSGID_STATUS) {
+        INFO("sending %s\n", MSGID_STR(msg->id));
+    }
+
+    len = send(sfd, msg, sizeof(msg_t) + msg->datalen, MSG_NOSIGNAL);
+    if (len != sizeof(msg_t) + msg->datalen) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
 }
@@ -268,7 +315,7 @@ void * comm_heartbeat_thread(void * cx)
     msg_t msg;
 
     memset(&msg,0,sizeof(msg_t));
-    msg.id = MSG_ID_HEARTBEAT;
+    msg.id = MSGID_HEARTBEAT;
 
     while (true) {
         if (connected) {
@@ -286,7 +333,7 @@ void * comm_heartbeat_thread(void * cx)
 // defines
 //
 
-#define MAX_MOTOR 4
+#define MAX_MOTOR 2
 
 #define VOLTAGE_OK(mv) (mv >= 10000 && mv <= 15000)
 
@@ -414,7 +461,8 @@ void motor_exit(void)
     }
 
     // stop all motors
-    motor_stop_all();
+    motor_request_all_stop();
+    motor_wait_for_all_stopped();
 
     // close all motors, this will deenergize them
     motor_close_all();
@@ -681,7 +729,7 @@ int motor_wait_for_stopped(int h)
     } while (curr_vel);
 }
 
-int motor_stop_all(void)
+int motor_request_all_stop(void)
 {
     int h;
 
@@ -692,6 +740,13 @@ int motor_stop_all(void)
         }
         motor_request_stop(h);
     }
+
+    return 0;
+}
+
+int motor_wait_for_all_stopped(void)
+{
+    int h;
 
     INFO("wait for all motors to be stopped\n");
     for (h = 0; h < max_motor_devices; h++) {
@@ -704,13 +759,16 @@ int motor_stop_all(void)
     INFO("done\n");
     return 0;
 }
-    
+
 // ---- motor_get_status_thread ----
 
 void * motor_getstatus_thread(void * cx)
 {
     int h;
     tic_variables * variables[MAX_MOTOR];
+    char msg_status_buff[1000];
+    msg_t * msg_status = (void*)msg_status_buff;
+    msg_status_data_t * msg_status_data = (msg_status_data_t*)msg_status->data;
 
     // init
     memset(variables, 0, sizeof(variables));
@@ -726,22 +784,23 @@ void * motor_getstatus_thread(void * cx)
                 continue;
             }
 
+            // get the variables
             tic_get_variables(motor[h].tic_handle, &variables[h], true);
 
+            // also check for need to energize the motor because the voltage is now okay
             tic_variables *v = variables[h];
             if (ENERGIZED(v) == 0 && VOLTAGE_OK(VIN_VOLTAGE(v))) {
                 INFO("energizing motor %d\n", h);
                 tic_energize(motor[h].tic_handle);
                 tic_exit_safe_start(motor[h].tic_handle);
             }
-
-            // print when an error occurred
-            //if (ERRORS_OCCURRED(v)) {
-            //    ERROR("errors_occurred: %s\n", motor_error_status_str(ERRORS_OCCURRED(v)));
-            //}
         }
 
+        // release mutex
+        pthread_mutex_unlock(&motor_mutex);
+
 #ifdef UNIT_TEST
+        // unit test, print motor variables to a seperate log file for each motor
         {
         for (h = 0; h < MAX_MOTOR; h++) {
             tic_variables *v = variables[h];
@@ -764,12 +823,34 @@ void * motor_getstatus_thread(void * cx)
         } }
 #endif
 
-        // XXX send status msg
-        //         also some other status, such as
-        //         all motors without error
-        //         all at target (or near)
-        //         for each motor, a flag if at / near target
+        // fill in the status msg, and send it
+        msg_status->id = MSGID_STATUS;
+        msg_status->datalen = sizeof(msg_status_data_t);
+        memset(msg_status_data, 0, sizeof(msg_status_data_t));
+        for (h = 0; h < MAX_MOTOR; h++) {
+            tic_variables *v = variables[h];
 
+            if (motor[h].tic_handle == NULL) {
+                continue;
+            }
+
+            msg_status_data->motor[h].opened             = 1;
+            msg_status_data->motor[h].energized          = ENERGIZED(v);
+            msg_status_data->motor[h].vin_voltage_v      = VIN_VOLTAGE(v)/1000.;
+            msg_status_data->motor[h].curr_pos_deg       = MICROSTEP2DEG(CURRENT_POSITION(v));
+            msg_status_data->motor[h].tgt_pos_deg        = MICROSTEP2DEG(TARGET_POSITION(v));
+            msg_status_data->motor[h].curr_vel_degpersec = MICROSTEPVEL2DEGPERSEC(CURRENT_VELOCITY(v));
+            msg_status_data->motor[h].spare1             = 0;
+            msg_status_data->motor[h].spare2             = 0;
+            strncpy(msg_status_data->motor[h].operation_state_str, 
+                    motor_operation_state_str(OPERATION_STATE(v)),
+                    sizeof(msg_status_data->motor[h].operation_state_str)-1);
+            strncpy(msg_status_data->motor[h].error_status_str,
+                    motor_error_status_str(ERROR_STATUS(v)),
+                    sizeof(msg_status_data->motor[h].error_status_str)-1);
+        }
+        comm_send_msg(msg_status);
+            
         // free variables
         for (h = 0; h < MAX_MOTOR; h++) {
             if (variables[h] != NULL) {
@@ -777,9 +858,6 @@ void * motor_getstatus_thread(void * cx)
                 variables[h] = NULL;
             }
         }
-
-        // release mutex
-        pthread_mutex_unlock(&motor_mutex);
 
         // delay 1 sec
         usleep(1000000);
@@ -1052,7 +1130,8 @@ void motor_unit_test(void)
         } else if (strcmp(argv[0], "close") == 0) {
             motor_close_all();
         } else if (strcmp(argv[0], "stop") == 0) {
-            motor_stop_all();
+            motor_request_all_stop();
+            motor_wait_for_all_stopped();
         } else if (strcmp(argv[0], "set") == 0) {
             int h;
             double deg;
