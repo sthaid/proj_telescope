@@ -22,6 +22,7 @@ SOFTWARE.
 
 // XXX review
 // XXX test plan
+// XXX debug prints
 
 #include "common.h"
 
@@ -36,12 +37,31 @@ SOFTWARE.
 #define SDL_EVENT_TRK_DISABLE     (SDL_EVENT_USER_DEFINED + 4)
 #define SDL_EVENT_TRK_ENABLE      (SDL_EVENT_USER_DEFINED + 5)
 
+#define EVENT_ID_STR(x) \
+   ((x) == SDL_EVENT_MOTORS_CLOSE    ? "MOTORS_CLOSE"    : \
+    (x) == SDL_EVENT_MOTORS_OPEN     ? "MOTORS_OPEN"     : \
+    (x) == SDL_EVENT_UN_CALIBRATE    ? "UN_CALIBRATE"    : \
+    (x) == SDL_EVENT_CALIBRATE       ? "CALIBRATE"       : \
+    (x) == SDL_EVENT_TRK_DISABLE     ? "TRK_DISABLE"     : \
+    (x) == SDL_EVENT_TRK_ENABLE      ? "TRK_ENABLE"      : \
+    (x) == SDL_EVENT_KEY_LEFT_ARROW  ? "KEY_LEFT_ARROW"  : \
+    (x) == SDL_EVENT_KEY_RIGHT_ARROW ? "KEY_RIGHT_ARROW" : \
+    (x) == SDL_EVENT_KEY_UP_ARROW    ? "KEY_UP_ARROW"    : \
+    (x) == SDL_EVENT_KEY_DOWN_ARROW  ? "KEY_DOWN_ARROW"  : \
+                                       "????")
+ 
 #define AZDEG_TO_MOTORSHAFTDEG 6.0  // XXX tbd need to measure
 #define ELDEG_TO_MOTORSHAFTDEG 6.0  // XXX tbd
 
 #define MOTORS_CLOSED 0
 #define MOTORS_OPEN   1
 #define MOTORS_ERROR  2
+
+#define MOTORS_STR(x) \
+   ((x) == MOTORS_CLOSED ? "CLOSED" : \
+    (x) == MOTORS_OPEN   ? "OPEN"   : \
+    (x) == MOTORS_ERROR  ? "ERROR"  : \
+                           "????")
 
 #define MAX_ADJ 1.0
 
@@ -151,6 +171,7 @@ reconnect:
         ERROR("recvd invalid initial msg, id=%lld\n", msg->id);
         goto lost_connection;
     }
+    INFO("established connection to telescope\n");
     connected = true;
 
     // receive msgs from ctlr_ip, and
@@ -197,9 +218,7 @@ int comm_process_recvd_msg(msg_t * msg)
             } \
         } while (0)
 
-    if (msg->id != MSGID_HEARTBEAT && msg->id != MSGID_STATUS) {
-        INFO("received %s datalen %lld\n", MSGID_STR(msg->id), msg->datalen);
-    }
+    DEBUG("received %s datalen %lld\n", MSGID_STR(msg->id), msg->datalen);
 
     switch (msg->id) {
     case MSGID_STATUS: {
@@ -258,6 +277,9 @@ void * tele_ctrl_thread(void * cx)
 {
     long time_us, time_last_set_pos_us=0;
     bool tracking_enabled_last = false;
+    bool connected_last = false;
+    int  motors_last = MOTORS_CLOSED;
+    bool calibrated_last = false;
 
     while (true) {
         // delay 50 ms
@@ -275,10 +297,12 @@ void * tele_ctrl_thread(void * cx)
             motors = MOTORS_CLOSED;
         } else if (ctlr_motor_status.motor[0].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[0].error_status_str, "No_Err") == 0 &&
+                   strcmp(ctlr_motor_status.motor[0].error_status_str, "No_Err") == 0)
+#if 0  // XXX one motor
                    ctlr_motor_status.motor[1].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[1].error_status_str, "No_Err") == 0)
+                   strcmp(ctlr_motor_status.motor[1].error_status_str, "No_Err") == 0
+#endif
         {
             motors = MOTORS_OPEN;
         } else {
@@ -342,6 +366,24 @@ void * tele_ctrl_thread(void * cx)
             msg_t msg = { MSGID_STOP_ALL, 0 };
             comm_send_msg(&msg);
         }
+
+        // debug print changes
+        if (connected_last != connected ||
+            motors_last != motors ||
+            calibrated_last != calibrated ||
+            tracking_enabled_last != tracking_enabled)
+        {
+            INFO("state changed to: connected=%d motors=%s calibrated=%d tracking_enabled=%d\n",
+                 connected, 
+                 MOTORS_STR(motors), 
+                 calibrated, 
+                 tracking_enabled);
+        }
+
+        // save last values
+        connected_last = connected;
+        motors_last = motors;
+        calibrated_last = calibrated;
         tracking_enabled_last = tracking_enabled;
 
         // unlock mutex
@@ -353,6 +395,8 @@ void tele_ctrl_process_cmd(int event_id)
 {
     // lock mutex
     pthread_mutex_lock(&mutex);
+
+    INFO("processing event_id %s\n", EVENT_ID_STR(event_id));
 
     switch (event_id) {
     case SDL_EVENT_MOTORS_CLOSE:
@@ -372,33 +416,33 @@ void tele_ctrl_process_cmd(int event_id)
         }
         break;
     case SDL_EVENT_UN_CALIBRATE:
-        if (connected && motors == MOTORS_OPEN && calibrated) {
+        if (calibrated) {
             calibrated = false;
             tracking_enabled = false;
         }
         break;
     case SDL_EVENT_CALIBRATE:
-        if (connected && motors == MOTORS_OPEN && !calibrated && act_azel_available) {
+        if (connected && motors == MOTORS_OPEN && !calibrated) {
             double curr_az_motorshaft_deg = ctlr_motor_status.motor[0].curr_pos_deg;
             double curr_el_motorshaft_deg = ctlr_motor_status.motor[1].curr_pos_deg;
-            cal_az0_motorshaft_deg = curr_az_motorshaft_deg - act_az * AZDEG_TO_MOTORSHAFTDEG;
-            cal_el0_motorshaft_deg = curr_el_motorshaft_deg - act_el * ELDEG_TO_MOTORSHAFTDEG;
+            cal_az0_motorshaft_deg = curr_az_motorshaft_deg - tgt_az * AZDEG_TO_MOTORSHAFTDEG;
+            cal_el0_motorshaft_deg = curr_el_motorshaft_deg - tgt_el * ELDEG_TO_MOTORSHAFTDEG;
             INFO("calibrated:    cal_motorshaft_deg curr_motorshaft_deg actual\n");
             INFO("calibrated: AZ %18f.2 %19.2f %6.2f\n",
-                 cal_az0_motorshaft_deg, curr_az_motorshaft_deg, act_az);
+                 cal_az0_motorshaft_deg, curr_az_motorshaft_deg, tgt_az);
             INFO("calibrated: EL %18f.2 %19.2f %6.2f\n",
-                 cal_el0_motorshaft_deg, curr_el_motorshaft_deg, act_el);
+                 cal_el0_motorshaft_deg, curr_el_motorshaft_deg, tgt_el);
             calibrated = true;
             tracking_enabled = false;
         }
         break;
     case SDL_EVENT_TRK_DISABLE:
-        if (connected && motors == MOTORS_OPEN && calibrated) {
+        if (calibrated) {
             tracking_enabled = false;
         }
         break;
     case SDL_EVENT_TRK_ENABLE:
-        if (connected && motors == MOTORS_OPEN && calibrated) {
+        if (calibrated) {
             tracking_enabled = true;
         }
         break;
@@ -416,7 +460,7 @@ void tele_ctrl_process_cmd(int event_id)
                 if (adj_el < -MAX_ADJ) adj_el = -MAX_ADJ;
                 if (adj_el > MAX_ADJ) adj_el = MAX_ADJ;
             }
-        } else {
+        } else if (connected && motors == MOTORS_OPEN) {
             // XXX need fine control, maybe ALT ARROW
             char msg_buffer[sizeof(msg_t)+sizeof(msg_adv_pos_single_data_t)];
             msg_t *msg = (void*)msg_buffer;
@@ -431,8 +475,6 @@ void tele_ctrl_process_cmd(int event_id)
             msg_adv_pos_single_data->max_deg = 5;
 
             comm_send_msg(msg);
-
-            tracking_enabled = false;
         }
         break; }
     }
@@ -577,6 +619,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // when the key is released the events continue for a period of time; by not
         // redrawing the display the arrow keys can be processed as they are received
         // and do not accumulate
+        // XXX alt arrow keys too
         if (event->event_id == SDL_EVENT_KEY_UP_ARROW ||
             event->event_id == SDL_EVENT_KEY_DOWN_ARROW ||
             event->event_id == SDL_EVENT_KEY_LEFT_ARROW ||
