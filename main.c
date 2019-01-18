@@ -108,12 +108,7 @@ int main(int argc, char ** argv)
     }
 
     // draw display and handle user inputs
-#if 0
     display_handler();
-#else
-    while (1) pause();
-#endif
-
 
     // done
     return 0;

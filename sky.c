@@ -1241,6 +1241,13 @@ char * ident_str(void)
     return str;
 }
 
+// returns the az/el that the telescope should be pointed
+void sky_get_tgt_azel(double * tgt_az, double * tgt_el)
+{
+    *tgt_az = az_ctr;
+    *tgt_el = el_ctr;
+}
+
 // -----------------  SKY VIEW PANE HANDLER  ------------------------------
 
 int    sky_view_scale_tbl_idx = 0;

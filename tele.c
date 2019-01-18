@@ -20,11 +20,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+// XXX review
+// XXX test plan
+
 #include "common.h"
 
 //
 // defines
 //
+
+#define SDL_EVENT_MOTORS_CLOSE    (SDL_EVENT_USER_DEFINED + 0)
+#define SDL_EVENT_MOTORS_OPEN     (SDL_EVENT_USER_DEFINED + 1)
+#define SDL_EVENT_UN_CALIBRATE    (SDL_EVENT_USER_DEFINED + 2)
+#define SDL_EVENT_CALIBRATE       (SDL_EVENT_USER_DEFINED + 3)
+#define SDL_EVENT_TRK_DISABLE     (SDL_EVENT_USER_DEFINED + 4)
+#define SDL_EVENT_TRK_ENABLE      (SDL_EVENT_USER_DEFINED + 5)
+
+#define AZDEG_TO_MOTORSHAFTDEG 6.0  // XXX tbd need to measure
+#define ELDEG_TO_MOTORSHAFTDEG 6.0  // XXX tbd
+
+#define MOTORS_CLOSED 0
+#define MOTORS_OPEN   1
+#define MOTORS_ERROR  2
+
+#define MAX_ADJ 1.0
+
+#define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 1000000)
 
 //
 // typedefs
@@ -34,8 +55,27 @@ SOFTWARE.
 // variables
 //
 
-int sfd = -1;
-bool connected;
+// comm to tele ctlr vars
+int   sfd = -1;
+bool  connected;
+
+// telescope motor status vars
+msg_status_data_t ctlr_motor_status;
+long              ctlr_motor_status_us;
+
+// telsecope control vars
+int    motors;
+bool   calibrated;
+bool   tracking_enabled;
+double cal_az0_motorshaft_deg;
+double cal_el0_motorshaft_deg;
+double tgt_az, tgt_el;
+double act_az, act_el;
+double adj_az, adj_el;
+bool   act_azel_available;
+
+// general vars
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 //
 // prototypes
@@ -46,72 +86,11 @@ void * comm_heartbeat_thread(void * cx);
 int comm_process_recvd_msg(msg_t * msg);
 void comm_send_msg(msg_t * msg);
 
-//
-// design
-//
+void * tele_ctrl_thread(void * cx);
+void tele_ctrl_process_cmd(int event_id);
+void tele_ctrl_get_status(char *str1, char *str2, char *str3);
 
-#if 0
-// -----------------------------------------------------------------------------------
-// | TGT az el DISABLED                                                  MOTORS_CLOSE|  
-// | ACT az el                                                           CALIBRATE   |
-// |                                                                     DISABLE     |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// |                                  IMAGE                                          |
-// |                                                                                 |
-// |                                  IMAGE                                          |
-// |                                                                                 |
-// |                                  IMAGE                                          |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// |                                                                                 |
-// | ADJ az el                                                                STATUS |
-// -----------------------------------------------------------------------------------
-//
-// STATUS LINE 1
-//   DISCONNECTED
-//   MOTORS_CLOSED
-//   MOTORS_ERROR
-//   UNCALIBRATED
-//   TGT az el DISABLED|INVALID|ACQUIRING|ACHIEVED
-//   
-// STATUS LINE 2
-//    ACT az el       (when calibrated)
-//    MOTOR xxx xxx   (when not calibrated)
-//
-// STATUS LINE 2  
-//    ip_address      (when connecting)
-//
-// Message Definitions
-//
-// Status Variables
-//   connected
-//   motors_opened
-//   motors_error
-//   calibrated
-//
-// Ctrl routines
-//    motor_open_all    - on event
-//    motor_close_all    - on event
-//    motor_adv_pos(int h, double deg, double max_deg)  - on arrow keys
-//    motor_set_pos(int h, double deg);    - tele_pos_thread
-//    motor_request_all_stop - on disable event
-//
-// Status screen
-//   connected   and ip_addr
-//   motors_opened
-//   motors_error
-//   calibrated  and CAL az/el/pos
-//   az motor info   - blank if nothing recvd within 1 sec
-//   el motor info   - blank if nothing recvd within 1 sec
-
-#endif
+void tele_debug_print_ctlr_motor_status(void);
 
 // -----------------  TELE INIT  ------------------------------------------
 
@@ -120,15 +99,15 @@ int tele_init(char *incl_ss_obj_str)
     pthread_t thread_id;
 
     // create threads
-    // XXX need tele_pos_thread
     pthread_create(&thread_id, NULL, comm_thread, NULL);
     pthread_create(&thread_id, NULL, comm_heartbeat_thread, NULL);
+    pthread_create(&thread_id, NULL, tele_ctrl_thread, NULL);
 
     // return success
     return 0;
 }
 
-// -----------------  THREADS  --------------------------------------------
+// -----------------  COMM TO TELE CTLR  ----------------------------------
 
 void * comm_thread(void * cx)
 {
@@ -225,16 +204,9 @@ int comm_process_recvd_msg(msg_t * msg)
     switch (msg->id) {
     case MSGID_STATUS: {
         CHECK_DATALEN(sizeof(msg_status_data_t));
-        msg_status_data_t * d = (void*)msg->data;
-        INFO("opened               %32lld %32lld\n", d->motor[0].opened, d->motor[1].opened);
-        INFO("energized            %32lld %32lld\n", d->motor[0].energized, d->motor[1].energized);
-        INFO("vin_voltage_v        %32.2f %32.2f\n", d->motor[0].vin_voltage_v, d->motor[1].vin_voltage_v);
-        INFO("curr_pos_deg         %32.2f %32.2f\n", d->motor[0].curr_pos_deg, d->motor[1].curr_pos_deg);
-        INFO("tgt_pos_deg          %32.2f %32.2f\n", d->motor[0].tgt_pos_deg, d->motor[1].tgt_pos_deg);
-        INFO("curr_vel_degpersec   %32.2f %32.2f\n", d->motor[0].curr_vel_degpersec, d->motor[1].curr_vel_degpersec);
-        INFO("operation_state_str  %32s %32s\n",     d->motor[0].operation_state_str, d->motor[1].operation_state_str);
-        INFO("error_status_str     %32s %32s\n",     d->motor[0].error_status_str, d->motor[1].error_status_str);
-        // XXX save satus info, and time tagg it was recvd
+        ctlr_motor_status = *(msg_status_data_t *)msg->data;
+        ctlr_motor_status_us = microsec_timer();
+        tele_debug_print_ctlr_motor_status();
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
@@ -259,7 +231,7 @@ void comm_send_msg(msg_t * msg)
         INFO("sending %s\n", MSGID_STR(msg->id));
     }
 
-    len = send(sfd, msg, sizeof(msg_t), MSG_NOSIGNAL);
+    len = send(sfd, msg, sizeof(msg_t)+msg->datalen, MSG_NOSIGNAL);
     if (len != sizeof(msg_t)) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
@@ -280,6 +252,257 @@ void * comm_heartbeat_thread(void * cx)
     }
 }
 
+// -----------------  TELE CONTROL  ---------------------------------------
+
+void * tele_ctrl_thread(void * cx)
+{
+    long time_us, time_last_set_pos_us=0;
+    bool tracking_enabled_last = false;
+
+    while (true) {
+        // delay 50 ms
+        usleep(50000);
+
+        // lock mutex
+        pthread_mutex_lock(&mutex);
+
+        // determine motor status from ctlr_motor_status
+        if (!connected) {
+            motors = MOTORS_ERROR;
+        } else if (!CTLR_MOTOR_STATUS_VALID) {
+            motors = MOTORS_ERROR;
+        } else if (ctlr_motor_status.motor[0].opened == 0 && ctlr_motor_status.motor[1].opened == 0) {
+            motors = MOTORS_CLOSED;
+        } else if (ctlr_motor_status.motor[0].opened == 1 &&
+                   strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
+                   strcmp(ctlr_motor_status.motor[0].error_status_str, "No_Err") == 0 &&
+                   ctlr_motor_status.motor[1].opened == 1 &&
+                   strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
+                   strcmp(ctlr_motor_status.motor[1].error_status_str, "No_Err") == 0)
+        {
+            motors = MOTORS_OPEN;
+        } else {
+            motors = MOTORS_ERROR;
+        }
+
+        // if telescope is not fully ready then ensure the 
+        // calibrated and tracking_enabled flags are clear
+        // and zero the az/el adjustment values
+        if (!connected || motors != MOTORS_OPEN || !calibrated) {
+            calibrated = false;
+            tracking_enabled = false;
+            adj_az = adj_el = 0;
+        }
+
+        // get tgt_az/el by calling sky routine
+        sky_get_tgt_azel(&tgt_az, &tgt_el);
+
+        // determine act_az/el from ctrl_motor_status shaft position
+        if (calibrated) {
+            double curr_az_motorshaft_deg = ctlr_motor_status.motor[0].curr_pos_deg;
+            double curr_el_motorshaft_deg = ctlr_motor_status.motor[1].curr_pos_deg;
+            act_az = (curr_az_motorshaft_deg - cal_az0_motorshaft_deg) / AZDEG_TO_MOTORSHAFTDEG - adj_az;
+            act_el = (curr_el_motorshaft_deg - cal_el0_motorshaft_deg) / ELDEG_TO_MOTORSHAFTDEG - adj_el;
+            act_azel_available = true;
+        } else {
+            act_azel_available = false;
+        }
+
+        // XXX TBD
+        // - home cmd
+        // - invalid_tgt   send stop msg
+        // - invalid_act
+
+        // if tracking is enabled then set telescope position to tgt_az,tgt_el;
+        // do this once per second
+        if (tracking_enabled &&
+            (time_us = microsec_timer()) >= time_last_set_pos_us + 1000000)
+        {
+            char msg_buffer[sizeof(msg_t)+sizeof(msg_set_pos_all_data_t)];
+            msg_t *msg = (void*)msg_buffer;
+            msg_set_pos_all_data_t *msg_set_pos_all_data = (void*)(msg+1);
+            double az_motorshaft_deg, el_motorshaft_deg;
+
+            az_motorshaft_deg = cal_az0_motorshaft_deg + (tgt_az + adj_az) * AZDEG_TO_MOTORSHAFTDEG;
+            el_motorshaft_deg = cal_el0_motorshaft_deg + (tgt_el + adj_el) * ELDEG_TO_MOTORSHAFTDEG;
+            // XXX pick shortest direction for az
+
+            msg->id = MSGID_ADV_POS_SINGLE;
+            msg->datalen = sizeof(msg_set_pos_all_data_t);
+            msg_set_pos_all_data->deg[0] = az_motorshaft_deg;
+            msg_set_pos_all_data->deg[1] = el_motorshaft_deg;
+
+            comm_send_msg(msg);
+
+            time_last_set_pos_us = time_us;
+        }
+
+        // if tracking_enabled has changed to false stop the motors
+        if (tracking_enabled_last && !tracking_enabled) {
+            msg_t msg = { MSGID_STOP_ALL, 0 };
+            comm_send_msg(&msg);
+        }
+        tracking_enabled_last = tracking_enabled;
+
+        // unlock mutex
+        pthread_mutex_unlock(&mutex);
+    }
+}
+
+void tele_ctrl_process_cmd(int event_id)
+{
+    // lock mutex
+    pthread_mutex_lock(&mutex);
+
+    switch (event_id) {
+    case SDL_EVENT_MOTORS_CLOSE:
+        if (connected && motors != MOTORS_CLOSED) {
+            msg_t msg = { MSGID_CLOSE_ALL, 0 };
+            comm_send_msg(&msg);
+            calibrated = false;
+            tracking_enabled = false;
+        }
+        break;
+    case SDL_EVENT_MOTORS_OPEN:
+        if (connected && motors == MOTORS_CLOSED) {
+            msg_t msg = { MSGID_OPEN_ALL, 0 };
+            comm_send_msg(&msg);
+            calibrated = false;
+            tracking_enabled = false;
+        }
+        break;
+    case SDL_EVENT_UN_CALIBRATE:
+        if (connected && motors == MOTORS_OPEN && calibrated) {
+            calibrated = false;
+            tracking_enabled = false;
+        }
+        break;
+    case SDL_EVENT_CALIBRATE:
+        if (connected && motors == MOTORS_OPEN && !calibrated && act_azel_available) {
+            double curr_az_motorshaft_deg = ctlr_motor_status.motor[0].curr_pos_deg;
+            double curr_el_motorshaft_deg = ctlr_motor_status.motor[1].curr_pos_deg;
+            cal_az0_motorshaft_deg = curr_az_motorshaft_deg - act_az * AZDEG_TO_MOTORSHAFTDEG;
+            cal_el0_motorshaft_deg = curr_el_motorshaft_deg - act_el * ELDEG_TO_MOTORSHAFTDEG;
+            INFO("calibrated:    cal_motorshaft_deg curr_motorshaft_deg actual\n");
+            INFO("calibrated: AZ %18f.2 %19.2f %6.2f\n",
+                 cal_az0_motorshaft_deg, curr_az_motorshaft_deg, act_az);
+            INFO("calibrated: EL %18f.2 %19.2f %6.2f\n",
+                 cal_el0_motorshaft_deg, curr_el_motorshaft_deg, act_el);
+            calibrated = true;
+            tracking_enabled = false;
+        }
+        break;
+    case SDL_EVENT_TRK_DISABLE:
+        if (connected && motors == MOTORS_OPEN && calibrated) {
+            tracking_enabled = false;
+        }
+        break;
+    case SDL_EVENT_TRK_ENABLE:
+        if (connected && motors == MOTORS_OPEN && calibrated) {
+            tracking_enabled = true;
+        }
+        break;
+    case SDL_EVENT_KEY_UP_ARROW:
+    case SDL_EVENT_KEY_DOWN_ARROW:
+    case SDL_EVENT_KEY_LEFT_ARROW:
+    case SDL_EVENT_KEY_RIGHT_ARROW: {
+        if (calibrated) {
+            if (event_id == SDL_EVENT_KEY_LEFT_ARROW || event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
+                adj_az += (SDL_EVENT_KEY_LEFT_ARROW ? .01 : -.01);
+                if (adj_az < -MAX_ADJ) adj_az = -MAX_ADJ;
+                if (adj_az > MAX_ADJ) adj_az = MAX_ADJ;
+            } else {
+                adj_el += (SDL_EVENT_KEY_UP_ARROW ? .01 : -.01);
+                if (adj_el < -MAX_ADJ) adj_el = -MAX_ADJ;
+                if (adj_el > MAX_ADJ) adj_el = MAX_ADJ;
+            }
+        } else {
+            // XXX need fine control, maybe ALT ARROW
+            char msg_buffer[sizeof(msg_t)+sizeof(msg_adv_pos_single_data_t)];
+            msg_t *msg = (void*)msg_buffer;
+            msg_adv_pos_single_data_t *msg_adv_pos_single_data = (void*)(msg+1);
+            int h = (event_id == SDL_EVENT_KEY_LEFT_ARROW || event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 0 : 1);
+            double deg = (event_id == SDL_EVENT_KEY_UP_ARROW || event_id == SDL_EVENT_KEY_LEFT_ARROW) ? .5 : -.5;
+
+            msg->id = MSGID_ADV_POS_SINGLE;
+            msg->datalen = sizeof(msg_adv_pos_single_data_t);
+            msg_adv_pos_single_data->h = h;
+            msg_adv_pos_single_data->deg = deg;
+            msg_adv_pos_single_data->max_deg = 5;
+
+            comm_send_msg(msg);
+
+            tracking_enabled = false;
+        }
+        break; }
+    }
+
+    // unlock mutex
+    pthread_mutex_unlock(&mutex);
+}
+
+void tele_ctrl_get_status(char *str1, char *str2, char *str3)
+{
+    // lock mutex
+    pthread_mutex_lock(&mutex);
+
+    // STATUS LINE 1 - upper left
+    //   DISCONNECTED
+    //   MOTORS_CLOSED
+    //   MOTORS_ERROR
+    //   UNCALIBRATED
+    //   TGT az el DISABLED|INVALID|ACQUIRING|ACHIEVED
+    if (!connected) {
+        strcpy(str1, "DISCONNECTED");
+    } else if (motors == MOTORS_CLOSED) {
+        strcpy(str1, "MOTORS_CLOSED");
+    } else if (motors == MOTORS_ERROR) {
+        strcpy(str1, "MOTORS_ERROR");
+    } else if (!calibrated) {
+        strcpy(str1, "UNCALIBRATED");
+#if 0 // XXX
+    } else if (invalid_azel) {
+        sprintf(str1, "TGT %6.2f %6.2f INVALID_AZEL", tgt_az, tgt_el);
+#endif
+    } else if (!tracking_enabled) {
+        sprintf(str1, "TGT %6.2f %6.2f DISABLED", tgt_az, tgt_el);
+    } else if (fabs(act_az-tgt_az) > .015 || fabs(act_el-tgt_el) > .015) {
+        sprintf(str1, "TGT %6.2f %6.2f ACQUIRING", tgt_az, tgt_el);
+    } else {
+        sprintf(str1, "TGT %6.2f %6.2f ACQUIRED", tgt_az, tgt_el);
+    }
+
+    // STATUS LINE 2 - upper left
+    //    ip_address      (when not connected)
+    //    ACT az el       (when calibrated)
+    //    MOTOR xxx xxx   (when not calibrated)
+    if (!connected) {
+        sprintf("IPADDR %s", ctlr_ip);
+    } else if (act_azel_available) {
+        sprintf(str2, "ACT %6.2f %6.2f", act_az, act_el);
+    } else {
+        char motor0_pos_str[32];
+        char motor1_pos_str[32];
+        if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[0].opened) {
+            sprintf(motor0_pos_str, "%6.2f", ctlr_motor_status.motor[0].curr_pos_deg);
+        } else {
+            strcpy(motor0_pos_str, "  --  ");
+        }
+        if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[1].opened) {
+            sprintf(motor1_pos_str, "%6.2f", ctlr_motor_status.motor[1].curr_pos_deg);
+        } else {
+            strcpy(motor1_pos_str, "  --  ");
+        }
+        sprintf(str2, "MOTOR %s %s", motor0_pos_str, motor1_pos_str);
+    }
+
+    // STATUS LINE 3 - lower left
+    sprintf(str3, "ADJ %.2f %.2f", adj_az, adj_el);
+
+    // unlock mutex
+    pthread_mutex_unlock(&mutex);
+}
+
 // -----------------  TELE PANE HNDLR  ------------------------------------
 
 int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
@@ -290,7 +513,6 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     rect_t * pane = &pane_cx->pane;
 
     #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 0)
-    // XXX #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 1)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -309,13 +531,33 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         int fontsz = 20;
+        char str1[100], str2[100], str3[100];
 
-        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", "HELLO");
+        // display status lines
+        tele_ctrl_get_status(str1, str2, str3);
+        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
+        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
+        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str3);
 
         // register control events 
-        // XXX rect_t loc = {0,0,pane->w,pane->h};
-        // XXX sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
-        // XXX sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+        sdl_render_text_and_register_event(
+            pane, pane->w-COL2X(12,fontsz), ROW2Y(0,fontsz), fontsz, 
+            motors != MOTORS_CLOSED ? "MOTORS_CLOSE" : "MOTORS_OPEN",
+            LIGHT_BLUE, BLACK, 
+            motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
+            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        sdl_render_text_and_register_event(
+            pane, pane->w-COL2X(12,fontsz), ROW2Y(1,fontsz), fontsz, 
+            calibrated ? "UN_CALIBRATE" : "CALIBRATE",
+            LIGHT_BLUE, BLACK, 
+            calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
+            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        sdl_render_text_and_register_event(
+            pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
+            tracking_enabled ? "TRK_DISABLE" : "TRK_ENABLE",
+            LIGHT_BLUE, BLACK, 
+            tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
+            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -325,16 +567,27 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
-        switch (event->event_id) {
-        case SDL_EVENT_MOUSE_MOTION:
-        case SDL_EVENT_KEY_UP_ARROW:
-        case SDL_EVENT_KEY_DOWN_ARROW:
-        case SDL_EVENT_KEY_LEFT_ARROW:
-        case SDL_EVENT_KEY_RIGHT_ARROW: {
-            return PANE_HANDLER_RET_DISPLAY_REDRAW; }
+        int ret;
+
+        // process the event_id
+        tele_ctrl_process_cmd(event->event_id);
+
+        // for arrow keys do not redraw the displays because they occur rapidly
+        // when they key is held, and the arrow key events will accumulate, so that
+        // when the key is released the events continue for a period of time; by not
+        // redrawing the display the arrow keys can be processed as they are received
+        // and do not accumulate
+        if (event->event_id == SDL_EVENT_KEY_UP_ARROW ||
+            event->event_id == SDL_EVENT_KEY_DOWN_ARROW ||
+            event->event_id == SDL_EVENT_KEY_LEFT_ARROW ||
+            event->event_id == SDL_EVENT_KEY_RIGHT_ARROW)
+        {
+            ret = PANE_HANDLER_RET_NO_ACTION;
+        } else {
+            ret = PANE_HANDLER_RET_DISPLAY_REDRAW;
         }
 
-        return PANE_HANDLER_RET_NO_ACTION;
+        return ret;
     }
 
     // ---------------------------
@@ -349,4 +602,18 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     // not reached
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
+}
+
+// -----------------  TELE DEBUG AND SUPPORT ROUTINES  --------------------
+
+void tele_debug_print_ctlr_motor_status(void)
+{
+    DEBUG("opened               %32lld %32lld\n", d->motor[0].opened, d->motor[1].opened);
+    DEBUG("energized            %32lld %32lld\n", d->motor[0].energized, d->motor[1].energized);
+    DEBUG("vin_voltage_v        %32.2f %32.2f\n", d->motor[0].vin_voltage_v, d->motor[1].vin_voltage_v);
+    DEBUG("curr_pos_deg         %32.2f %32.2f\n", d->motor[0].curr_pos_deg, d->motor[1].curr_pos_deg);
+    DEBUG("tgt_pos_deg          %32.2f %32.2f\n", d->motor[0].tgt_pos_deg, d->motor[1].tgt_pos_deg);
+    DEBUG("curr_vel_degpersec   %32.2f %32.2f\n", d->motor[0].curr_vel_degpersec, d->motor[1].curr_vel_degpersec);
+    DEBUG("operation_state_str  %32s %32s\n",     d->motor[0].operation_state_str, d->motor[1].operation_state_str);
+    DEBUG("error_status_str     %32s %32s\n",     d->motor[0].error_status_str, d->motor[1].error_status_str);
 }

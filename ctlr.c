@@ -1166,8 +1166,8 @@ void motor_unit_test(void)
             INFO("adv start: %d calls at %f sec interval\n", count, KEY_REPEAT_INTVL);
             for (i = 0; i < count; i++) {
                 motor_adv_pos(h, 
-                              MAX_SPEED * KEY_REPEAT_INTVL,       // degrees
-                              5);                               // max degrees ahead
+                              MAX_SPEED * KEY_REPEAT_INTVL, // degrees
+                              5);                           // max degrees ahead
                 usleep(KEY_REPEAT_INTVL * 1000000);
             }
             INFO("adv done\n");
