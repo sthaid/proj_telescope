@@ -988,13 +988,13 @@ sdl_event_t * sdl_poll_event(void)
             } else if (key == SDLK_PAGEDOWN) {
                 event_id = SDL_EVENT_KEY_PGDN;
             } else if (key == SDLK_UP) {
-                event_id = SDL_EVENT_KEY_UP_ARROW;
+                event_id = !shift ? SDL_EVENT_KEY_UP_ARROW : SDL_EVENT_KEY_SHIFT_UP_ARROW;
             } else if (key == SDLK_DOWN) {
-                event_id = SDL_EVENT_KEY_DOWN_ARROW;
+                event_id = !shift ? SDL_EVENT_KEY_DOWN_ARROW : SDL_EVENT_KEY_SHIFT_DOWN_ARROW;
             } else if (key == SDLK_LEFT) {
-                event_id = SDL_EVENT_KEY_LEFT_ARROW;
+                event_id = !shift ? SDL_EVENT_KEY_LEFT_ARROW : SDL_EVENT_KEY_SHIFT_LEFT_ARROW;
             } else if (key == SDLK_RIGHT) {
-                event_id = SDL_EVENT_KEY_RIGHT_ARROW;
+                event_id = !shift ? SDL_EVENT_KEY_RIGHT_ARROW : SDL_EVENT_KEY_SHIFT_RIGHT_ARROW;
             }
 
             // adjust event_id if ctrl and/or alt is active

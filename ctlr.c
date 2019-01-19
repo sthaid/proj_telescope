@@ -55,8 +55,8 @@ int motor_open_all(void);
 void motor_close_all(void);
 int motor_open(int h);
 void motor_close(int h);
-int motor_set_pos(int h, double deg);
-int motor_adv_pos(int h, double deg, double max_deg);
+int motor_set_pos(int h, int mstep);  
+int motor_adv_pos(int h, int mstep, int max_mstep);   
 int motor_request_stop(int h);
 int motor_wait_for_stopped(int h);
 int motor_request_all_stop(void); 
@@ -271,14 +271,14 @@ int comm_process_recvd_msg(msg_t * msg)
     case MSGID_ADV_POS_SINGLE: {
         CHECK_DATALEN(sizeof(msg_adv_pos_single_data_t));
         msg_adv_pos_single_data_t * d = (void*)msg->data;
-        motor_adv_pos(d->h, d->deg, d->max_deg);
+        motor_adv_pos(d->h, d->mstep, d->max_mstep);
         break; }
     case MSGID_SET_POS_ALL: {
         CHECK_DATALEN(sizeof(msg_set_pos_all_data_t));
         msg_set_pos_all_data_t * d = (void*)msg->data;
         int h;
         for (h = 0; h < MAX_MOTOR; h++) {
-            motor_set_pos(h, d->deg[h]);
+            motor_set_pos(h, d->mstep[h]);
         }
         break; }
     case MSGID_HEARTBEAT:
@@ -351,9 +351,8 @@ void * comm_heartbeat_thread(void * cx)
 #define MAX_SPEED 18.0  // deg/sec
 #define MAX_ACCEL 5.4   // deg/sec/sec
 
-#define DEG2MICROSTEP(d)      (rint((d) * ((200.*32.) / 360.)))
-#define MICROSTEP2DEG(mstep)  ((mstep) * (360. / (200.*32.)))
-
+#define DEG2MICROSTEP(d)                (rint((d) * ((200.*32.) / 360.)))
+#define MICROSTEP2DEG(mstep)            ((mstep) * (360. / (200.*32.)))
 #define MICROSTEPVEL2DEGPERSEC(mstepv)  ((mstepv) * (360. / (200.*32.)) / 10000.)
 
 //
@@ -597,7 +596,7 @@ void motor_close(int h)
 
 // ---- set positions ----
 
-int motor_set_pos(int h, double deg)
+int motor_set_pos(int h, int mstep)
 {
     tic_error * err;
 
@@ -608,7 +607,7 @@ int motor_set_pos(int h, double deg)
     }
 
     // set motor position
-    err = tic_set_target_position(motor[h].tic_handle, DEG2MICROSTEP(deg));
+    err = tic_set_target_position(motor[h].tic_handle, mstep);
     if (err) {
         ERROR("tic_set_target_position %d, %s\n", h, tic_error_get_message(err));
         return -1;
@@ -618,7 +617,7 @@ int motor_set_pos(int h, double deg)
     return 0;
 }
 
-int motor_adv_pos(int h, double deg, double max_deg)
+int motor_adv_pos(int h, int mstep, int max_mstep)
 {
     int curr_pos, tgt_pos;
     tic_error * err;
@@ -636,19 +635,19 @@ int motor_adv_pos(int h, double deg, double max_deg)
     tgt_pos = TARGET_POSITION(v);
     tic_variables_free(v);
 
-    // ignore request if tgt_pos is already more than max_deg from curr_pos
-    if (deg > 0 && tgt_pos - curr_pos > DEG2MICROSTEP(max_deg)) {
+    // ignore request if tgt_pos is already more than max_mstep from curr_pos
+    if (mstep > 0 && tgt_pos - curr_pos > max_mstep) {
         return 0;
     }
-    if (deg < 0 && tgt_pos - curr_pos < -DEG2MICROSTEP(max_deg)) {
+    if (mstep < 0 && tgt_pos - curr_pos < -max_mstep) {
         return 0;
     }
-    if (deg == 0) {
+    if (mstep == 0) {
         return 0;
     }
 
     // set new target position by adding to the current tgt_pos
-    err = tic_set_target_position(motor[h].tic_handle, tgt_pos+DEG2MICROSTEP(deg));
+    err = tic_set_target_position(motor[h].tic_handle, tgt_pos+mstep);
     if (err) {
         ERROR("tic_set_target_position %d, %s\n", h, tic_error_get_message(err));
         return -1;
@@ -663,8 +662,8 @@ int motor_adv_pos(int h, double deg, double max_deg)
 int motor_request_stop(int h)
 {
     tic_variables * v;
-    int curr_pos, curr_vel;
-    double vel_degpersec, pos_deg, stop_pos_deg;
+    int stop_pos_mstep;
+    double curr_pos_mstep, curr_vel_mstep_per_sec;
 
     // check that motor[h] has been opened
     if (h >= MAX_MOTOR || motor[h].tic_handle == NULL) {
@@ -674,23 +673,21 @@ int motor_request_stop(int h)
 
     // get curr_pos and curr_vel
     tic_get_variables(motor[h].tic_handle, &v, false);
-    curr_pos = CURRENT_POSITION(v);
-    curr_vel = CURRENT_VELOCITY(v);
+    curr_pos_mstep = CURRENT_POSITION(v);
+    curr_vel_mstep_per_sec = CURRENT_VELOCITY(v) / 10000.0;
     tic_variables_free(v);
 
-    // convert velocity and position to deg/sec and deg
-    vel_degpersec = MICROSTEPVEL2DEGPERSEC(curr_vel);
-    pos_deg = MICROSTEP2DEG(curr_pos);
-
     // determine pos to stop at based on max decel
-    if (vel_degpersec >= 0) {
-        stop_pos_deg = pos_deg + vel_degpersec * vel_degpersec / (2. * MAX_ACCEL);
+    if (curr_vel_mstep_per_sec >= 0) {
+        stop_pos_mstep = curr_pos_mstep + 
+                         (curr_vel_mstep_per_sec * curr_vel_mstep_per_sec / (2. * DEG2MICROSTEP(MAX_ACCEL)));
     } else {
-        stop_pos_deg = pos_deg - vel_degpersec * vel_degpersec / (2. * MAX_ACCEL);
+        stop_pos_mstep = curr_pos_mstep - 
+                         (curr_vel_mstep_per_sec * curr_vel_mstep_per_sec / (2. * DEG2MICROSTEP(MAX_ACCEL)));
     }
 
     // set pos
-    motor_set_pos(h, stop_pos_deg);
+    motor_set_pos(h, stop_pos_mstep);
 
     // success
     return 0;
@@ -800,27 +797,43 @@ void * motor_getstatus_thread(void * cx)
         pthread_mutex_unlock(&motor_mutex);
 
 #ifdef UNIT_TEST
-        // unit test, print motor variables to a seperate log file for each motor
-        {
-        for (h = 0; h < MAX_MOTOR; h++) {
-            tic_variables *v = variables[h];
-            char time_str[100];
+        // unit test, print motor variables to a seperate log file for each motor;
+        // print every 4th time, which is once per sec
+        static int count;
+        if ((count++ % 4) == 0) {
+            for (h = 0; h < MAX_MOTOR; h++) {
+                tic_variables *v = variables[h];
+                char time_str[100];
 
-            if (motor[h].tic_handle == NULL) {
-                continue;
-            }
+                if (motor[h].tic_handle == NULL) {
+                    continue;
+                }
 
-            fprintf(fp_unit_test[h], "%s %8.2f %8.2f %8.2f %8.2f %d %4.1f %s %s\n",
-                    time2str(time_str, get_real_time_us(), false, true, true),
-                    MICROSTEP2DEG(CURRENT_POSITION(v)),
-                    MICROSTEP2DEG(TARGET_POSITION(v)),
-                    MICROSTEPVEL2DEGPERSEC(CURRENT_VELOCITY(v)),
-                    MICROSTEPVEL2DEGPERSEC(TARGET_VELOCITY(v)),
-                    ENERGIZED(v),
-                    VIN_VOLTAGE(v)/1000.,
-                    motor_operation_state_str(OPERATION_STATE(v)),
-                    motor_error_status_str(ERROR_STATUS(v)));
-        } }
+#if 0
+                fprintf(fp_unit_test[h], "%s %8.2f %8.2f %8.2f %8.2f %d %4.1f %s %s\n",
+                        time2str(time_str, get_real_time_us(), false, true, true),
+                        MICROSTEP2DEG(CURRENT_POSITION(v)),
+                        MICROSTEP2DEG(TARGET_POSITION(v)),
+                        MICROSTEPVEL2DEGPERSEC(CURRENT_VELOCITY(v)),
+                        MICROSTEPVEL2DEGPERSEC(TARGET_VELOCITY(v)),
+                        ENERGIZED(v),
+                        VIN_VOLTAGE(v)/1000.,
+                        motor_operation_state_str(OPERATION_STATE(v)),
+                        motor_error_status_str(ERROR_STATUS(v)));
+#else
+                fprintf(fp_unit_test[h], "%s %8d %8d %8d %8d %8d %8d %s %s\n",
+                        time2str(time_str, get_real_time_us(), false, true, true),
+                        CURRENT_POSITION(v),
+                        TARGET_POSITION(v),
+                        CURRENT_VELOCITY(v),
+                        TARGET_VELOCITY(v),
+                        ENERGIZED(v),
+                        VIN_VOLTAGE(v),
+                        motor_operation_state_str(OPERATION_STATE(v)),
+                        motor_error_status_str(ERROR_STATUS(v)));
+#endif
+            } 
+        }
 #endif
 
         // fill in the status msg, and send it
@@ -834,14 +847,14 @@ void * motor_getstatus_thread(void * cx)
                 continue;
             }
 
-            msg_status_data->motor[h].opened             = 1;
-            msg_status_data->motor[h].energized          = ENERGIZED(v);
-            msg_status_data->motor[h].vin_voltage_v      = VIN_VOLTAGE(v)/1000.;
-            msg_status_data->motor[h].curr_pos_deg       = MICROSTEP2DEG(CURRENT_POSITION(v));
-            msg_status_data->motor[h].tgt_pos_deg        = MICROSTEP2DEG(TARGET_POSITION(v));
-            msg_status_data->motor[h].curr_vel_degpersec = MICROSTEPVEL2DEGPERSEC(CURRENT_VELOCITY(v));
-            msg_status_data->motor[h].spare1             = 0;
-            msg_status_data->motor[h].spare2             = 0;
+            msg_status_data->motor[h].opened                 = 1;
+            msg_status_data->motor[h].energized              = ENERGIZED(v);
+            msg_status_data->motor[h].vin_voltage_mv         = VIN_VOLTAGE(v);
+            msg_status_data->motor[h].curr_pos_mstep         = CURRENT_POSITION(v);
+            msg_status_data->motor[h].tgt_pos_mstep          = TARGET_POSITION(v);
+            msg_status_data->motor[h].curr_vel_mstep_per_sec = CURRENT_VELOCITY(v) / 10000.0;
+            msg_status_data->motor[h].spare1                 = 0;
+            msg_status_data->motor[h].spare2                 = 0;
             strncpy(msg_status_data->motor[h].operation_state_str, 
                     motor_operation_state_str(OPERATION_STATE(v)),
                     sizeof(msg_status_data->motor[h].operation_state_str)-1);
@@ -859,8 +872,8 @@ void * motor_getstatus_thread(void * cx)
             }
         }
 
-        // delay 1 sec
-        usleep(1000000);
+        // delay 0.25 sec
+        usleep(250000);
     }
 
     // terminate
@@ -945,7 +958,7 @@ void motor_check_settings(int h, bool verbose)
     //
     //                   6400 mcrosteps
     //     18 deg/sec x ----------------   => 320 microstep/sec
-    //                      360
+    //                      360 deg
     //
     //     max_speed register = 320 microsteps/sec x 10,000  => 3,200,000
     //
@@ -1133,23 +1146,22 @@ void motor_unit_test(void)
             motor_request_all_stop();
             motor_wait_for_all_stopped();
         } else if (strcmp(argv[0], "set") == 0) {
-            int h;
-            double deg;
+            int h, mstep;
             if (argv[1] == NULL || argv[2] == NULL) {
-                ERROR("expected handle and shaft-degrees\n");
+                ERROR("expected handle and mstep\n");
                 continue;
             }
             if (sscanf(argv[1], "%d", &h) != 1) {
                 ERROR("invalid handle '%s'\n", argv[1]);
                 continue;
             }
-            if (sscanf(argv[2], "%lf", &deg) != 1) {
-                ERROR("invalid deg '%s'\n", argv[2]);
+            if (sscanf(argv[2], "%d", &mstep) != 1) {
+                ERROR("invalid mstep '%s'\n", argv[2]);
                 continue;
             }
-            motor_set_pos(h, deg);
+            motor_set_pos(h, mstep);
         } else if (strcmp(argv[0], "adv") == 0) {
-            #define KEY_REPEAT_INTVL (1./36.)  // sec xxx
+            #define KEY_REPEAT_INTVL (1./36.)  // sec
             int i, h, count=10/KEY_REPEAT_INTVL;
             int curr_pos1, curr_pos2;
             tic_variables * v;
@@ -1166,8 +1178,8 @@ void motor_unit_test(void)
             INFO("adv start: %d calls at %f sec interval\n", count, KEY_REPEAT_INTVL);
             for (i = 0; i < count; i++) {
                 motor_adv_pos(h, 
-                              MAX_SPEED * KEY_REPEAT_INTVL, // degrees
-                              5);                           // max degrees ahead
+                              DEG2MICROSTEP(MAX_SPEED * KEY_REPEAT_INTVL), // microsteps
+                              DEG2MICROSTEP(5));                           // max microsteps ahead
                 usleep(KEY_REPEAT_INTVL * 1000000);
             }
             INFO("adv done\n");
@@ -1184,10 +1196,12 @@ void motor_unit_test(void)
             curr_pos2 = CURRENT_POSITION(v);
             tic_variables_free(v);
 
-            INFO("adv overshoot %f deg\n",
+            INFO("adv overshoot %d mstep (%f deg)\n",
+                 curr_pos2 - curr_pos1,
                  MICROSTEP2DEG(curr_pos2 - curr_pos1));
-            fprintf(fp_unit_test[h], "%s adv overshoot %f deg\n", 
+            fprintf(fp_unit_test[h], "%s adv overshoot %d mstep (%f deg)\n", 
                     time2str(time_str, get_real_time_us(), false, true, true),
+                    curr_pos2 - curr_pos1,
                     MICROSTEP2DEG(curr_pos2 - curr_pos1));
         } else if (strcmp(argv[0], "advms") == 0) {
             int h, mstep;
@@ -1208,9 +1222,7 @@ void motor_unit_test(void)
             INFO("advancing %d by %d mstep (%f deg)\n",
                  h, mstep, MICROSTEP2DEG(mstep));
 
-            motor_adv_pos(h, 
-                          MICROSTEP2DEG(mstep),  // degrees
-                          10.);                  // max degrees ahead
+            motor_adv_pos(h, mstep, DEG2MICROSTEP(10));
 
         } else {
             ERROR("invalid command '%s'\n", argv[0]);

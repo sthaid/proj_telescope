@@ -612,7 +612,7 @@ int obj_sanity_checks(void)
 
 time_t sky_time     = 0;
 double lst          = 0;
-double az_ctr       = 0;
+double az_ctr       = 0;   // range -180 to +180
 double az_span      = 360;
 double el_ctr       = 45;
 double el_span      = 90;  
@@ -759,6 +759,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
             sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
+// AAA end of display pts
 
         // draw grid
         grid_sep = az_span > 240 ? 45 :
@@ -805,6 +806,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                         pane->w/2, pane->h/2-20, pane->w/2, pane->h/2+20, 
                         RED);
 
+// AAA sky pane
         // display names of the objects that have names
         fontsz = 18;
         for (i = 0; i < max_obj; i++) {
@@ -1052,6 +1054,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGDN:
             reset(true);
+            return PANE_HANDLER_RET_DISPLAY_REDRAW;
+
+        case SDL_EVENT_KEY_HOME:
+            az_ctr = -30;  // XXX get these from env, I guess
+            el_ctr = 0; 
+            tracking = TRACKING_OFF;
+            ident = IDENT_OFF;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         }
 
@@ -1353,6 +1362,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                         pane->w/2, pane->h/2-20, pane->w/2, pane->h/2+20,
                         RED);
 
+// AAA sky view pane
         // display names of the objects that have names
         fontsz = 18;
         for (i = 0; i < max_obj; i++) {

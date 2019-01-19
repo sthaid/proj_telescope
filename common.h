@@ -70,10 +70,10 @@ typedef struct {
     struct {
         long long opened;
         long long energized;
-        double    vin_voltage_v;
-        double    curr_pos_deg;
-        double    tgt_pos_deg;
-        double    curr_vel_degpersec;
+        long long vin_voltage_mv;
+        long long curr_pos_mstep;
+        long long tgt_pos_mstep;
+        double    curr_vel_mstep_per_sec;
         long long spare1;
         long long spare2;
         char      operation_state_str[32];
@@ -83,12 +83,12 @@ typedef struct {
 
 typedef struct {
     long long h;
-    double deg;
-    double max_deg;
+    long long mstep;
+    long long max_mstep;
 } msg_adv_pos_single_data_t;
 
 typedef struct {
-    double deg[MAX_MOTOR];
+    long long mstep[MAX_MOTOR];
 } msg_set_pos_all_data_t;
 
 //
