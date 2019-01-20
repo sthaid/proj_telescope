@@ -130,8 +130,6 @@ void tele_ctrl_process_cmd(int event_id);
 void tele_ctrl_get_status(char *str1, char *str2, char *str3);
 bool tele_ctrl_is_azel_valid(double az, double el);
 
-void tele_debug_print_ctlr_motor_status(void);
-
 // -----------------  TELE INIT  ------------------------------------------
 
 int tele_init(char *incl_ss_obj_str)
@@ -245,7 +243,6 @@ int comm_process_recvd_msg(msg_t * msg)
         CHECK_DATALEN(sizeof(msg_status_data_t));
         ctlr_motor_status = *(msg_status_data_t *)msg->data;
         ctlr_motor_status_us = microsec_timer();
-        tele_debug_print_ctlr_motor_status();
 #ifdef TEST_WITH_ONLY_AZ_MOTOR
         // when simulating the el motor override the received el motor 
         // position with the simulated value
@@ -324,16 +321,16 @@ void * tele_ctrl_thread(void * cx)
 #ifdef TEST_WITH_ONLY_AZ_MOTOR
         } else if (ctlr_motor_status.motor[0].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[0].error_status_str, "No_Err") == 0)
+                   strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0)
         {
             motors = MOTORS_OPEN;
 #else
         } else if (ctlr_motor_status.motor[0].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[0].error_status_str, "No_Err") == 0) &&
+                   strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0) &&
                    ctlr_motor_status.motor[1].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[1].error_status_str, "No_Err") == 0
+                   strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0
         {
             motors = MOTORS_OPEN;
 #endif
@@ -654,11 +651,21 @@ bool tele_ctrl_is_azel_valid(double az, double el)
 int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
     struct {
-        int tbd;
+        int display_choice;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
-    #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 0)
+    #define DISPLAY_CHOICE_CAMERA 0
+    #define DISPLAY_CHOICE_MOTOR_VARIABLES  1
+    #define MAX_DISPLAY_CHOICE 2
+
+    #define SDLPR(fmt, args...) \
+        do { \
+            sdl_render_printf(pane, COL2X(sdlpr_col,fontsz), ROW2Y(sdlpr_row,fontsz), fontsz, WHITE, BLACK, fmt, ## args); \
+            sdlpr_row++; \
+        } while (0)
+
+    #define SDL_EVENT_DISPLAY_CHOICE   (SDL_EVENT_USER_DEFINED + 100)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -666,6 +673,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        vars->display_choice = DISPLAY_CHOICE_MOTOR_VARIABLES;
         DEBUG("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
@@ -676,14 +684,47 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int fontsz = 20;  // tele pane
+        int fontsz, sdlpr_row, sdlpr_col;
         char str1[100], str2[100], str3[100];
+
+        fontsz = 20;  // tele pane
 
         // display status lines
         tele_ctrl_get_status(str1, str2, str3);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
         sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str3);
+
+        // display either:
+        // - camera image
+        // - motor variables
+        if (vars->display_choice == DISPLAY_CHOICE_CAMERA) {
+            sdlpr_col = 10;
+            sdlpr_row = 10;
+            SDLPR("CAMERA IMAGE HERE"); // XXX tbd
+        } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARIABLES) {
+            struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
+            struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
+
+            static char error_status_str[2][15];
+            static char operation_state_str[2][15];
+
+            strncpy(error_status_str[0], m0->error_status_str, 14);
+            strncpy(error_status_str[1], m1->error_status_str, 14);
+            strncpy(operation_state_str[0], m0->operation_state_str, 14);
+            strncpy(operation_state_str[1], m1->operation_state_str, 14);
+
+            sdlpr_col = 0;
+            sdlpr_row = 5;
+            SDLPR("OPENED     %14lld %14lld", m0->opened, m1->opened);
+            SDLPR("ENERG      %14lld %14lld", m0->energized, m1->energized);
+            SDLPR("VOLTAGE    %14lld %14lld", m0->vin_voltage_mv, m1->vin_voltage_mv);
+            SDLPR("CURR_POS   %14lld %14lld", m0->curr_pos_mstep, m1->curr_pos_mstep);
+            SDLPR("TGT_POS    %14lld %14lld", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
+            SDLPR("CURR_VEL   %14.1f %14.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
+            SDLPR("OP_STATE   %14s %14s",     operation_state_str[0], operation_state_str[1]);
+            SDLPR("ERR_STAT   %14s %14s",     error_status_str[0], error_status_str[1]);
+        }
 
         // register control events 
         if (connected) {
@@ -711,6 +752,13 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
 
+        sdl_render_text_and_register_event(
+            pane, pane->w-COL2X(11,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
+            "DISP_SELECT",
+            LIGHT_BLUE, BLACK, 
+            SDL_EVENT_DISPLAY_CHOICE,
+            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -721,7 +769,12 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     if (request == PANE_HANDLER_REQ_EVENT) {
         int ret;
 
-        // process the event_id
+        // some of the event_ids are handled here
+        if (event->event_id == SDL_EVENT_DISPLAY_CHOICE) {
+            vars->display_choice = (vars->display_choice + 1) % MAX_DISPLAY_CHOICE;
+        }
+
+        // the remainng event_ids are processed by the tele_ctrl_process_cmd routine
         tele_ctrl_process_cmd(event->event_id);
 
         // for arrow keys do not redraw the displays because they occur rapidly
@@ -760,16 +813,3 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
-// -----------------  TELE DEBUG AND SUPPORT ROUTINES  --------------------
-
-void tele_debug_print_ctlr_motor_status(void)
-{
-    DEBUG("opened                 %32lld %32lld\n", d->motor[0].opened, d->motor[1].opened);
-    DEBUG("energized              %32lld %32lld\n", d->motor[0].energized, d->motor[1].energized);
-    DEBUG("vin_voltage_mv         %32lld %32lld\n", d->motor[0].vin_voltage_mv, d->motor[1].vin_voltage_mv);
-    DEBUG("curr_pos_mstep         %32lld %32lld\n", d->motor[0].curr_pos_mstep, d->motor[1].curr_pos_mstep);
-    DEBUG("tgt_pos_mstep          %32lld %32lld\n", d->motor[0].tgt_pos_mstep, d->motor[1].tgt_pos_mstep);
-    DEBUG("curr_vel_mstep_per_sec %32.2f %32.2f\n", d->motor[0].curr_vel_mstep_per_sec, d->motor[1].curr_vel_mstep_per_sec);
-    DEBUG("operation_state_str    %32s %32s\n",     d->motor[0].operation_state_str, d->motor[1].operation_state_str);
-    DEBUG("error_status_str       %32s %32s\n",     d->motor[0].error_status_str, d->motor[1].error_status_str);
-}

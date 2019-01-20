@@ -67,7 +67,7 @@ typedef struct {
 } msg_t;
 
 typedef struct {
-    struct {
+    struct motor_status_s {
         long long opened;
         long long energized;
         long long vin_voltage_mv;

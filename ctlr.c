@@ -1077,19 +1077,19 @@ char * motor_error_status_str(int err_stat)
     static char str[100];
     char *p = str;
 
-    if (err_stat == 0) return "No_Err";
+    if (err_stat == 0) return "NO_ERR";
 
-    if (err_stat & (1<<0)) p += sprintf(p,"%s","Intentionally_de-energized,");
-    if (err_stat & (1<<1)) p += sprintf(p,"%s","Motor_driver_error,");
-    if (err_stat & (1<<2)) p += sprintf(p,"%s","Low_VIN,");
-    if (err_stat & (1<<3)) p += sprintf(p,"%s","Kill_switch_active,");
-    if (err_stat & (1<<4)) p += sprintf(p,"%s","Required_input_invalid,");
-    if (err_stat & (1<<5)) p += sprintf(p,"%s","Serial_error,");
-    if (err_stat & (1<<6)) p += sprintf(p,"%s","Command_timeout,");
-    if (err_stat & (1<<7)) p += sprintf(p,"%s","Safe_start_violation,");
-    if (err_stat & (1<<8)) p += sprintf(p,"%s","ERR_line_high,");
+    if (err_stat & (1<<0)) p += sprintf(p,"%s", "DEENERG ");      // "Intentionally_de-energized"
+    if (err_stat & (1<<1)) p += sprintf(p,"%s", "DRVR_ERR ");     // "Motor_driver_error"
+    if (err_stat & (1<<2)) p += sprintf(p,"%s", "LOW_VIN ");      // "Low_VIN"
+    if (err_stat & (1<<3)) p += sprintf(p,"%s", "KILL_SW ");      // "Kill_switch_active"
+    if (err_stat & (1<<4)) p += sprintf(p,"%s", "INP_INVLD ");    // "Required_input_invalid"
+    if (err_stat & (1<<5)) p += sprintf(p,"%s", "SERIAL_ERR ");   // "Serial_error"
+    if (err_stat & (1<<6)) p += sprintf(p,"%s", "CMD_TOUT ");     // "Command_timeout"
+    if (err_stat & (1<<7)) p += sprintf(p,"%s", "SS_VIOL ");      // "Safe_start_violation"
+    if (err_stat & (1<<8)) p += sprintf(p,"%s", "ERR_LINE ");     // "ERR_line_high"
 
-    if (p == str) return "Invalid_Err_Stat";
+    if (p == str) return "INVLD_ERR_STAT";
 
     return str;
 }    
