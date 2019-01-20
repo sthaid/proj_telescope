@@ -29,6 +29,8 @@ SOFTWARE.
 
 #define UNIT_TEST
 
+#define TEST_WITH_ONLY_AZ_MOTOR
+
 //
 // typedefs
 //
@@ -251,9 +253,7 @@ int comm_process_recvd_msg(msg_t * msg)
             } \
         } while (0)
 
-    if (msg->id != MSGID_HEARTBEAT) {
-        INFO("received %s\n", MSGID_STR(msg->id));
-    }
+    DEBUG("received %s\n", MSGID_STR(msg->id));
 
     switch (msg->id) {
     case MSGID_OPEN_ALL: {
@@ -300,9 +300,7 @@ void comm_send_msg(msg_t * msg)
         return;
     }
 
-    if (msg->id != MSGID_HEARTBEAT && msg->id != MSGID_STATUS) {
-        INFO("sending %s\n", MSGID_STR(msg->id));
-    }
+    DEBUG("sending %s\n", MSGID_STR(msg->id));
 
     len = send(sfd, msg, sizeof(msg_t) + msg->datalen, MSG_NOSIGNAL);
     if (len != sizeof(msg_t) + msg->datalen) {
@@ -327,7 +325,7 @@ void * comm_heartbeat_thread(void * cx)
 
 // -----------------  MOTOR  ----------------------------------------------
 
-// AAA? XXX more motor err chks
+// XXX more motor err chks
 
 //
 // defines
@@ -459,10 +457,6 @@ void motor_exit(void)
         return;
     }
 
-    // stop all motors
-    motor_request_all_stop();
-    motor_wait_for_all_stopped();
-
     // close all motors, this will deenergize them
     motor_close_all();
 
@@ -488,14 +482,16 @@ int motor_open_all(void)
 {
     int h;
 
-    INFO("called\n");
+    INFO("starting\n");
 
+    // call motor_open for all motors that have been detected
     for (h = 0; h < max_motor_devices; h++) {
         if (motor_open(h) < 0) {
             return -1;
         }
     }
 
+    INFO("done\n");
     return 0;
 }
 
@@ -503,14 +499,21 @@ void motor_close_all(void)
 {
     int h;
 
-    INFO("called\n");
+    INFO("starting\n");
 
+    // stop all motors
+    motor_request_all_stop();
+    motor_wait_for_all_stopped();
+
+    // call motor_close for all motors that are open
     for (h = 0; h < max_motor_devices; h++) {
         if (motor[h].tic_handle == NULL) {
             continue;
         }
         motor_close(h);
     }
+
+    INFO("done\n");
 }
 
 // ---- open and close single motor ----
@@ -599,6 +602,10 @@ void motor_close(int h)
 int motor_set_pos(int h, int mstep)
 {
     tic_error * err;
+
+#ifdef TEST_WITH_ONLY_AZ_MOTOR
+    if (h == 1) return 0;
+#endif
 
     // check that motor[h] has been opened
     if (h >= MAX_MOTOR || motor[h].tic_handle == NULL) {
@@ -713,7 +720,7 @@ int motor_wait_for_stopped(int h)
         tic_variables_free(v);
 
         if (curr_vel == 0) {
-            INFO("motor %d is stopped\n", h);
+            DEBUG("motor %d is stopped\n", h);
             return 0;
         }
         if (duration_us > 10000000) {  // 10 secs

@@ -20,6 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+// XXX describe issue with moon and JD2000
+
 #include "common.h"
 
 //
@@ -768,7 +770,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                    az_span > 10  ? 2 :
                    az_span > 6   ? 1 :
                                    0.5;
-        fontsz = 20;
+        fontsz = 22;  // grid
         first_az_line = floor(min_az/grid_sep) * grid_sep;
         for (az = first_az_line; az <= max_az; az += grid_sep) {
             double adj_az = (az >= 0 ? az : az + 360);
@@ -806,7 +808,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                         RED);
 
         // display names of the objects that have names
-        fontsz = 18;
+        fontsz = 18;  // objects
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
             if (x->name[0] != '\0' && 
@@ -821,7 +823,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
         // display the date/time, az and el of center, and magnitude;
         // also display time mode if it is not SKY_TIME_MODE_CURRENT
-        fontsz = 20;
+        fontsz = 22;  // date/time line
         row = 0;
         sky_time_get_mode(&mode);
         sky_time_get_step_mode(&step_mode, &step_mode_hr_param);
@@ -1344,9 +1346,8 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int i, ret, ptsz, color, xcoord, ycoord;
+        int i, ret, ptsz, color, xcoord, ycoord, fontsz;
         double xret, yret, max;
-        int fontsz=24;
 
         // display objects that fall within the sky view pane
         for (i = 0; i < max_obj; i++) {
@@ -1417,7 +1418,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                         RED);
 
         // display names of the objects that have names
-        fontsz = 18;
+        fontsz = 18;  // objects
         for (i = 0; i < max_obj; i++) {
             obj_t * x = &obj[i];
             if (x->name[0] != '\0' && 
@@ -1431,6 +1432,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
         }
 
         // print the angle diameter of the sky_view pane
+        fontsz = 20;  // angle diamter
         sdl_render_printf(pane, 0, 0, fontsz, WHITE, BLACK,
                           "RADIUS %0.2g DEG", sky_view_scale_tbl[sky_view_scale_tbl_idx]);
 
@@ -2050,7 +2052,15 @@ void azel2radec(double *ra, double *dec, double az, double el, double lst, doubl
     // working out right ascension
     rha = atan2(cos(rel)*sin(raz), sin(rel)*cos(rlat)+cos(rel)*cos(raz)*sin(rlat));
     *ra = ((lst * HR2RAD) - rha) * RAD2DEG;
-    if (*ra < 0) *ra += 360;
+
+    // bring ra into range 0 to 260
+    while (*ra >= 360) *ra -= 360;
+    while (*ra < 0) *ra += 360;
+
+    // if dec is +/- 90 then return ra=0
+    if (fabs(fabs(*dec)-90) < .000001) {
+        *ra = 0;
+    }
 
     // sanity check
     if (*ra < 0 || *ra > 360 || *dec < -90 || *dec > 90) {
@@ -2131,8 +2141,6 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
     double hr, seconds;
     struct tm tm;
 
-    // XXX check that constants copied correctly, and double check equations
-
     // calculate number of julian days since JD2000 epoch
     n = jd - JD2000;
 
@@ -2141,7 +2149,7 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 
     // solar mean anomaly
     M = (357.5291 + .98560028 * jstar);
-    if (M < 0) FATAL("M < 0\n");  // XXX better mod
+    if (M < 0) FATAL("M < 0\n");
     while (M > 360) M -= 360; 
 
     // equation of the center
@@ -2149,7 +2157,7 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 
     // ecliptic longitude
     lambda = (M +  C + 180 + 102.9372);
-    if (lambda < 0) FATAL("lambda < 0\n");  // XXX better mod
+    if (lambda < 0) FATAL("lambda < 0\n");
     while (lambda > 360) lambda -= 360;
 
     // solar transit
@@ -2289,13 +2297,6 @@ void unit_test(void)
         FATAL("el_deviation = %f, exceeds limit\n", el_deviation);
     }
     INFO("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
-
-    // XXX AAA
-    INFO("XXX azel %f %f\n", az,el);
-    double ra2, dec2;
-    azel2radec(&ra2, &dec2, az, el, lst, lat);
-    INFO("XXX %f %f\n", ra, ra2);
-    INFO("XXX %f %f\n", dec, dec2);
     }
 
     // print list of solar_sys objects and their ra,dec,mag,az,el
@@ -2337,7 +2338,8 @@ void unit_test(void)
     INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
     }
 
-    // XXX AAA
+    // test azel2radec for all objects at the current time; do this by first
+    // converting the object's ra/dec to az/el and then use azel2radec to convert back
     { time_t t;
       int i;
       double lst, az, el, ra, dec;
@@ -2356,10 +2358,9 @@ void unit_test(void)
         ra_is_close = is_close(ra, x->ra, .0000001, &ra_deviation);
         dec_is_close = is_close(dec, x->dec, .0000001, &dec_deviation);
         if (!ra_is_close || !dec_is_close) {
-            // XXX FATAL
-            WARN("radec %f %f -> azel %f %f -> radec %f %f (deviation %f %f)\n",
-                 x->ra, x->dec, az, el, ra, dec,
-                 ra_deviation, dec_deviation);
+            FATAL("objname %s: radec %f %f -> azel %f %f -> radec %f %f (deviation %f %f)\n",
+                  x->name, x->ra, x->dec, az, el, ra, dec,
+                  ra_deviation, dec_deviation);
         }
     } }
 

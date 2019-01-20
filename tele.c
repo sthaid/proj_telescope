@@ -25,6 +25,18 @@ SOFTWARE.
 //
 // defines
 //
+ 
+#define AZDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
+#define MSTEP_TO_AZDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
+#define AZMSTEP_360_DEG        (200 * 32 * 6)
+#define AZMSTEP_180_DEG        (AZMSTEP_360_DEG / 2)
+#define AZMSTEP_1_DEG          ((int)(AZMSTEP_360_DEG / 360. + .5))
+
+#define ELDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
+#define MSTEP_TO_ELDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
+#define ELMSTEP_360_DEG        (200 * 32 * 6)
+#define ELMSTEP_180_DEG        (ELMSTEP_360_DEG / 2)
+#define ELMSTEP_1_DEG          ((int)(ELMSTEP_360_DEG / 360. + .5))
 
 #define SDL_EVENT_MOTORS_CLOSE (SDL_EVENT_USER_DEFINED + 0)
 #define SDL_EVENT_MOTORS_OPEN  (SDL_EVENT_USER_DEFINED + 1)
@@ -49,16 +61,6 @@ SOFTWARE.
     (x) == SDL_EVENT_KEY_SHIFT_UP_ARROW    ? "KEY_SHIFT_UP_ARROW"    : \
     (x) == SDL_EVENT_KEY_SHIFT_DOWN_ARROW  ? "KEY_SHIFT_DOWN_ARROW"  : \
                                              "????")
- 
-// AAA XXX 6 is tbd in the 4 following lines OR can just use one macro
-#define AZDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
-#define ELDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
-#define MSTEP_TO_AZDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
-#define MSTEP_TO_ELDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
-
-#define MSTEP_360_DEG (200 * 32 * 6)
-#define MSTEP_180_DEG (MSTEP_360_DEG / 2)
-#define MSTEP_1_DEG   ((int)(MSTEP_360_DEG / 360. + .5))
 
 #define MOTORS_CLOSED 0
 #define MOTORS_OPEN   1
@@ -94,12 +96,22 @@ long              ctlr_motor_status_us;
 int    motors;
 bool   calibrated;
 bool   tracking_enabled;
+
 int    cal_az0_mstep;
 int    cal_el0_mstep;
+
 double tgt_az, tgt_el;
+bool   tgt_azel_valid;
+
 double act_az, act_el;
 bool   act_azel_available;
+bool   act_azel_valid;
+
 int    adj_az_mstep, adj_el_mstep;
+
+#ifdef TEST_WITH_ONLY_AZ_MOTOR
+int simulate_curr_el_mstep;
+#endif
 
 // general vars
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -116,6 +128,7 @@ void comm_send_msg(msg_t * msg);
 void * tele_ctrl_thread(void * cx);
 void tele_ctrl_process_cmd(int event_id);
 void tele_ctrl_get_status(char *str1, char *str2, char *str3);
+bool tele_ctrl_is_azel_valid(double az, double el);
 
 void tele_debug_print_ctlr_motor_status(void);
 
@@ -233,6 +246,11 @@ int comm_process_recvd_msg(msg_t * msg)
         ctlr_motor_status = *(msg_status_data_t *)msg->data;
         ctlr_motor_status_us = microsec_timer();
         tele_debug_print_ctlr_motor_status();
+#ifdef TEST_WITH_ONLY_AZ_MOTOR
+        // when simulating the el motor override the received el motor 
+        // position with the simulated value
+        ctlr_motor_status.motor[1].curr_pos_mstep = simulate_curr_el_mstep;
+#endif
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
@@ -253,9 +271,7 @@ void comm_send_msg(msg_t * msg)
         return;
     }
 
-    if (msg->id != MSGID_HEARTBEAT) {
-        INFO("sending %s\n", MSGID_STR(msg->id));
-    }
+    DEBUG("sending %s\n", MSGID_STR(msg->id));
 
     len = send(sfd, msg, sizeof(msg_t)+msg->datalen, MSG_NOSIGNAL);
     if (len != sizeof(msg_t)+msg->datalen) {
@@ -283,10 +299,13 @@ void * comm_heartbeat_thread(void * cx)
 void * tele_ctrl_thread(void * cx)
 {
     long time_us, time_last_set_pos_us=0;
-    bool tracking_enabled_last = false;
+
     bool connected_last = false;
     int  motors_last = MOTORS_CLOSED;
     bool calibrated_last = false;
+    bool tracking_enabled_last = false;
+    bool tgt_azel_valid_last = false;
+    bool act_azel_valid_last = false;
 
     while (true) {
         // delay 50 ms
@@ -331,27 +350,28 @@ void * tele_ctrl_thread(void * cx)
             adj_az_mstep = adj_el_mstep = 0;
         }
 
-        // get tgt_az/el by calling sky routine
+        // get tgt_az/el by calling sky routine, and
+        // determine if the target azel is valid (can the telescope mechanism point there)
         sky_get_tgt_azel(&tgt_az, &tgt_el);
+        tgt_azel_valid = tele_ctrl_is_azel_valid(tgt_az, tgt_el);
+
+        // if the target azel is invalid disable tracking
+        if (!tgt_azel_valid) {
+            tracking_enabled = false;
+        }
 
         // determine act_az/el from ctrl_motor_status shaft position
         if (calibrated) {
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
-            int curr_el_mstep __attribute__ ((unused)) = ctlr_motor_status.motor[1].curr_pos_mstep;
+            int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
             act_az = MSTEP_TO_AZDEG(curr_az_mstep - cal_az0_mstep - adj_az_mstep);
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
-            if (tracking_enabled) {
-                act_el = tgt_el;
-            }
-#else
             act_el = MSTEP_TO_ELDEG(curr_el_mstep - cal_el0_mstep - adj_el_mstep);
-#endif
             act_azel_available = true;
+            act_azel_valid = tele_ctrl_is_azel_valid(act_az, act_el);
         } else {
             act_azel_available = false;
+            act_azel_valid = false;
         }
-
-        // AAA XXX invalid tgt and act  (send stop msg)
 
         // if tracking is enabled then set telescope position to tgt_az,tgt_el;
         // do this once per second
@@ -363,27 +383,43 @@ void * tele_ctrl_thread(void * cx)
             msg_set_pos_all_data_t *msg_set_pos_all_data = (void*)(msg+1);
             int az_mstep, el_mstep;
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
-            int curr_el_mstep __attribute__ ((unused)) = ctlr_motor_status.motor[1].curr_pos_mstep;
 
+            // determine az/el microstep motor positions based on caliabration
             az_mstep = cal_az0_mstep + AZDEG_TO_MSTEP(tgt_az) + adj_az_mstep;
             el_mstep = cal_el0_mstep + AZDEG_TO_MSTEP(tgt_el) + adj_el_mstep;
 
-            while (az_mstep - curr_az_mstep > MSTEP_180_DEG) az_mstep -= MSTEP_360_DEG;
-            while (az_mstep - curr_az_mstep < -MSTEP_180_DEG) az_mstep += MSTEP_360_DEG;
+#ifdef TEST_WITH_ONLY_AZ_MOTOR
+            // when simulating the el motor, set simulated_curr_el_mstep to
+            // the target el_mstep
+            simulate_curr_el_mstep = el_mstep;
+#endif
 
+            // update az_mstep, if needed, to be shortest movement
+            while (az_mstep - curr_az_mstep > AZMSTEP_180_DEG) az_mstep -= AZMSTEP_360_DEG;
+            while (az_mstep - curr_az_mstep < -AZMSTEP_180_DEG) az_mstep += AZMSTEP_360_DEG;
+
+            // format and send MSGID_SET_POS_ALL to the telescope ctrlr
             msg->id = MSGID_SET_POS_ALL;
             msg->datalen = sizeof(msg_set_pos_all_data_t);
             msg_set_pos_all_data->mstep[0] = az_mstep;
             msg_set_pos_all_data->mstep[1] = el_mstep;
-
             comm_send_msg(msg);
 
+            // keep track of time MSGID_SET_POS_ALL was sent so that 
+            // we limit sending this message to once per sec
             time_last_set_pos_us = time_us;
         }
 
-        // if tracking_enabled has changed to false stop the motors
-        if (tracking_enabled_last && !tracking_enabled) {
+        // if tracking has just been disabled or 
+        //    target azel has just become invalid 
+        //    actual azel has just become invalid 
+        // then stop the motors
+        if ((tracking_enabled_last && !tracking_enabled) ||
+            (tgt_azel_valid_last && !tgt_azel_valid) ||
+            (act_azel_valid_last && !act_azel_valid))
+        {
             msg_t msg = { MSGID_STOP_ALL, 0 };
+            INFO("stopping motors\n");
             comm_send_msg(&msg);
         }
 
@@ -391,13 +427,18 @@ void * tele_ctrl_thread(void * cx)
         if (connected_last != connected ||
             motors_last != motors ||
             calibrated_last != calibrated ||
-            tracking_enabled_last != tracking_enabled)
+            tracking_enabled_last != tracking_enabled ||
+            tgt_azel_valid_last != tgt_azel_valid ||
+            act_azel_valid_last != act_azel_valid)
         {
-            INFO("state changed to: connected=%d motors=%s calibrated=%d tracking_enabled=%d\n",
+            INFO("state changed to: connected=%d motors=%s calibrated=%d tracking_enabled=%d "
+                                   "tgt_azel_valid=%d act_azel_valid=%d\n",
                  connected, 
                  MOTORS_STR(motors), 
                  calibrated, 
-                 tracking_enabled);
+                 tracking_enabled,
+                 tgt_azel_valid,
+                 act_azel_valid);
         }
 
         // save last values
@@ -405,6 +446,8 @@ void * tele_ctrl_thread(void * cx)
         motors_last = motors;
         calibrated_last = calibrated;
         tracking_enabled_last = tracking_enabled;
+        tgt_azel_valid_last = tgt_azel_valid;
+        act_azel_valid_last = act_azel_valid;
 
         // unlock mutex
         pthread_mutex_unlock(&mutex);
@@ -475,12 +518,12 @@ void tele_ctrl_process_cmd(int event_id)
         if (calibrated) {
             if (event_id == SDL_EVENT_KEY_LEFT_ARROW || event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
                 adj_az_mstep += (event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 1 : -1);
-                if (adj_az_mstep < -MSTEP_1_DEG) adj_az_mstep = -MSTEP_1_DEG;
-                if (adj_az_mstep > MSTEP_1_DEG) adj_az_mstep = MSTEP_1_DEG;
+                if (adj_az_mstep < -AZMSTEP_1_DEG) adj_az_mstep = -AZMSTEP_1_DEG;
+                if (adj_az_mstep > AZMSTEP_1_DEG) adj_az_mstep = AZMSTEP_1_DEG;
             } else if (event_id == SDL_EVENT_KEY_UP_ARROW || event_id == SDL_EVENT_KEY_DOWN_ARROW) {
                 adj_el_mstep += (event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
-                if (adj_el_mstep < -MSTEP_1_DEG) adj_el_mstep = -MSTEP_1_DEG;
-                if (adj_el_mstep > MSTEP_1_DEG) adj_el_mstep = MSTEP_1_DEG;
+                if (adj_el_mstep < -ELMSTEP_1_DEG) adj_el_mstep = -ELMSTEP_1_DEG;
+                if (adj_el_mstep > ELMSTEP_1_DEG) adj_el_mstep = ELMSTEP_1_DEG;
             }
             INFO("adj azel = %d %d mstep   %f %f deg\n", 
                  adj_az_mstep, adj_el_mstep,
@@ -548,10 +591,8 @@ void tele_ctrl_get_status(char *str1, char *str2, char *str3)
         strcpy(str1, "MOTORS_ERROR");
     } else if (!calibrated) {
         strcpy(str1, "UNCALIBRATED");
-#if 0 // XXX AAA invalid azel
-    } else if (invalid_azel) {
-        sprintf(str1, "TGT %6.2f %6.2f INVALID_AZEL", tgt_az2, tgt_el);
-#endif
+    } else if (!tgt_azel_valid) {
+        sprintf(str1, "TGT %6.2f %6.2f BAD_AZEL", tgt_az2, tgt_el);
     } else if (!tracking_enabled) {
         sprintf(str1, "TGT %6.2f %6.2f DISABLED", tgt_az2, tgt_el);
     } else if (fabs(act_az2-tgt_az2) > .015 || fabs(act_el-tgt_el) > .015) {
@@ -567,7 +608,11 @@ void tele_ctrl_get_status(char *str1, char *str2, char *str3)
     if (!connected) {
         sprintf(str2, "IPADDR %s", ctlr_ip);
     } else if (act_azel_available) {
-        sprintf(str2, "ACT %6.2f %6.2f", act_az2, act_el);
+        if (act_azel_valid) {
+            sprintf(str2, "ACT %6.2f %6.2f", act_az2, act_el);
+        } else {
+            sprintf(str2, "ACT %6.2f %6.2f BAD_AZEL", act_az2, act_el);
+        }
     } else {
         char motor0_pos_str[32];
         char motor1_pos_str[32];
@@ -589,6 +634,19 @@ void tele_ctrl_get_status(char *str1, char *str2, char *str3)
 
     // unlock mutex
     pthread_mutex_unlock(&mutex);
+}
+
+// return true if the telescope mechanism can be positioned to az/el
+bool tele_ctrl_is_azel_valid(double az, double el)
+{
+    bool valid = true;
+
+    // XXX additional azel valid checks will be needed in tele_ctrl_is_azel_valid
+    if (el < 0) {
+        valid = false;
+    }
+
+    return valid;
 }
 
 // -----------------  TELE PANE HNDLR  ------------------------------------
@@ -618,7 +676,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int fontsz = 20;
+        int fontsz = 20;  // tele pane
         char str1[100], str2[100], str3[100];
 
         // display status lines
@@ -628,24 +686,30 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str3);
 
         // register control events 
-        sdl_render_text_and_register_event(
-            pane, pane->w-COL2X(12,fontsz), ROW2Y(0,fontsz), fontsz, 
-            motors != MOTORS_CLOSED ? "MOTORS_CLOSE" : "MOTORS_OPEN",
-            LIGHT_BLUE, BLACK, 
-            motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
-            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
-        sdl_render_text_and_register_event(
-            pane, pane->w-COL2X(12,fontsz), ROW2Y(1,fontsz), fontsz, 
-            calibrated ? "UN_CALIBRATE" : "CALIBRATE",
-            LIGHT_BLUE, BLACK, 
-            calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
-            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
-        sdl_render_text_and_register_event(
-            pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
-            tracking_enabled ? "TRK_DISABLE" : "TRK_ENABLE",
-            LIGHT_BLUE, BLACK, 
-            tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
-            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        if (connected) {
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(12,fontsz), ROW2Y(0,fontsz), fontsz, 
+                motors != MOTORS_CLOSED ? "MOTORS_CLOSE" : "MOTORS_OPEN",
+                LIGHT_BLUE, BLACK, 
+                motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        }
+        if (motors == MOTORS_OPEN) {
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(12,fontsz), ROW2Y(1,fontsz), fontsz, 
+                calibrated ? "UN_CALIBRATE" : "CALIBRATE",
+                LIGHT_BLUE, BLACK, 
+                calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        }
+        if (calibrated && tgt_azel_valid) {
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
+                tracking_enabled ? "TRK_DISABLE" : "TRK_ENABLE",
+                LIGHT_BLUE, BLACK, 
+                tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        }
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
