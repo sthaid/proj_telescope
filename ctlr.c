@@ -327,7 +327,7 @@ void * comm_heartbeat_thread(void * cx)
 
 // -----------------  MOTOR  ----------------------------------------------
 
-// XXX more motor err chks
+// AAA? XXX more motor err chks
 
 //
 // defines

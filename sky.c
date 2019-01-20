@@ -759,7 +759,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
             sdl_render_point(pane, xcoord, ycoord, color, ptsz);
         }
-// AAA end of display pts
 
         // draw grid
         grid_sep = az_span > 240 ? 45 :
@@ -806,7 +805,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                         pane->w/2, pane->h/2-20, pane->w/2, pane->h/2+20, 
                         RED);
 
-// AAA sky pane
         // display names of the objects that have names
         fontsz = 18;
         for (i = 0; i < max_obj; i++) {
@@ -866,7 +864,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, WHITE, BLACK,
                               "> %s", vars->cmd_line_last);
             sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row+1,fontsz), fontsz, WHITE, BLACK,
-                              "  %s", vars->cmd_status);  // XXX AAA put this on same line as cmd
+                              "  %s", vars->cmd_status);
         } else {
             sdl_render_printf(pane, COL2X(3,fontsz), ROW2Y(row,fontsz), fontsz, WHITE, BLACK,
                               "> %s%c", vars->cmd_line, '_');
@@ -1033,7 +1031,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         case SDL_EVENT_KEY_ALT + '1':
             sky_time_set_mode(SKY_TIME_MODE_CURRENT);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
-        case SDL_EVENT_KEY_ALT + '2':  // XXX need way to cycle tep_mode
+        case SDL_EVENT_KEY_ALT + '2':
             sky_time_set_mode(SKY_TIME_MODE_PAUSED);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_ALT + '3':
@@ -1057,8 +1055,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
 
         case SDL_EVENT_KEY_HOME:
-            az_ctr = -30;  // XXX get these from env, I guess
-            el_ctr = 0; 
+            az_ctr = az_cal_pos;
+            el_ctr = el_cal_pos;
             tracking = TRACKING_OFF;
             ident = IDENT_OFF;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
@@ -1161,6 +1159,62 @@ char * sky_pane_cmd(char * cmd_line)
             return "error: not found";
         }
         FATAL("BUG: shouldn't be here\n");
+    }
+
+    // cmd: tstep <delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh>
+    if (strcasecmp(cmd, "tstep") == 0) {
+        // This command sets the time-mode that is used when SKY_TIME_MODE_REV/FWD
+        // is enabled. SKY_TIME_MODE_xxx is controlled using the key cmds 1,2,3,4,5,6
+        // in the sky pane.
+        // 
+        // EXAMPLES          TIME OF NEXT DISPLAY UPDATE IN SKY_TIME_MODE_FWD
+        // --------           ------------------------------------------------
+        // tstep delta_t      current time + 180 secs
+        // tstep sunset       next day sunset
+        // tstep sunset+2.5   next day sunset + 2 1/2 hours
+        // tstep sidday       current time + SID_DAY_SECS
+        // tstep 23.25        23:15:00 UTC of the next day 
+
+        double hr = 0;
+        if (arg1 == NULL) {
+            return "error: expected <delta_t|sidday|sunset+/-[hr]|sunrise+/-[hr]|<hr>>";
+        }
+
+        if (strcasecmp(arg1, "delta_t") == 0) {
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, 0);
+            return "okay";
+        } else if (strcasecmp(arg1, "sidday") == 0) {
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SIDDAY, 0);
+            return "okay";
+        } else if (strncasecmp(arg1, "sunset", 6) == 0) {
+            if (arg1[6] == '+' || arg1[6] == '-') {
+                if (sscanf(arg1+6, "%lf", &hr) != 1) {
+                    return "error: invalid hour";
+                }
+            } else if (arg1[6] != '\0') {
+                return "error: invalid hour";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SUNSET, hr);
+            return "okay";
+        } else if (strncasecmp(arg1, "sunrise", 7) == 0) {
+            if (arg1[7] == '+' || arg1[7] == '-') {
+                if (sscanf(arg1+7, "%lf", &hr) != 1) {
+                    return "error: invalid hour";
+                }
+            } else if (arg1[7] != '\0') {
+                return "error: invalid hour";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_SUNRISE, hr);
+            return "okay";
+        } else if (sscanf(arg1, "%lf", &hr) == 1) {
+            if (hr < 0 || hr >= 24) {
+                return "error: invalid hour";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_TIMEOFDAY, hr);
+            return "okay";
+        } else {
+            return "error: invalid arg";
+        }
     }
 
     // cmd: quit
@@ -1362,7 +1416,6 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                         pane->w/2, pane->h/2-20, pane->w/2, pane->h/2+20,
                         RED);
 
-// AAA sky view pane
         // display names of the objects that have names
         fontsz = 18;
         for (i = 0; i < max_obj; i++) {
@@ -1664,7 +1717,6 @@ void sky_time_get_mode(int * mode)
     *mode = __sky_time_mode;
 }
 
-// XXX need code to call this, and to set the hr_param
 void sky_time_set_step_mode(int step_mode, double step_mode_hr_param)
 {
     __sky_time_step_mode = step_mode;
@@ -2079,7 +2131,7 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
     double hr, seconds;
     struct tm tm;
 
-    // XXX check constants copied correctly, and double check equations
+    // XXX check that constants copied correctly, and double check equations
 
     // calculate number of julian days since JD2000 epoch
     n = jd - JD2000;
@@ -2238,7 +2290,7 @@ void unit_test(void)
     }
     INFO("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
 
-    // XXX
+    // XXX AAA
     INFO("XXX azel %f %f\n", az,el);
     double ra2, dec2;
     azel2radec(&ra2, &dec2, az, el, lst, lat);
@@ -2285,7 +2337,7 @@ void unit_test(void)
     INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
     }
 
-    // XXX
+    // XXX AAA
     { time_t t;
       int i;
       double lst, az, el, ra, dec;

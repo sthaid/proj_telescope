@@ -20,10 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-// XXX review
-// XXX test plan
-// XXX debug prints
-
 #include "common.h"
 
 //
@@ -38,23 +34,23 @@ SOFTWARE.
 #define SDL_EVENT_TRK_ENABLE   (SDL_EVENT_USER_DEFINED + 5)
 
 #define EVENT_ID_STR(x) \
-   ((x) == SDL_EVENT_MOTORS_CLOSE        ? "MOTORS_CLOSE"    : \
-    (x) == SDL_EVENT_MOTORS_OPEN         ? "MOTORS_OPEN"     : \
-    (x) == SDL_EVENT_UN_CALIBRATE        ? "UN_CALIBRATE"    : \
-    (x) == SDL_EVENT_CALIBRATE           ? "CALIBRATE"       : \
-    (x) == SDL_EVENT_TRK_DISABLE         ? "TRK_DISABLE"     : \
-    (x) == SDL_EVENT_TRK_ENABLE          ? "TRK_ENABLE"      : \
-    (x) == SDL_EVENT_KEY_LEFT_ARROW      ? "KEY_LEFT_ARROW"  : \
-    (x) == SDL_EVENT_KEY_RIGHT_ARROW     ? "KEY_RIGHT_ARROW" : \
-    (x) == SDL_EVENT_KEY_UP_ARROW        ? "KEY_UP_ARROW"    : \
-    (x) == SDL_EVENT_KEY_DOWN_ARROW      ? "KEY_DOWN_ARROW"  : \
+   ((x) == SDL_EVENT_MOTORS_CLOSE          ? "MOTORS_CLOSE"    : \
+    (x) == SDL_EVENT_MOTORS_OPEN           ? "MOTORS_OPEN"     : \
+    (x) == SDL_EVENT_UN_CALIBRATE          ? "UN_CALIBRATE"    : \
+    (x) == SDL_EVENT_CALIBRATE             ? "CALIBRATE"       : \
+    (x) == SDL_EVENT_TRK_DISABLE           ? "TRK_DISABLE"     : \
+    (x) == SDL_EVENT_TRK_ENABLE            ? "TRK_ENABLE"      : \
+    (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"  : \
+    (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW" : \
+    (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"    : \
+    (x) == SDL_EVENT_KEY_DOWN_ARROW        ? "KEY_DOWN_ARROW"  : \
     (x) == SDL_EVENT_KEY_SHIFT_LEFT_ARROW  ? "KEY_SHIFT_LEFT_ARROW"  : \
     (x) == SDL_EVENT_KEY_SHIFT_RIGHT_ARROW ? "KEY_SHIFT_RIGHT_ARROW" : \
     (x) == SDL_EVENT_KEY_SHIFT_UP_ARROW    ? "KEY_SHIFT_UP_ARROW"    : \
     (x) == SDL_EVENT_KEY_SHIFT_DOWN_ARROW  ? "KEY_SHIFT_DOWN_ARROW"  : \
-                                           "????")
+                                             "????")
  
-// XXX 6 is tbd in the 4 following lines
+// AAA XXX 6 is tbd in the 4 following lines OR can just use one macro
 #define AZDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
 #define ELDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
 #define MSTEP_TO_AZDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
@@ -355,10 +351,7 @@ void * tele_ctrl_thread(void * cx)
             act_azel_available = false;
         }
 
-        // XXX TBD
-        // - home cmd
-        // - invalid_tgt   send stop msg
-        // - invalid_act
+        // AAA XXX invalid tgt and act  (send stop msg)
 
         // if tracking is enabled then set telescope position to tgt_az,tgt_el;
         // do this once per second
@@ -555,7 +548,7 @@ void tele_ctrl_get_status(char *str1, char *str2, char *str3)
         strcpy(str1, "MOTORS_ERROR");
     } else if (!calibrated) {
         strcpy(str1, "UNCALIBRATED");
-#if 0 // XXX
+#if 0 // XXX AAA invalid azel
     } else if (invalid_azel) {
         sprintf(str1, "TGT %6.2f %6.2f INVALID_AZEL", tgt_az2, tgt_el);
 #endif

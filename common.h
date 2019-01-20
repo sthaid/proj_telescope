@@ -97,6 +97,8 @@ typedef struct {
 
 double latitude;
 double longitude;
+double az_cal_pos;
+double el_cal_pos;
 char *ctlr_ip;
 
 //

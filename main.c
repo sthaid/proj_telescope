@@ -49,6 +49,7 @@ int main(int argc, char ** argv)
 {
     int ret;
     char *lat_str, *long_str;
+    char *az_cal_pos_str, *el_cal_pos_str;
     char *incl_ss_obj_str = NULL;
 
     // get latitude and longitude from env variables TCX_LAT and TCX_LONG;
@@ -69,12 +70,27 @@ int main(int argc, char ** argv)
         FATAL("latitude and longitude must be supplied in environment variables TCX_LAT and TCX_LONG\n");
     }
     if (sscanf(lat_str, "%lf", &latitude) != 1 || latitude < -90 || latitude > 90) {
-        FATAL("invalid latitude '%s' \n", lat_str);
+        FATAL("invalid TCX_LAT '%s' \n", lat_str);
     }
     if (sscanf(long_str, "%lf", &longitude) != 1 || longitude < -180 || longitude > 180) {
-        FATAL("invalid longitude '%s' \n", lat_str);
+        FATAL("invalid TCX_LONG '%s' \n", long_str);
     }
     INFO("latitude = %0.6lf  longitude = %0.6lf\n", latitude, longitude);
+
+    // get azimuth / elevation position of fixed calibration point,
+    az_cal_pos_str = getenv("TCX_AZ_CAL_POS");
+    el_cal_pos_str = getenv("TCX_EL_CAL_POS");
+    if (az_cal_pos_str == NULL || el_cal_pos_str == NULL) {
+        FATAL("az_cal_pos and el_cal_pos must be supplied in environment variables TCX_AZ_CAL_POS and TCX_EL_CAL_POS\n");
+    }
+    if (sscanf(az_cal_pos_str, "%lf", &az_cal_pos) != 1 || az_cal_pos < 0 || az_cal_pos >= 360) {
+        FATAL("invalid TCX_AZ_CAL_POS '%s' \n", az_cal_pos_str);
+    }
+    if (sscanf(el_cal_pos_str, "%lf", &el_cal_pos) != 1 || el_cal_pos < 0 || el_cal_pos >= 90) {
+        FATAL("invalid TCX_EL_CAL_POS '%s' \n", el_cal_pos_str);
+    }
+    INFO("az_cal_pos = %0.2lf  el_cal_pos = %0.2lf\n", az_cal_pos, el_cal_pos);
+    if (az_cal_pos >= 180) az_cal_pos -= 360;
 
     // get ctlr_ip env variable
     ctlr_ip = getenv("TCX_CTLR_IP");
@@ -155,6 +171,4 @@ void display_handler(void)
         sky_view_pane_hndlr, NULL, sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h, PANE_BORDER_STYLE_MINIMAL,
         tele_pane_hndlr, NULL, tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h, PANE_BORDER_STYLE_MINIMAL
                         );
-
-// XXX set focus to sky_pane_hndlr
 }
