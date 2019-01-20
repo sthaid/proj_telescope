@@ -355,11 +355,6 @@ void * tele_ctrl_thread(void * cx)
         sky_get_tgt_azel(&tgt_az, &tgt_el);
         tgt_azel_valid = tele_ctrl_is_azel_valid(tgt_az, tgt_el);
 
-        // if the target azel is invalid disable tracking
-        if (!tgt_azel_valid) {
-            tracking_enabled = false;
-        }
-
         // determine act_az/el from ctrl_motor_status shaft position
         if (calibrated) {
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
@@ -371,6 +366,11 @@ void * tele_ctrl_thread(void * cx)
         } else {
             act_azel_available = false;
             act_azel_valid = false;
+        }
+
+        // if the target or actual azel is invalid then disable tracking
+        if (!tgt_azel_valid || !act_azel_valid) {
+            tracking_enabled = false;
         }
 
         // if tracking is enabled then set telescope position to tgt_az,tgt_el;
@@ -459,7 +459,7 @@ void tele_ctrl_process_cmd(int event_id)
     // lock mutex
     pthread_mutex_lock(&mutex);
 
-    INFO("processing event_id %s (0x%x)\n", EVENT_ID_STR(event_id), event_id);
+    DEBUG("processing event_id %s (0x%x)\n", EVENT_ID_STR(event_id), event_id);
 
     switch (event_id) {
     case SDL_EVENT_MOTORS_CLOSE:
