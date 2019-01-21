@@ -21,6 +21,10 @@ SOFTWARE.
 */
 
 // XXX describe issue with moon and JD2000
+//   - sunrise / sunset
+//   - https://en.wikipedia.org/wiki/Epoch_(reference_date)#J2000.0
+//   - usno
+//  TODO - try incorporating the .0008
 
 #include "common.h"
 
@@ -2142,6 +2146,9 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
     struct tm tm;
 
     // calculate number of julian days since JD2000 epoch
+    // XXX The actual equation from wikipedia website includes
+    //     '0.0008 is the fractional Julian Day for leap seconds and terrestrial time.'
+    //     Including the .0008 the equatin is 'n = jd - JD2000 + 0.0008'
     n = jd - JD2000;
 
     // mean solar noon
@@ -2392,6 +2399,37 @@ void unit_test(void)
     {
         FATAL("sunset %s\n", asctime(tm));
     } }
+
+    // manual test: the position of the moon ...
+    // 1) https://aa.usno.navy.mil/data/docs/AltAz.php  and select
+    //       1 minute intvl
+    //       moon
+    //       Bolton Mass
+    //    This will provide a table of moon azimuth and elevation for the
+    //    selected location, in 1 minute intervals.
+    //    For example:
+    //        Eastern Standard Time
+    //                   Altitude    Azimuth    Fraction                                     
+    //                               (E of N)  Illuminated
+    //        h  m         o           o   
+    //       20:49       45.8       105.7       1.00
+    //       20:50       46.0       105.9       1.00
+    //       20:51       46.2       106.2       1.00
+    //       20:52       46.3       106.4       1.00 
+    //       20:53       46.5       106.6       1.00 
+    //       20:54       46.7       106.8       1.00
+    // 2) Next run tcx, starting it near the begining of a minute.
+    //       sky_init: LCL now = 2019-Jan-20 20:52:00 EST
+    //       unit_test: NAME         RA        DEC        MAG         AZ         EL
+    //       unit_test: Moon   121.1609    20.1905      -12.9   106.5391    46.5423
+    // RESULTS)
+    //    At 2019-Jan-20 20:52:00 EST:
+    //    - tcx program moon az/el   106.54  46.54
+    //    - usno moon az/el          106.4   46.3
+    //    - difference                 0.14   0.24
+    // OBSERVATIONS) 
+    //    - the result from tcx most closely match the usno position
+    //      one minute later, at 20:53
 
     // restore latite/longitude
     latitude = lat_save;
