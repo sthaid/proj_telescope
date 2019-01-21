@@ -20,11 +20,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-// XXX describe issue with moon and JD2000
-//   - sunrise / sunset
-//   - https://en.wikipedia.org/wiki/Epoch_(reference_date)#J2000.0
-//   - usno
-//  TODO - try incorporating the .0008
+// XXX problems ...
+// 1) I am concerned that the .0008 JD or 68 second difference between UTC
+//     and TT is not being accounted for in the code. However, when the .0008
+//     is added to this program cross checks with other websites that provide
+//     sunrise/sunset time, and the position of the moon, had greater 
+//     discrepency. References:
+//     - https://en.wikipedia.org/wiki/Epoch_(reference_date)#J2000.0
+//         info on JD2000
+//     - https://aa.usno.navy.mil/data/docs/AltAz.php
+//         az/el of the moon or sun
+//     - https://www.timeanddate.com/sun/usa/marlborough?month=3&year=2018
+//         sunrise/sunset times
+// 2) Difference between the moon position provided by 
+//    https://aa.usno.navy.mil/data/docs/AltAz.php and this program of
+//    approximately 0.2 degrees in azimuth and elevation.
+//    This difference is without the 0.0008 included in the code. When the
+//    0.0008 is included the difference is larger.
 
 #include "common.h"
 
