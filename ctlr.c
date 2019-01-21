@@ -236,9 +236,14 @@ reconnect:
 lost_connection:
     // lost connection; reconnect
     connected = false;
+
     sfd_temp = sfd;
     sfd = -1;
     close(sfd_temp);
+
+    motor_request_all_stop();
+    motor_wait_for_all_stopped();
+
     ERROR("lost connection from tcx, attempting to reconnect\n");
     goto reconnect;
 }

@@ -94,3 +94,53 @@ of the Moon and Sun.
 https://aa.usno.navy.mil/data/docs/AltAz.php
 
 
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+
+1 minute intvl
+moon
+Bolton Mass
+
+01/20/19 20:52:00.510 INFO sky_init: UTC now = 2019-Jan-21 01:52:00 UTC
+01/20/19 20:52:00.510 INFO sky_init: LCL now = 2019-Jan-20 20:52:00 EST
+01/20/19 20:52:00.624 INFO read_stellar_data: added 119613 stellar_objects from sky_data/hygdata_v3.csv
+01/20/19 20:52:01.529 INFO read_solar_sys_data: added 10 solar_sys_objects from sky_data/solar_sys_data.csv
+01/20/19 20:52:01.529 INFO read_place_marks: added 1 place_mark_objects from sky_data/place_marks.dat
+01/20/19 20:52:01.530 INFO sky_init: max_object  = 119624
+01/20/19 20:52:01.530 INFO unit_test: lst_deviation = 0.000009
+01/20/19 20:52:01.530 INFO unit_test: az_deviation = 0.000001  el_deviation = 0.000006
+01/20/19 20:52:01.530 INFO unit_test:             NAME         RA        DEC        MAG         AZ         EL
+01/20/19 20:52:01.531 INFO unit_test:              Sun   302.4759   -20.0856      -26.8   285.4884   -45.5406
+01/20/19 20:52:01.531 INFO unit_test:          Mercury   296.8195   -22.9846       -0.9   287.3052   -51.4255
+01/20/19 20:52:01.531 INFO unit_test:            Venus   253.2654   -19.4387       -4.4     7.8523   -66.8505
+01/20/19 20:52:01.531 INFO unit_test:             Mars    12.1341     5.3241        0.7   256.1267    22.3473
+01/20/19 20:52:01.531 INFO unit_test:          Jupiter   254.3660   -22.0336       -1.8     5.7458   -69.5305
+01/20/19 20:52:01.531 INFO unit_test:           Saturn   284.5835   -22.2959        1.4   301.8933   -59.1696
+01/20/19 20:52:01.531 INFO unit_test:           Uranus    26.5996    10.4258        5.8   248.6965    36.1151
+01/20/19 20:52:01.531 INFO unit_test:          Neptune   345.9382    -7.0580        7.9   265.1741    -5.1903
+01/20/19 20:52:01.531 INFO unit_test:            Pluto   292.7401   -21.9278       14.3   292.7026   -53.5566
+01/20/19 20:52:01.531 INFO unit_test:             Moon   121.1609    20.1905      -12.9   106.5391    46.5423
+
+
+from usno.navy site ...
+
+20:49       45.8       105.7       1.00
+20:50       46.0       105.9       1.00
+20:51       46.2       106.2       1.00
+20:52       46.3       106.4       1.00    <==== time from tcx run
+20:53       46.5       106.6       1.00    <=== closest match to time from tcx run  46.54  106.54
+20:54       46.7       106.8       1.00
+
+
+=======================
+
+sunset time
+
+
+https://www.timeanddate.com/sun/usa/marlborough?month=3&year=2018
+https://www.timeanddate.com/sun/@4930907
+Sunrise 7:10 am ↑ (117°)     07:10:34
+Sunset  4:44 pm ↑ (243°)     16:43:58
+
+
+
