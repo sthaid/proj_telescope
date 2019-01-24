@@ -38,6 +38,8 @@ SOFTWARE.
 //    This difference is without the 0.0008 included in the code. When the
 //    0.0008 is included the difference is larger.
 
+// XXX try cross checking azel for stars using other web sites
+
 #include "common.h"
 
 //
@@ -212,9 +214,13 @@ int sky_init(char *incl_ss_obj_str)
     bool first = true;
     char *incl_ss_obj[100];
     int max_incl_ss_obj = 0;
+    double lst = ct2lst(longitude, jdconv2(time(NULL)));
 
-    INFO("UTC now = %s\n", gmtime_str(time(NULL),str));
-    INFO("LCL now = %s\n", localtime_str(time(NULL),str));
+    INFO("UTC now   = %s\n", gmtime_str(time(NULL),str));
+    INFO("LCL now   = %s\n", localtime_str(time(NULL),str));
+    INFO("Latitude  = %12s  % .6f\n", hr_str(latitude,str), latitude);
+    INFO("Longitude = %12s  % .6f\n", hr_str(longitude,str), longitude);
+    INFO("LST       = %s\n", hr_str(lst,str));
 
     // parse incl_ss_obj_str, which is a comma seperated list of 
     // solar sys objects to be included; if the list is not supplied
@@ -1195,7 +1201,7 @@ char * sky_pane_cmd(char * cmd_line)
 
         double hr = 0;
         if (arg1 == NULL) {
-            return "error: expected <delta_t|sidday|sunset+/-[hr]|sunrise+/-[hr]|<hr>>";
+            return "error: expected <delta_t|sidday|sunset[+/-hr]|sunrise[+/-hr]|hr>";
         }
 
         if (strcasecmp(arg1, "delta_t") == 0) {
@@ -1667,13 +1673,20 @@ void hr2hms(double hr, int * hour, int * minute, double * seconds)
     *seconds = secs;
 }
 
+// can be used for hour, latitude, or longitude
 char * hr_str(double hr, char *str)
 {
     int hour, minute;
     double seconds;
+    char *sign_str = "";
+
+    if (hr < 0) {
+        hr = - hr;
+        sign_str = "-";
+    }
 
     hr2hms(hr, &hour, &minute, &seconds);
-    sprintf(str, "%2.2d:%2.2d:%05.2f", hour, minute, seconds);
+    sprintf(str, "%s%d:%2.2d:%05.2f", sign_str, hour, minute, seconds);
     return str;
 }
 
