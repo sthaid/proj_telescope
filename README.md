@@ -20,11 +20,11 @@ function will continue to operate even when the Stepper-Motor-Interface program
 is not being used.
 
 Required environment variables:
-* TCX_LAT=<decimal-latitude>
-* TCX_LONG=<decimal-longitude-west-negative>
-* TCX_AZ_CAL_POS=<decimal-degrees-azimuth-of-calibration-spot>
-* TCX_EL_CAL_POS=<decimal-degrees-elevation-of-calibration-spot>
-* TCX_CTLR_IP=<name-or-ip-address-of-host-running-stepper-motor-intfc-pgm>
+* TCX_LAT=decimal-latitude
+* TCX_LONG=decimal-longitude-west-negative
+* TCX_AZ_CAL_POS=decimal-degrees-azimuth-of-calibration-spot
+* TCX_EL_CAL_POS=decimal-degrees-elevation-of-calibration-spot
+* TCX_CTLR_IP=name-or-ip-address-of-host-running-stepper-motor-intfc-pgm
 
 When tcx starts it reads files containing the locations of objects. Refer to 
 sky_data/NOTES for how to create these files. The files read are:
