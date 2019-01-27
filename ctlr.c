@@ -20,6 +20,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#if 0  
+// On Raspberry Pi, add the following to /etc/rc.local to automatically
+// start the ctlr program when the Raspberry Pi boots.
+
+# Start telescope ctlr
+if [ -x /home/haid/proj_telescope/ctlr ]
+then
+  su haid -c "cd /home/haid/proj_telescope; LD_LIBRARY_PATH=/usr/local/lib ./ctlr </dev/null &>>ctlr.log &"
+fi  
+#endif
+
 #include "common.h"
 #include <tic.h>
 
@@ -458,7 +469,7 @@ int motor_init(void)
     // open unit test log files
     for (h = 0; h < max_motor_devices; h++) {
         char fn[100];
-        sprintf(fn, "ctrl_unit_test_%d.log", h);
+        sprintf(fn, "ctlr_unit_test_%d.log", h);
         fp_unit_test[h] = fopen(fn, "a");
         if (fp_unit_test[h] == NULL) {
             FATAL("failed to open %s, %s\n", fn, strerror(errno));
