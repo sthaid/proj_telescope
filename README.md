@@ -1,83 +1,112 @@
-# Overview
-
-UNDER CONSTRUCTION
-UNDER CONSTRUCTION
-UNDER CONSTRUCTION
-UNDER CONSTRUCTION
+### Overview - UNDER CONSTRUCTION
 
 The goal of this project is to retrofit a homemade 4 1/4 inch reflector
 telescope, that was built about 1970. The mirror was ground from an
 Edmund Scientific mirror grinding kit. The stand, equatorial mount, and
 housing were custom made.
 
-I plan to add motor drives to both axis, and a camera. This program will
-drive the telescope, track an object, and display the image from the 
-camera. This program will also include a sky chart.
+I plan to add motor drives to both axis (using azimuth/elevation orientation), 
+and a camera. This program will drive the telescope, track an object, and display 
+the image from the camera. This program will also include a sky chart.
 
-# Sky Chart
+### Telescope-Control Program (tcx)
 
-The Sky Chart function is complete.
+Runs on linux desktop or laptop. I currently use Fedora 26.
 
-Build and run telescope controller program (tcx):
+Connects to the Stepper-Motor-Interface program (ctlr) via IPv4 TCP sockets. 
+Sends messages to the Stepper-Motor-Interface program to drive telescope 
+stepper motors to the desired azimuth and elevation. This program's sky chart 
+function will continue to operate even when the Stepper-Motor-Interface program 
+is not being used.
 
-* Download and build this program. I currently use Linux Fedora-26.
-* Review the sky_data/README file and download the stellar and solar system data
-using the get_stellar_data and get_solar_sys_data shell scripts.
-* Export environment variables MY_LAT and MY_LONG. These are your location in decimal degrees. East longitude is positive.
-* I use display resolution 1920x1080; others should work.
-* Run program: ./tcx
+Required environment variables:
+* TCX_LAT=<decimal-latitude>
+* TCX_LONG=<decimal-longitude-west-negative>
+* TCX_AZ_CAL_POS=<decimal-degrees-azimuth-of-calibration-spot>
+* TCX_EL_CAL_POS=<decimal-degrees-elevation-of-calibration-spot>
+* TCX_CTLR_IP=<name-or-ip-address-of-host-running-stepper-motor-intfc-pgm>
 
-Using tcx.
+When tcx starts it reads files containing the locations of objects. Refer to 
+sky_data/NOTES for how to create these files. The files read are:
+* sky_data/hygdata_v3.csv: star positions
+* sky_data/solar_sys_data.csv: planet positions
+* sky_data/place_marks.dat: other object positions
 
-* You should see three panes:
+After reading the sky_data, tcx creates a window containing 3 panes:
+* sky-az-el: top half of window - displays the sky objects in azimuth/elevation coordinates
+* sky-view: lower left - a less distorted sky view with same center as sky-az-el pane
+* tele-ctl: lower middle - used to control the telescope and intended to eventually 
+  display the telescope camera image
 
-  * Az/El Pane across the top of the display
-  * Control Pane at bottom left
-  * Sky View Pane next to the Control Pane
+Each pane has it's own user interface. Left click to select the pane. The pane's border will
+become green to indicate it is the selected pane. The following sections describe the controls for
+each pane.
 
+Sky-az-el pane controls:
+* cmdline:
+  * ident <objname>|off - locate the named object and display in orange
+  * trk <objname>|ident|curr|off - the named object is held in the center of the pane
+  * tstep delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh: timestep for the ALT-3,4,5,6 single key cmds described below
+  * quit - terminate
+* mouse left click or arrow keys - pan
+* mouse wheel - zoom
+* mouse right click - identify an object
+* ALT-m or ALT-M - select magnitude
+* PgUp - reset using 90 degree elevation scale
+* PgDn - reset using 180 degree elevation scale
+* Home - go to calibration az/el specified in environment variables
+* ALT-1,2,3,4,5,6 - used in conjunction with 'tstep' cmdline command: (1) curr-time, (2) pause,
+  (3) reverse by tstep, (4) forward by tstep, (5) single step reverse, (6) single step forward
+* ALT-q - terminate
 
-* Az/El and Sky View Pane Controls:
+Sky-view pane controls:
+* mouse left click or arrow keys - pan
+* mouse wheel - zoom
 
-  * Mouse Left Click or Arrow Keys to pan
-  * Mouse Wheel or 'z' or 'Z' to zoom
-  * 'M' or 'm' to adjust minimum magnitude of displayed objects
-  * PgUp resets display to default 
-  * PgDn resets display to default except Az/El pane shows objects above and below horizon
-  * Mouse Right Click to select an object; Esc to cancel (only avail in Az/El Pane)
-  * 'T' enables tracking the selected object; 't' cancel
-  * '1' current; '2' pause; '3' reverse; '4' forward; '5' reverse-step; '6' forward-step
+Tele-ctl pane controls:
+* motors open/close - energizes or de-energizes the motors
+* calibrate/uncalibrate - associate the current telescope position with the center of the sky-az-el pane
+* track enable/disable - enable the telescope to track the center of the sky-az-el pane
+* arrow keys - when uncalibrated these keys position the telescope; when calibrated these keys
+  provide fine adjustment of the telescope position of up to 1 degree
 
+### Stepper-Motor-Interface Program (ctlr)
 
-* Control Pane Commands:
+I run this program on a battery powered Raspberry Pi which will be attached to the base
+of the telescope. The Raspberry Pi (running the ctlr program) communicates to the laptop 
+(running the tcx program) via WIFI. The ctlr program receives commands from the tcx program
+to set the telescope's azimuth and elevation.
 
-  * sel [<object_name>]: select an object by name, example "sel mars"
-  * trk <on|off>: enable or disable tracking of selected object
-  * reset [<all_sky>]: reset display to default
-  * zoom <1..52>
-  * mag <min_display_magnitude>
-  * tstep <delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh>: set the time step mode, relating to forward & reverse; examples:
-    * tstep delta_t     --- current time + 180 secs
-    * tstep sunset      --- next day sunset
-    * tstep sunset+2.5  --- next day sunset + 2 1/2 hours
-    * tstep sidday      --- current time + SID_DAY_SECS
-    * tstep 23.25       --- 23:15:00 UTC of the next day 
+### Building and Running the Telescope-Control Program (tcx)
 
-  * quit
+This program builds warning free on Fedora-26. To build simply run make.
 
+Follow the procedure described in sky_data/NOTES to download the stellar and solar-sys-data files.
 
-* Custom Place Marks can be added, refer to sky_data/place_marks.dat.
+Create the following environment variables, described above;
+TCX_LAT, TCX_LONG, TCX_AZ_CAL_POS, TCX_EL_CAL_POS, TCX_CTLR_IP.
 
-Sky Chart testing:
+I use display resolution 1920x1080; other display resolutions will probably work too.
 
-* Refer to the unit_test routine in sky.c.
+./tcx runs the program.
 
-Credits:
+### Building and Running the Stepper-Motor-Interface Program (ctlr)
+
+Perform the following steps in the Raspberry Pi, or wherever you plan to run 
+the ctlr program.
+
+Follow the directions in devel/pololu/NOTES for
+'BUILDING POLOLU TIC SOFTWARE FROM SOURCE ON FEDORA 26 & RASBIAN'.
+
+make -f Makefile.ctlr
+
+If desired, follow the directions in comments near the beginning of ctlr.c
+'to automatically start the ctlr program when the Raspberry Pi boots'.
+
+### Credits
 
 * Stellar Data: The Astronomy Nexus  http://www.astronexus.com/
 * Solar Sys Data: telnet horizons.jpl.nasa.gov 6775
 * RADEC to AZEL: references to the Nasa and Berkeley web sites are included in the code.
 * Wikipedia
 
-# Telescope Control
-
-UNDER CONSTRUCTION
