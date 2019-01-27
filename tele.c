@@ -74,7 +74,7 @@ SOFTWARE.
 
 #define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 1000000)
 
-#define TEST_WITH_ONLY_AZ_MOTOR
+//#define TEST_WITH_ONLY_AZ_MOTOR
 
 //
 // typedefs
@@ -327,10 +327,10 @@ void * tele_ctrl_thread(void * cx)
 #else
         } else if (ctlr_motor_status.motor[0].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0) &&
+                   strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0 &&
                    ctlr_motor_status.motor[1].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0
+                   strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0)
         {
             motors = MOTORS_OPEN;
 #endif

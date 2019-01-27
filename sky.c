@@ -2050,12 +2050,12 @@ void radec2azel(double *az, double *el, double ra, double dec, double lst, doubl
                      );
 
     // return az/el in degrees
-    // note: I added the '+ 180'
     *az = raz * RAD2DEG + 180.;
     *el = rel * RAD2DEG;
+    if (*az >= 360) *az -= 360;
 
     // sanity check result
-    if (*el < -90 || *el > 90 || *az < 0 || *az > 360) {
+    if (*el < -90 || *el > 90 || *az < 0 || *az >= 360) {
         WARN("ra=%f dec=%f cvt to az=%f el=%f, result out of range\n",
              ra, dec, *az, *el);
     }
@@ -2335,7 +2335,19 @@ void unit_test(void)
     { time_t t;
       double lst, az, el;
       int i;
+#if 1
     t = time(NULL);
+#else
+    struct tm tm;
+    memset(&tm,0,sizeof(tm));
+    tm.tm_year  = 119;         // based 1900
+    tm.tm_mon   = 0;           // 0 to 11
+    tm.tm_mday  = 23;  
+    tm.tm_hour  = 12;  
+    tm.tm_min   = 0;
+    tm.tm_sec   = 0;
+    t = timelocal(&tm);
+#endif
     lst = ct2lst(longitude, jdconv2(t));
     INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
     for (i = 0; i < max_obj; i++) {

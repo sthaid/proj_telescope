@@ -27,9 +27,10 @@ SOFTWARE.
 // defines
 //
 
-#define UNIT_TEST
+//#define UNIT_TEST
+//#define TEST_WITH_ONLY_AZ_MOTOR
 
-#define TEST_WITH_ONLY_AZ_MOTOR
+#define SWAP(x, y) do { typeof(x) SWAP = x; x = y; y = SWAP; } while (0)
 
 //
 // typedefs
@@ -42,9 +43,6 @@ SOFTWARE.
 //
 // prototypes
 //
-
-// general routines
-void sig_handler(int sig);
 
 // message routines
 int comm_init(void);
@@ -67,18 +65,9 @@ void motor_unit_test(void);
 
 // -----------------  MAIN  -----------------------------------------------
 
-bool signal_rcvd;
-
 int main(int argc, char **argv)
 {
-    struct sigaction act;
     int rc;
-
-    // register signal handler
-    memset(&act, 0,sizeof(act));
-    act.sa_handler = sig_handler;
-    sigaction(SIGINT, &act, NULL);
-    sigaction(SIGTERM, &act, NULL);
 
     // register motor exit handler
     atexit(motor_exit);
@@ -100,15 +89,9 @@ int main(int argc, char **argv)
     motor_unit_test();
 #endif
 
-    // pause until signal received
-    while (!signal_rcvd) pause();
-    INFO("terminating\n");
+    // pause 
+    while (true) pause();
     return 0;
-}
-
-void sig_handler(int sig)
-{
-    signal_rcvd = sig;
 }
 
 // -----------------  COMM  -----------------------------------------------
@@ -336,8 +319,6 @@ void * comm_heartbeat_thread(void * cx)
 // defines
 //
 
-#define MAX_MOTOR 2
-
 #define VOLTAGE_OK(mv) (mv >= 10000 && mv <= 15000)
 
 #define OPERATION_STATE(v)    (tic_variables_get_operation_state(v))
@@ -357,6 +338,9 @@ void * comm_heartbeat_thread(void * cx)
 #define DEG2MICROSTEP(d)                (rint((d) * ((200.*32.) / 360.)))
 #define MICROSTEP2DEG(mstep)            ((mstep) * (360. / (200.*32.)))
 #define MICROSTEPVEL2DEGPERSEC(mstepv)  ((mstepv) * (360. / (200.*32.)) / 10000.)
+
+#define AZ_MOTOR_SN "00247330"
+#define EL_MOTOR_SN "00250237"
 
 //
 // variables
@@ -412,20 +396,62 @@ int motor_init(void)
     // get list of connected devices;
     err = tic_list_connected_devices(&motor_devices, &max_motor_devices);
     if (err) {
-        FATAL("tic_list_connected_devices, %s\n", tic_error_get_message(err));
-    }
-
-    // print list of connected devices
-    INFO("number of devices found = %zd\n", max_motor_devices);
-    for (h = 0; h < max_motor_devices; h++) {
-        INFO("device %d serial_number = %s\n", 
-             h, tic_device_get_serial_number(motor_devices[h]));
+        ERROR("tic_list_connected_devices, %s\n", tic_error_get_message(err));
+        return -1;
     }
 
     // sanity check that there are not more motors connected than this program is
     // configured to support
     if (max_motor_devices > MAX_MOTOR) {
-        FATAL("too many motors, %zd\n", max_motor_devices);
+        ERROR("too many motors, %zd\n", max_motor_devices);
+        return -1;
+    }
+
+    // if TEST_WITH_ONLY_AZ_MOTOR then 
+    //   verify just the AZ motor is present
+    // else 
+    //   verify both AZ and EL motors are present, and
+    //   swap them if needed so that h=0 is AZ and H=1 is EL
+    // endif
+#ifdef TEST_WITH_ONLY_AZ_MOTOR
+    if (max_motor_devices != 1) {
+        ERROR("TEST_WITH_ONLY_AZ_MOTOR max_motor_devices=%zd must be 1\n", max_motor_devices);
+        return -1;
+    }
+    const char * sn0 = tic_device_get_serial_number(motor_devices[0]);
+    if (strcmp(sn0, AZ_MOTOR_SN) != 0) {
+        ERROR("TEST_WITH_ONLY_AZ_MOTOR sn0='%s' is not AZ_MOTOR_SN\n", sn0);
+        return -1;
+    }
+#else
+    if (max_motor_devices != 2) {
+        ERROR("max_motor_devices=%zd must be 2\n", max_motor_devices);
+        return -1;
+    }
+    const char * sn0 = tic_device_get_serial_number(motor_devices[0]);
+    const char * sn1 = tic_device_get_serial_number(motor_devices[1]);
+    if (strcmp(sn0, AZ_MOTOR_SN) != 0 && strcmp(sn0, EL_MOTOR_SN) != 0) {
+        ERROR("sn0='%s' is not AZ_MOTOR_SN or EL_MOTOR_SN\n", sn0);
+        return -1;
+    }
+    if (strcmp(sn1, AZ_MOTOR_SN) != 0 && strcmp(sn1, EL_MOTOR_SN) != 0) {
+        ERROR("sn1='%s' is not AZ_MOTOR_SN or EL_MOTOR_SN\n", sn1);
+        return -1;
+    }
+    if (strcmp(sn0, AZ_MOTOR_SN) != 0) {
+        SWAP(motor_devices[0], motor_devices[1]);
+    }
+#endif
+
+    // print list of connected devices
+    INFO("number of devices found = %zd\n", max_motor_devices);
+    for (h = 0; h < max_motor_devices; h++) {
+        const char * sn = tic_device_get_serial_number(motor_devices[h]);
+        INFO("device %d: serial_number=%s %s\n", 
+             h, sn, 
+             (strcmp(sn, AZ_MOTOR_SN) == 0 ? "AZ_MOTOR" :
+              strcmp(sn, EL_MOTOR_SN) == 0 ? "EL_MOTOR" :
+                                             "????"));
     }
 
 #ifdef UNIT_TEST
