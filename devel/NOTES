@@ -1,87 +1,9 @@
 ==================================
-TODO
-==================================
-
-buy 
-- large washers for stand
-- screws and spacers for motor mount
-     https://www.mouser.com/Electromechanical/Hardware/Standoffs-Spacers/_/N-aictf?P=1yzug7w
-- drills for larger taps
-
-order polulu
-- nema23 stepper
-- controller
-- bracket
-
-camera
-- study how to do this
-
-stand
-- fix leg
-- reverse the mounting bracket, and use larger washers
-- take off telescope and use equivalent weight instead,
-  attach with zip ties or C clamp
-
-motor drive
-- purchase one nema23 from pololu and controller
-- test with use linux pc, then raspberry pi
-- attach the pulley to 0.75 inch shaft
-- attach the motor to the aluminum, probably use tapped holes 
-
-telescope
-- want to attach a camera, need to investigate this
-- buy the new lense and camera, and test in the basement
-
-Belt  buying HDT-3m-381
-
-==================================
-CONTROLL PROGRAM DESIGN
-==================================
-
-Sky Chart 
-- on upper half of screen,  az/el orientation
-- pan and zoom controls
-- init from 
-  - hygdata.csv
-  - planets from thesyklive.com
-  - others from more.csv,   such as Pleiades
-- display box for actual and desired telescope position
-- method to set position from the pane, such as click on desired position and commit
-
-Control Pane
-- controls
-  - select RA and DEC
-     - from sky chart
-     - by object name
-     - by RA/DEC coords
-     when this is done state goes to HOLD,  telescope az/el is frozen
-  - selecy state:  TRACKING  or  HOLDING
-  - other controls tbd
-- display 
-  . current telescope AZ/EL and RA/DEC
-  . state now is TRACK or HOLD
-
-Camera Pane
-- camera image
-- rotated and flipped to match AZ/EL sky chart 
-- controls to pan and zoom
-
-Misc
-- print screen
-- display date and time somewhere
-
-Source code files:
-- main.c:  main program flow;  mostly invoke routines in other files
-- sky.c:  init() reads database files and gets planet locations
-          sky_display()
-- util.c ...
-
-==================================
 MOTOR DRIVE RATE
 ==================================
 
 https://www.pololu.com/product/3134
-MICROSTEP 1/32  of 1.8 degrees   = .056 degrees
+- MICROSTEP 1/32  of 1.8 degrees   = .056 degrees
 
 From Pololu web site
 - Maximum stepper speed: 50,000 steps per second
@@ -96,7 +18,7 @@ FOR example belt is 6 to 1
                                            2.5 second / microstep
 
 ==================================
-TELSECOPE INFO
+MY OLD TELSECOPE INFO
 ==================================
 
 Focal Len apprxo 45"  =  1140 mm
@@ -144,7 +66,7 @@ Pleiades
   Declination	+24° 07′ 00″[1]
 
 ==================================
-RA and DEC             
+RA and DEC INFO
 ==================================
 
 http://www.astronexus.com/hyg
@@ -168,24 +90,60 @@ APPARENT MAGNITUDE
 6    Naked Eye Limit
 10   Binoculars
 15   general limiting visual brightness# of
-     comets with a 50-cm-aperture reflector   SEE reference
+     comets with a 50-cm-aperture reflector
 28   Hubble space telescope
 
 http://www.icq.eps.harvard.edu/MagScale.html
 
 ==================================
-DONE  
+SOME OF MY PURCHASES 
 ==================================
 
-orders
-- HTD3M Reduction Kit   ebay 11/25
+Pololu.com:
+    1 x #1477 Stepper Motor: Unipolar/Bipolar, 200 Steps/Rev, 57×76mm,
+           8.6V, 1 A/Phase = 49.95
+    1 x #2258 Steel L-Bracket for NEMA 23 Stepper Motors = 4.95
+    1 x #3130 Tic T825 USB Multi-Interface Stepper Motor Controller
+           (Connectors Soldered) = 31.95
 
-motor drive
-- do calculations on what the step rate would be
-- design reducer pulley
+    1477 Stepper Motor
+    - use wires   BLACK-GREEN   RED-BLUE
+    - Specs
+      . Size: 56.4 mm square × 76 mm, not including the shaft (NEMA 23)
+      . Weight: 1 kg (35 oz)
+      . Shaft diameter: 6.35 mm (0.25″) “D”
+      . Steps per revolution: 200
+      . Current rating: 1 A per coil        <======
+      . Voltage rating: 8.6 V               <======
+      . Resistance: 8.6 Ω per coil
+      . Holding torque: 14 kg-cm (190 oz-in)
+      . Inductance: 14 mH per coil
+      . Lead length: 30 cm (12″)
+      . Output shaft supported by two ball bearings
 
-pulley investigation
-- taper lock pulley
-- taper lock bushing
-- Congress V-belt Pulley 3/4&quot Fixed 5&quot OD Zamak3 CA0500X075KW
-- decided to use timing belt
+    T825 USB Multi-Interface Stepper Motor Controller
+    - max current per phase   1.5A
+    - 8.5 to 45 V
+    - 1/32 microstep resolution
+
+https://www.boltdepot.com/
+  bolts, nuts, washers, etc.
+
+ebay
+  burdensales - speed mart
+    3/4" UCPA204-12 Pillow Block Bearing Tapped Base 1-204-12-PA-S
+  irvineman
+    Grooved Race Thrust Ball Bearing 0.75"x 1.531"x0.625" inch 3/4"x 1-17/32" x 5/8"
+  miss_my_car
+    HTD 3M Closed Timing Belt 3mm pitch 10-15mm width - CNC Drives - 120mm to 495mm
+  speed_mart
+    HTD3M 90T 15T Belt Width 10mm Timing Pulley Belt set kit Reduction Ratio 6:1 CNC
+
+Amazon
+  Bosch CO2155 7/16 In. x 5-1/2 In. Cobalt Drill Bit
+  GemRed XVB Digital Angle Gauge Level Box (82412-XVB Angle Gauge with v-groove magnetic base)
+  M JJYPET Rechargeable Cat Laser Pointer,3 in 1 Red Laser Pointer,Interactive Cat Dog Training Tool
+  2 Pieces- UCP204-12, 3/4 inch Pillow Block Bearing Solid Base,Self-Alignment, Brand New
+  Bore 3/4 Inch Double Split Shaft Collar Oxide Set Screw Style Pack of 4PCS
+  Stepper Motor Mounting Bracket, Quimat 3Pcs Steel L Bracket for Nema 17 Stepper Motor with M3 Screws
+
