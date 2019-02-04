@@ -44,8 +44,8 @@ each pane.
 
 Sky-az-el pane controls:
 * cmdline:
-  * ident <objname>|off - locate the named object and display in orange
-  * trk <objname>|ident|curr|off - the named object is held in the center of the pane
+  * ident \<objname\>|off - locate the named object and display in orange
+  * trk \<objname\>|ident|curr|off - the named object is held in the center of the pane
   * tstep delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh: timestep for the ALT-3,4,5,6 single key cmds described below
   * quit - terminate
 * mouse left click or arrow keys - pan
@@ -69,6 +69,7 @@ Tele-ctl pane controls:
 * track enable/disable - enable the telescope to track the center of the sky-az-el pane
 * arrow keys - when uncalibrated these keys position the telescope; when calibrated these keys
   provide fine adjustment of the telescope position of up to 1 degree
+* shutdown ctlr - issues shutdown command on the ctlr
 
 ### Stepper-Motor-Interface Program (ctlr)
 
