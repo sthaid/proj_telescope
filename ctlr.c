@@ -280,6 +280,13 @@ int comm_process_recvd_msg(msg_t * msg)
             motor_set_pos(h, d->mstep[h]);
         }
         break; }
+    case MSGID_SHUTDN_CTLR: {
+        CHECK_DATALEN(0);
+        motor_close_all();
+        INFO("shutting down ctlr\n");
+        system("sudo shutdown -P now");        
+        exit(0);
+        break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
         break;

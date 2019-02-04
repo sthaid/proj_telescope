@@ -44,6 +44,7 @@ SOFTWARE.
 #define SDL_EVENT_CALIBRATE    (SDL_EVENT_USER_DEFINED + 3)
 #define SDL_EVENT_TRK_DISABLE  (SDL_EVENT_USER_DEFINED + 4)
 #define SDL_EVENT_TRK_ENABLE   (SDL_EVENT_USER_DEFINED + 5)
+#define SDL_EVENT_SHUTDN_CTLR  (SDL_EVENT_USER_DEFINED + 6)
 
 #define EVENT_ID_STR(x) \
    ((x) == SDL_EVENT_MOTORS_CLOSE          ? "MOTORS_CLOSE"    : \
@@ -52,6 +53,7 @@ SOFTWARE.
     (x) == SDL_EVENT_CALIBRATE             ? "CALIBRATE"       : \
     (x) == SDL_EVENT_TRK_DISABLE           ? "TRK_DISABLE"     : \
     (x) == SDL_EVENT_TRK_ENABLE            ? "TRK_ENABLE"      : \
+    (x) == SDL_EVENT_SHUTDN_CTLR           ? "SHUTDN_CTLR"     : \
     (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"  : \
     (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW" : \
     (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"    : \
@@ -383,7 +385,7 @@ void * tele_ctrl_thread(void * cx)
 
             // determine az/el microstep motor positions based on caliabration
             az_mstep = cal_az0_mstep + AZDEG_TO_MSTEP(tgt_az) + adj_az_mstep;
-            el_mstep = cal_el0_mstep + AZDEG_TO_MSTEP(tgt_el) + adj_el_mstep;
+            el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(tgt_el) + adj_el_mstep;
 
 #ifdef TEST_WITH_ONLY_AZ_MOTOR
             // when simulating the el motor, set simulated_curr_el_mstep to
@@ -486,7 +488,7 @@ void tele_ctrl_process_cmd(int event_id)
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
             int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
             cal_az0_mstep = curr_az_mstep - AZDEG_TO_MSTEP(tgt_az);
-            cal_el0_mstep = curr_el_mstep - AZDEG_TO_MSTEP(tgt_el);
+            cal_el0_mstep = curr_el_mstep - ELDEG_TO_MSTEP(tgt_el);
             INFO("calibrated:    cal_mstep curr_mstep target\n");
             INFO("calibrated: AZ %9d %10d %6.2f\n", cal_az0_mstep, curr_az_mstep, tgt_az);
             INFO("calibrated: EL %9d %10d %6.2f\n", cal_el0_mstep, curr_el_mstep, tgt_el);
@@ -502,6 +504,14 @@ void tele_ctrl_process_cmd(int event_id)
     case SDL_EVENT_TRK_ENABLE:
         if (calibrated) {
             tracking_enabled = true;
+        }
+        break;
+    case SDL_EVENT_SHUTDN_CTLR:
+        if (connected && motors == MOTORS_CLOSED) {
+            msg_t msg = { MSGID_SHUTDN_CTLR, 0 };
+            comm_send_msg(&msg);
+            calibrated = false;
+            tracking_enabled = false;
         }
         break;
     case SDL_EVENT_KEY_UP_ARROW:
@@ -727,6 +737,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         }
 
         // register control events 
+        // - row 0
         if (connected) {
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(12,fontsz), ROW2Y(0,fontsz), fontsz, 
@@ -735,6 +746,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
+        // - row 1
         if (motors == MOTORS_OPEN) {
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(12,fontsz), ROW2Y(1,fontsz), fontsz, 
@@ -743,6 +755,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
+        // - row 2
         if (calibrated && tgt_azel_valid) {
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
@@ -750,8 +763,15 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 LIGHT_BLUE, BLACK, 
                 tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        } else if (motors == MOTORS_CLOSED) {
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
+                "SHUTDN_CTLR",
+                LIGHT_BLUE, BLACK, 
+                SDL_EVENT_SHUTDN_CTLR,
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
-
+        // - row last
         sdl_render_text_and_register_event(
             pane, pane->w-COL2X(11,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
             "DISP_SELECT",

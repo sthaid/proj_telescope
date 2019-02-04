@@ -44,6 +44,7 @@
 #define MSGID_ADV_POS_SINGLE  6
 #define MSGID_SET_POS_ALL     7
 #define MSGID_STATUS          8
+#define MSGID_SHUTDN_CTLR     9
 
 #define MSGID_STR(x) \
    ((x) == MSGID_CONNECTED      ? "MSGID_CONNECTED"      : \
@@ -53,8 +54,9 @@
     (x) == MSGID_STOP_ALL       ? "MSGID_STOP_ALL"       : \
     (x) == MSGID_ADV_POS_SINGLE ? "MSGID_ADV_POS_SINGLE" : \
     (x) == MSGID_SET_POS_ALL    ? "MSGID_SET_POS_ALL"    : \
-    (x) == MSGID_STATUS         ? "MSGID_STATUS"           \
-                                : "????")
+    (x) == MSGID_STATUS         ? "MSGID_STATUS"         : \
+    (x) == MSGID_SHUTDN_CTLR    ? "MSGID_SHUTDN_CTLR"    : \
+                                  "????")
 
 //
 // typedefs

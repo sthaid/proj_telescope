@@ -97,6 +97,7 @@ int main(int argc, char ** argv)
     if (ctlr_ip == NULL) {
         FATAL("ctlr_ip must be supplied in environment variables TCX_CTLR_IP\n");
     }
+    INFO("ctlr_ip = %s\n", ctlr_ip);
 
     // get and process options
     while (true) {
