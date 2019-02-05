@@ -350,8 +350,8 @@ void * comm_heartbeat_thread(void * cx)
 #define TARGET_VELOCITY(v)    (tic_variables_get_target_velocity(v))
 #define CURRENT_VELOCITY(v)   (tic_variables_get_current_velocity(v))
 
-#define MAX_SPEED 18.0  // deg/sec
-#define MAX_ACCEL 5.4   // deg/sec/sec
+#define MAX_SPEED (18.0/8)  // deg/sec
+#define MAX_ACCEL (5.4/8)   // deg/sec/sec
 
 #define DEG2MICROSTEP(d)                (rint((d) * ((200.*32.) / 360.)))
 #define MICROSTEP2DEG(mstep)            ((mstep) * (360. / (200.*32.)))
@@ -389,8 +389,8 @@ FILE *fp_unit_test[MAX_MOTOR];
 void * motor_get_status_thread(void * cx);
 void * motor_getstatus_thread(void * cx);
 void * motor_keepalive_thread(void * cx);
-void motor_check_settings(int h, bool verbose);
-void motor_check_variables(int h, bool verbose);
+int motor_check_settings(int h, bool verbose);
+void motor_inspect_variables(int h, bool verbose);
 char * motor_operation_state_str(int op_state);
 char * motor_error_status_str(int err_stat);
 
@@ -571,6 +571,7 @@ int motor_open(int h)
 {
     tic_error * err;
     tic_handle * tic_handle;
+    int rc;
 
     INFO("called for motor %d\n", h);
 
@@ -600,9 +601,13 @@ int motor_open(int h)
     tic_set_target_position(tic_handle, 0);
 
     // check that the motor is configured correctly;
-    // (use tic_gui to make corrections)
-    motor_check_settings(h, false);
-    motor_check_variables(h, false);
+    // (use tic_gui or ticcmd to make corrections)
+    rc = motor_check_settings(h, false);
+    if (rc != 0) {        
+        pthread_mutex_unlock(&motor_mutex);
+        return -1;
+    }
+    motor_inspect_variables(h, false);
 
     // energize and exit_safe_start 
     tic_energize(tic_handle);
@@ -971,9 +976,10 @@ void * motor_keepalive_thread(void * cx)
 
 // ---- misc motor support routines ----
 
-void motor_check_settings(int h, bool verbose)
+int motor_check_settings(int h, bool verbose)
 {
     tic_settings * settings = NULL;
+    int rc=0;
 
     #define PRINT_SETTING(x) \
         do { \
@@ -1034,8 +1040,9 @@ void motor_check_settings(int h, bool verbose)
             int actual_value; \
             actual_value = tic_settings_get_##x(settings); \
             if (actual_value != (expected_value)) { \
-                FATAL("ERROR setting %s actual_value %d not equal expected %d\n", \
+                ERROR("setting %s actual_value %d not equal expected %d\n", \
                       #x, actual_value, (expected_value)); \
+                rc = -1; \
             } \
         } while (0)
 
@@ -1058,9 +1065,10 @@ void motor_check_settings(int h, bool verbose)
     CHECK_SETTING(invert_motor_direction,0);             // 0 => do not invert direction   
 
     tic_settings_free(settings);
+    return rc;
 }
 
-void motor_check_variables(int h, bool verbose)
+void motor_inspect_variables(int h, bool verbose)
 {
     tic_variables * variables = NULL;
 
@@ -1097,12 +1105,6 @@ void motor_check_variables(int h, bool verbose)
         PRINT_VARIABLE(current_limit_code);
         PRINT_VARIABLE(decay_mode);
         PRINT_VARIABLE(input_state);
-    }
-
-    // check voltage 
-    int vin_voltage = tic_variables_get_vin_voltage(variables);
-    if (!VOLTAGE_OK(vin_voltage)) {
-        WARN("vin_voltage=%d not okay\n", vin_voltage);
     }
 
     tic_variables_free(variables);

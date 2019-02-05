@@ -36,8 +36,8 @@ current_limit: 992
 current_limit_during_error: -1
 step_mode: 32
 decay_mode: fast
-max_speed: 3200000
+max_speed: 400000
 starting_speed: 0
-max_accel: 9600
+max_accel: 1200
 max_decel: 0
 invert_motor_direction: false
