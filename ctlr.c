@@ -1050,7 +1050,7 @@ void motor_check_settings(int h, bool verbose)
     CHECK_SETTING(current_limit, 992);                   // 992 ma
     CHECK_SETTING(current_limit_code_during_error, 255); // 0xff => feature disabled
     CHECK_SETTING(step_mode, 5);                         // 5 => 1/32 step
-    CHECK_SETTING(decay_mode, 2);                        // 2 => fast
+    CHECK_SETTING(decay_mode, 2);                        // 0 => mixed, 1 => slow, 2 => fast   (T825)
     CHECK_SETTING(max_speed, expected_max_speed);        // 3200000 => shaft 18 deg/sec
     CHECK_SETTING(starting_speed, 0);                    // 0 => disallow instant accel or decel
     CHECK_SETTING(max_accel, expected_max_accel);        // 9600 => accel to max speed in 3.333 secs
