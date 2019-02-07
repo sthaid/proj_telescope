@@ -550,11 +550,11 @@ void tele_ctrl_process_cmd(int event_id)
             long mstep, max_mstep;
 
             if (h == 0 ) {
-                max_mstep = AZDEG_TO_MSTEP(5);
-                mstep = (fine ? sign : sign * AZDEG_TO_MSTEP(0.5));
+                max_mstep = AZDEG_TO_MSTEP(1);
+                mstep = (fine ? sign : sign * AZDEG_TO_MSTEP(0.1));
             } else {
-                max_mstep = ELDEG_TO_MSTEP(5);
-                mstep = (fine ? sign : sign * ELDEG_TO_MSTEP(0.5));
+                max_mstep = ELDEG_TO_MSTEP(1);
+                mstep = (fine ? sign : sign * ELDEG_TO_MSTEP(0.1));
             }
 
             msg->id = MSGID_ADV_POS_SINGLE;
