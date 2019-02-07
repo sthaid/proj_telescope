@@ -350,8 +350,8 @@ void * comm_heartbeat_thread(void * cx)
 #define TARGET_VELOCITY(v)    (tic_variables_get_target_velocity(v))
 #define CURRENT_VELOCITY(v)   (tic_variables_get_current_velocity(v))
 
-#define MAX_SPEED (18.0/8)  // deg/sec
-#define MAX_ACCEL (5.4/8)   // deg/sec/sec
+#define MAX_SPEED (9.0)  // deg/sec
+#define MAX_ACCEL (5.4)  // deg/sec/sec
 
 #define DEG2MICROSTEP(d)                (rint((d) * ((200.*32.) / 360.)))
 #define MICROSTEP2DEG(mstep)            ((mstep) * (360. / (200.*32.)))
