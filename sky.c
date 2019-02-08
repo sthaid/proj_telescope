@@ -263,8 +263,10 @@ int sky_init(char *incl_ss_obj_str)
     // debug print the total number of objects that have been read
     INFO("max_object  = %d\n", max_obj);
 
+#if 0
     // run some unit tests (optional)
     unit_test();
+#endif
 
     // success
     return 0;

@@ -94,7 +94,7 @@ typedef struct {
 } msg_set_pos_all_data_t;
 
 //
-// variables
+// environment variables
 //
 
 double latitude;
@@ -102,6 +102,9 @@ double longitude;
 double az_cal_pos;
 double el_cal_pos;
 char *ctlr_ip;
+double az_tele_leg_1;
+double min_tele_angle_relative_leg_1;
+double max_tele_angle_relative_leg_1;
 
 //
 // prototypes

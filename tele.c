@@ -76,8 +76,6 @@ SOFTWARE.
 
 #define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 1000000)
 
-//#define TEST_WITH_ONLY_AZ_MOTOR
-
 //
 // typedefs
 //
@@ -102,18 +100,16 @@ bool   tracking_enabled;
 int    cal_az0_mstep;
 int    cal_el0_mstep;
 
-double tgt_az, tgt_el;
+double tgt_az, tgt_el;     // az range -180 to +180
 bool   tgt_azel_valid;
 
-double act_az, act_el;
+double act_az, act_el;     // az range -180 to +180
 bool   act_azel_available;
 bool   act_azel_valid;
 
 int    adj_az_mstep, adj_el_mstep;
 
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
-int simulate_curr_el_mstep;
-#endif
+double min_valid_az, max_valid_az;  // az range -180 to +180
 
 // general vars
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -132,11 +128,34 @@ void tele_ctrl_process_cmd(int event_id);
 void tele_ctrl_get_status(char *str1, char *str2, char *str3);
 bool tele_ctrl_is_azel_valid(double az, double el);
 
+// 
+// inline procedures
+//
+
+// returns az in range -180 to 179.99999
+inline double sanitize_az(double az) 
+{
+    if (az >= 180) {
+        while (az >= 180) az -= 360;
+    } else {
+        while (az < -180) az += 360;
+    }
+    return az;
+}
+
 // -----------------  TELE INIT  ------------------------------------------
 
 int tele_init(char *incl_ss_obj_str)
 {
     pthread_t thread_id;
+
+    // determine min_valid_az and max_valid_az, 
+    // used by tele_ctrl_is_azel_valid()
+    min_valid_az = az_tele_leg_1 + min_tele_angle_relative_leg_1;
+    max_valid_az = az_tele_leg_1 + max_tele_angle_relative_leg_1;
+    min_valid_az = sanitize_az(min_valid_az);
+    max_valid_az = sanitize_az(max_valid_az);
+    INFO("min_valid_az %0.2lf   max_valid_az %0.2lf\n", min_valid_az, max_valid_az);
 
     // create threads
     pthread_create(&thread_id, NULL, comm_thread, NULL);
@@ -245,11 +264,6 @@ int comm_process_recvd_msg(msg_t * msg)
         CHECK_DATALEN(sizeof(msg_status_data_t));
         ctlr_motor_status = *(msg_status_data_t *)msg->data;
         ctlr_motor_status_us = microsec_timer();
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
-        // when simulating the el motor override the received el motor 
-        // position with the simulated value
-        ctlr_motor_status.motor[1].curr_pos_mstep = simulate_curr_el_mstep;
-#endif
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
@@ -320,13 +334,6 @@ void * tele_ctrl_thread(void * cx)
             motors = MOTORS_ERROR;
         } else if (ctlr_motor_status.motor[0].opened == 0 && ctlr_motor_status.motor[1].opened == 0) {
             motors = MOTORS_CLOSED;
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
-        } else if (ctlr_motor_status.motor[0].opened == 1 &&
-                   strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0)
-        {
-            motors = MOTORS_OPEN;
-#else
         } else if (ctlr_motor_status.motor[0].opened == 1 &&
                    strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
                    strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0 &&
@@ -335,7 +342,6 @@ void * tele_ctrl_thread(void * cx)
                    strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0)
         {
             motors = MOTORS_OPEN;
-#endif
         } else {
             motors = MOTORS_ERROR;
         }
@@ -352,6 +358,7 @@ void * tele_ctrl_thread(void * cx)
         // get tgt_az/el by calling sky routine, and
         // determine if the target azel is valid (can the telescope mechanism point there)
         sky_get_tgt_azel(&tgt_az, &tgt_el);
+        tgt_az = sanitize_az(tgt_az);
         tgt_azel_valid = tele_ctrl_is_azel_valid(tgt_az, tgt_el);
 
         // determine act_az/el from ctrl_motor_status shaft position
@@ -359,6 +366,7 @@ void * tele_ctrl_thread(void * cx)
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
             int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
             act_az = MSTEP_TO_AZDEG(curr_az_mstep - cal_az0_mstep - adj_az_mstep);
+            act_az = sanitize_az(act_az);
             act_el = MSTEP_TO_ELDEG(curr_el_mstep - cal_el0_mstep - adj_el_mstep);
             act_azel_available = true;
             act_azel_valid = tele_ctrl_is_azel_valid(act_az, act_el);
@@ -381,21 +389,10 @@ void * tele_ctrl_thread(void * cx)
             msg_t *msg = (void*)msg_buffer;
             msg_set_pos_all_data_t *msg_set_pos_all_data = (void*)(msg+1);
             int az_mstep, el_mstep;
-            int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
 
             // determine az/el microstep motor positions based on caliabration
             az_mstep = cal_az0_mstep + AZDEG_TO_MSTEP(tgt_az) + adj_az_mstep;
             el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(tgt_el) + adj_el_mstep;
-
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
-            // when simulating the el motor, set simulated_curr_el_mstep to
-            // the target el_mstep
-            simulate_curr_el_mstep = el_mstep;
-#endif
-
-            // update az_mstep, if needed, to be shortest movement
-            while (az_mstep - curr_az_mstep > AZMSTEP_180_DEG) az_mstep -= AZMSTEP_360_DEG;
-            while (az_mstep - curr_az_mstep < -AZMSTEP_180_DEG) az_mstep += AZMSTEP_360_DEG;
 
             // format and send MSGID_SET_POS_ALL to the telescope ctrlr
             msg->id = MSGID_SET_POS_ALL;
@@ -646,14 +643,21 @@ void tele_ctrl_get_status(char *str1, char *str2, char *str3)
 // return true if the telescope mechanism can be positioned to az/el
 bool tele_ctrl_is_azel_valid(double az, double el)
 {
-    bool valid = true;
-
-    // XXX additional azel valid checks will be needed in tele_ctrl_is_azel_valid
-    if (el < 0) {
-        valid = false;
+    if (el < 0 || el > 90) {
+        return false;
     }
 
-    return valid;
+    if (max_valid_az >= min_valid_az) {
+        if (az < min_valid_az || az > max_valid_az) {
+            return false;
+        }
+    } else {
+        if (az < min_valid_az && az > max_valid_az) {
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 // -----------------  TELE PANE HNDLR  ------------------------------------
