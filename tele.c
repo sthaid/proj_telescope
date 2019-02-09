@@ -719,25 +719,37 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARIABLES) {
             struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
             struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
-
-            static char error_status_str[2][15];
-            static char operation_state_str[2][15];
-
-            strncpy(error_status_str[0], m0->error_status_str, 14);
-            strncpy(error_status_str[1], m1->error_status_str, 14);
-            strncpy(operation_state_str[0], m0->operation_state_str, 14);
-            strncpy(operation_state_str[1], m1->operation_state_str, 14);
+            char   error_status_str0[100], error_status_str1[100];
+            char  *saveptr0, *saveptr1, *errsts0, *errsts1;
+            int    errsts_cnt=0;
 
             sdlpr_col = 0;
-            sdlpr_row = 5;
-            SDLPR("OPENED     %14lld %14lld", m0->opened, m1->opened);
-            SDLPR("ENERG      %14lld %14lld", m0->energized, m1->energized);
-            SDLPR("VOLTAGE    %14lld %14lld", m0->vin_voltage_mv, m1->vin_voltage_mv);
-            SDLPR("CURR_POS   %14lld %14lld", m0->curr_pos_mstep, m1->curr_pos_mstep);
-            SDLPR("TGT_POS    %14lld %14lld", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
-            SDLPR("CURR_VEL   %14.1f %14.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
-            SDLPR("OP_STATE   %14s %14s",     operation_state_str[0], operation_state_str[1]);
-            SDLPR("ERR_STAT   %14s %14s",     error_status_str[0], error_status_str[1]);
+            sdlpr_row = 3;
+            SDLPR("OPENED   %9lld %9lld", m0->opened, m1->opened);
+            SDLPR("ENERG    %9lld %9lld", m0->energized, m1->energized);
+            SDLPR("VOLTAGE  %9lld %9lld", m0->vin_voltage_mv, m1->vin_voltage_mv);
+            SDLPR("CURR_POS %9lld %9lld", m0->curr_pos_mstep, m1->curr_pos_mstep);
+            SDLPR("TGT_POS  %9lld %9lld", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
+            SDLPR("CURR_VEL %9.1f %9.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
+            SDLPR("OP_STATE %9s %9s",     m0->operation_state_str, m1->operation_state_str);
+            while (true) {
+                if (errsts_cnt == 0) {
+                    strcpy(error_status_str0, m0->error_status_str);
+                    strcpy(error_status_str1, m1->error_status_str);
+                    errsts0 = strtok_r(error_status_str0, " ", &saveptr0);
+                    errsts1 = strtok_r(error_status_str1, " ", &saveptr1);
+                }
+
+                if (errsts0 == NULL) errsts0 = " ";
+                if (errsts1 == NULL) errsts1 = " ";
+                SDLPR("%8s %9s %9s", errsts_cnt == 0 ? "ERR_STAT" : "", errsts0, errsts1);
+
+                errsts0 = strtok_r(NULL, " ", &saveptr0);
+                errsts1 = strtok_r(NULL, " ", &saveptr1);
+                if ((errsts0 == NULL && errsts1 == NULL) || ++errsts_cnt == 5) {
+                    break;
+                }
+            }
         }
 
         // register control events 

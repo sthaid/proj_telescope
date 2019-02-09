@@ -1114,10 +1114,10 @@ char * motor_operation_state_str(int op_state)
 {
     switch (op_state) {
     case 0: return "RESET";
-    case 2: return "DEENERGIZED";
+    case 2: return "DE_ENERG";
     case 4: return "SOFT_ERR";
-    case 6: return "WAITING_FOR_ERR_LINE";
-    case 8: return "STARTING_UP";
+    case 6: return "WT_ERR_LN";    // waiting for error line
+    case 8: return "START_UP";     // starting up
     case 10: return "NORMAL";
     }
     return "INVALID";
@@ -1135,12 +1135,12 @@ char * motor_error_status_str(int err_stat)
     if (err_stat & (1<<2)) p += sprintf(p,"%s", "LOW_VIN ");      // "Low_VIN"
     if (err_stat & (1<<3)) p += sprintf(p,"%s", "KILL_SW ");      // "Kill_switch_active"
     if (err_stat & (1<<4)) p += sprintf(p,"%s", "INP_INVLD ");    // "Required_input_invalid"
-    if (err_stat & (1<<5)) p += sprintf(p,"%s", "SERIAL_ERR ");   // "Serial_error"
+    if (err_stat & (1<<5)) p += sprintf(p,"%s", "SER_ERR ");      // "Serial_error"
     if (err_stat & (1<<6)) p += sprintf(p,"%s", "CMD_TOUT ");     // "Command_timeout"
     if (err_stat & (1<<7)) p += sprintf(p,"%s", "SS_VIOL ");      // "Safe_start_violation"
     if (err_stat & (1<<8)) p += sprintf(p,"%s", "ERR_LINE ");     // "ERR_line_high"
 
-    if (p == str) return "INVLD_ERR_STAT";
+    if (p == str) return "INVLD";
 
     return str;
 }    
