@@ -115,7 +115,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 void sky_get_tgt_azel(double * tgt_az, double * tgt_el);
 
-int tele_init(char *incl_ss_obj_str);
+int tele_init(void);
 int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 
 #endif

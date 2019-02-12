@@ -110,7 +110,8 @@ SOFTWARE.
 
 #define JD2000 2451545.0
 
-#define DELTA_T 180
+//#define DELTA_T 180  // XXX make this adjustable
+#define DELTA_T 3600
 
 #define NO_VALUE     9999
 #define NO_VALUE_STR "9999"
@@ -237,6 +238,7 @@ int sky_init(char *incl_ss_obj_str)
     }
 
     // read positions of stars from hygdata_v3.csv"
+    // XXX flag or use -i, to include stellar data
     ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
         return ret;
@@ -394,7 +396,7 @@ int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
     //    2018-Dec-01 00:00, , ,207.30643, -9.79665,  -4.87,  1.44,
 
     FILE *fp;
-    int line=1, num_added=0, len, i;
+    int line=0, num_added=0, len, i;
     obj_t *x = NULL;
     solar_sys_obj_info_t *ssinfo = NULL;
     char str[10000], *s, *name;
@@ -413,6 +415,7 @@ int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
 
     // read and parse all lines
     while (fgets(str, sizeof(str), fp) != NULL) {
+        line++;
         s=str;
 
         // first line in file must be an object name
@@ -435,7 +438,7 @@ int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
             if (len > 0 && name[len-1] == '\n') name[len-1] = 0;
 
             // if a list of solar sys objects to include has been provided then
-            // check the list for presenced of 'name'; if not found then this object
+            // check the list for presence of 'name'; if not found then this object
             // will be skipped
             if (max_incl_ss_obj > 0) {
                 skipping_this_ss_obj = true;
@@ -469,7 +472,6 @@ int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
             // update counters
             max_obj++;
             num_added++;
-            line++;
             continue;
         } 
 
@@ -548,9 +550,6 @@ int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
         ssinfo->info[ssinfo->max_info].dec = dec;
         ssinfo->info[ssinfo->max_info].mag = mag;
         ssinfo->max_info++;
-
-        // update line counter, which is used to identify which line in filename is in error
-        line++;
     }
 
     // close

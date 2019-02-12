@@ -145,7 +145,7 @@ inline double sanitize_az(double az)
 
 // -----------------  TELE INIT  ------------------------------------------
 
-int tele_init(char *incl_ss_obj_str)
+int tele_init(void)
 {
     pthread_t thread_id;
 
@@ -754,6 +754,22 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // register control events 
         // - row 0
+        // XXX need to shorten these to make room for tgt state, such as ACQUIRING, or
+        //     put ACQUIRING on seperate line, AND don't display ACTUAL after acquired
+        //          ACQUIRED              MTR_CLS
+        //          TGT xxx.xx  xx.xx     UN_CAL
+        //                                TRK_DIS
+        //                                  ...
+        //                                DSP_SEL
+        //                 MTR_CLS
+        //                 MTR_OPN
+        //                 CAL
+        //                 UN_CAL
+        //                 TRK_EN
+        //                 TRK_DIS
+        //                 SH_CTLR
+        //                 DSP_SEL
+
         if (connected) {
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(12,fontsz), ROW2Y(0,fontsz), fontsz, 

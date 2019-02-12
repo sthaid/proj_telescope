@@ -143,7 +143,7 @@ int main(int argc, char ** argv)
     if (ret < 0) {
         FATAL("sky_init ret %d\n", ret);
     }
-    ret = tele_init(incl_ss_obj_str);
+    ret = tele_init();
     if (ret < 0) {
         FATAL("tele_init ret %d\n", ret);
     }
