@@ -64,10 +64,446 @@ SOFTWARE.
 //
 
 //
+// variables
+//
+
+char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+//
 // prototypes
 //
 
+int read_stellar_data(char * filename);
+int read_solar_sys_data(char * filename, char **incl_ss_obj, int max_incl_ss_obj);
+int read_place_marks(char * filename);
+int obj_sanity_checks(void);
+
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
+
+// -----------------  READ SKY DATA  --------------------------------------
+
+int util_sky_init(char *incl_ss_obj_str)
+{
+    int ret;
+    char str[100];
+    bool first = true;
+    char *incl_ss_obj[100];
+    int max_incl_ss_obj = 0;
+    double lst = ct2lst(longitude, jdconv2(time(NULL)));
+
+    INFO("UTC now   = %s\n", gmtime_str(time(NULL),str));
+    INFO("LCL now   = %s\n", localtime_str(time(NULL),str));
+    INFO("Latitude  = %12s  % .6f\n", hr_str(latitude,str), latitude);
+    INFO("Longitude = %12s  % .6f\n", hr_str(longitude,str), longitude);
+    INFO("LST       = %s\n", hr_str(lst,str));
+
+//XXX just pass this string ?
+    // parse incl_ss_obj_str, which is a comma seperated list of 
+    // solar sys objects to be included; if the list is not supplied
+    // then all solar sys objects will be included
+    if (incl_ss_obj_str) {
+        while (true) {
+            char *name = strtok(first ? incl_ss_obj_str : NULL, ",");
+            first = false;
+            if (name == NULL) {
+                break;
+            }
+            incl_ss_obj[max_incl_ss_obj++] = name;
+        }
+    }
+
+    // read positions of stars from hygdata_v3.csv"
+    // XXX flag or use -i, to include stellar data
+    ret = read_stellar_data("sky_data/hygdata_v3.csv");
+    if (ret < 0) {
+        return ret;
+    }
+
+    // read positions of solar sys objects (planets, moons, etc) from solar_sys_data.csv
+    ret = read_solar_sys_data("sky_data/solar_sys_data.csv", incl_ss_obj, max_incl_ss_obj);
+    if (ret < 0) {
+        return ret;
+    }
+
+    // read additional place markers from place_marks.dat
+    ret = read_place_marks("sky_data/place_marks.dat");
+    if (ret < 0) {
+        return ret;
+    }
+
+    // do some sanity checks on the objects that have been read by the calls made above
+    ret = obj_sanity_checks();
+    if (ret < 0) {
+        return ret;
+    }
+
+    // debug print the total number of objects that have been read
+    INFO("max_object  = %d\n", max_obj);
+
+    // XXX make this controlled by an arg
+#if 1
+    // run some unit tests (optional)
+    util_sky_unit_test();
+#endif
+
+    // success
+    return 0;
+}
+
+int read_stellar_data(char * filename)
+{
+    // csv file format:
+    //   id,hip,hd,hr,gl,bf,proper,ra,dec,dist,pmra,pmdec,rv,mag,
+    //      absmag,spect,ci,x,y,z,vx,vy,vz,rarad,decrad,pmrarad,pmdecrad,bayer,
+    //      flam,con,comp,comp_primary,base,lum,var,var_min,var_max
+
+    #define GET_FIELD(field) \
+        do { \
+            field = s; \
+            s = strchr(s,','); \
+            if (s == NULL) { \
+                ERROR("filename=%s line=%d field=%s\n", filename, line, #field); \
+                return -1; \
+            } \
+            *s = '\0'; \
+            s++; \
+        } while (0)
+
+    FILE *fp;
+    int line=1, num_added=0;
+    char str[10000], *s;
+    char *id_str     __attribute__ ((unused)); 
+    char *hip_str    __attribute__ ((unused));
+    char *hd_str     __attribute__ ((unused));
+    char *hr_str     __attribute__ ((unused));
+    char *gl_str     __attribute__ ((unused));
+    char *bf_str     __attribute__ ((unused));
+    char *dist_str   __attribute__ ((unused));
+    char *pmra_str   __attribute__ ((unused));
+    char *pmdec_str  __attribute__ ((unused));
+    char *rv_str     __attribute__ ((unused));
+    char *proper_str, *ra_str, *dec_str, *mag_str;
+    double ra, dec, mag;
+
+    // open file
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        ERROR("failed to open %s\n", filename);
+        return -1;
+    }
+
+    // read and parse all lines
+    while (fgets(str, sizeof(str), fp) != NULL) {
+        if (max_obj >= MAX_OBJ) {
+            ERROR("filename=%s line=%d obj table is full\n", filename, line);
+            return -1;
+        }
+
+        s=str;
+        GET_FIELD(id_str); 
+        GET_FIELD(hip_str);
+        GET_FIELD(hd_str);
+        GET_FIELD(hr_str);
+        GET_FIELD(gl_str);
+        GET_FIELD(bf_str);
+        GET_FIELD(proper_str);
+        GET_FIELD(ra_str);
+        GET_FIELD(dec_str);
+        GET_FIELD(dist_str);
+        GET_FIELD(pmra_str);
+        GET_FIELD(pmdec_str);
+        GET_FIELD(rv_str);
+        GET_FIELD(mag_str);
+
+        if (line == 1) {
+            if (strcmp(proper_str, "proper") || strcmp(ra_str, "ra") || strcmp(dec_str, "dec") || strcmp(mag_str, "mag")) {
+                ERROR("csv file header line incorrect, proper='%s' ra=%s dec=%s mag=%s\n", proper_str, ra_str, dec_str, mag_str);
+                return -1;
+            }
+            line++;
+            continue;
+        } 
+
+        // don't know why hygdata_v3.csv has Sol entry at ra=0 dec=0;
+        // so just ignore it
+        if (strcmp(proper_str, "Sol") == 0) {
+            continue;
+        }
+
+        if (sscanf(ra_str, "%lf", &ra) != 1) {
+            ERROR("filename=%s line=%d invalid ra='%s'\n", filename, line, ra_str);
+            return -1;
+        }
+        if (sscanf(dec_str, "%lf", &dec) != 1) {
+            ERROR("filename=%s line=%d invalid dec='%s'\n", filename, line, dec_str);
+            return -1;
+        }
+        if (sscanf(mag_str, "%lf", &mag) != 1) {
+            ERROR("filename=%s line=%d invalid mag='%s'\n", filename, line, mag_str);
+            return -1;
+        }
+
+        strncpy(obj[max_obj].name, proper_str, MAX_OBJ_NAME);
+        obj[max_obj].type = OBJTYPE_STELLAR;
+        obj[max_obj].ra       = ra * 15.;
+        obj[max_obj].dec      = dec;
+        obj[max_obj].mag      = mag;
+        obj[max_obj].ssinfo   = NULL;
+
+        DEBUG("%16s %10.4f %10.4f %10.4f\n", proper_str, ra, dec, mag);
+        max_obj++;
+
+        num_added++;
+        line++;
+    }
+
+    // close file
+    fclose(fp);
+
+    // success
+    INFO("added %d stellar_objects from %s\n", num_added, filename);
+    return 0;
+}
+
+int read_solar_sys_data(char *filename, char **incl_ss_obj, int max_incl_ss_obj)
+{
+    // format, example:
+    //   # Venus
+    //    2018-Dec-01 00:00, , ,207.30643, -9.79665,  -4.87,  1.44,
+
+    FILE *fp;
+    int line=0, num_added=0, len, i;
+    obj_t *x = NULL;
+    solar_sys_obj_info_t *ssinfo = NULL;
+    char str[10000], *s, *name;
+    char *date_str, *ra_str, *dec_str, *mag_str;
+    char *not_used_str __attribute__ ((unused));
+    double ra, dec, mag;
+    time_t t;
+    bool skipping_this_ss_obj=false;
+
+    // open
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        ERROR("failed to open %s\n", filename);
+        return -1;
+    }
+
+    // read and parse all lines
+    while (fgets(str, sizeof(str), fp) != NULL) {
+        line++;
+        s=str;
+
+        // first line in file must be an object name
+        if (line == 1 && s[0] != '#') {
+            ERROR("first line must contain solar sys object name, '%s'\n", str);
+            return -1;
+        }
+
+        // if this line is object name then start a new object
+        if (s[0] == '#') {
+            // check for too many
+            if (max_obj >= MAX_OBJ) {
+                ERROR("filename=%s line=%d obj table is full\n", filename, line);
+                return -1;
+            }
+
+            // get ptr to the name of the solar_sys_object, and remove trailing newline
+            name = s + 2;
+            len = strlen(name);
+            if (len > 0 && name[len-1] == '\n') name[len-1] = 0;
+
+            // if a list of solar sys objects to include has been provided then
+            // check the list for presence of 'name'; if not found then this object
+            // will be skipped
+            if (max_incl_ss_obj > 0) {
+                skipping_this_ss_obj = true;
+                for (i = 0; i < max_incl_ss_obj; i++) {
+                    if (strcasecmp(name, incl_ss_obj[i]) == 0) {
+                        skipping_this_ss_obj = false;
+                        break;
+                    }
+                }
+            } else {
+                skipping_this_ss_obj = false;
+            }
+            if (skipping_this_ss_obj) {
+                continue;
+            }
+
+            // alloc ssinfo, it will be realloced in increments of 10000 struct info_s as needed
+            ssinfo = malloc(SIZEOF_SOLAR_SYS_OBJ_INFO_T(0));
+            ssinfo->max_info = 0;
+            ssinfo->idx_info = 0;
+
+            // init obj fields
+            x = &obj[max_obj];
+            strncpy(x->name, name, MAX_OBJ_NAME);
+            x->type = OBJTYPE_SOLAR;
+            x->ra       = NO_VALUE;
+            x->dec      = NO_VALUE;
+            x->mag      = NO_VALUE;
+            x->ssinfo   = ssinfo;
+
+            // update counters
+            max_obj++;
+            num_added++;
+            continue;
+        } 
+
+        // if skipping this object then continue
+        if (skipping_this_ss_obj) {
+            continue;
+        }
+
+        // get fields for the object currently being input
+        GET_FIELD(date_str);
+        GET_FIELD(not_used_str);
+        GET_FIELD(not_used_str);
+        GET_FIELD(ra_str);
+        GET_FIELD(dec_str);
+        GET_FIELD(mag_str);
+
+        // sometimes magnitude is not-avail, such as when Mercury is on the
+        // other side of the sun; in this case set magnitude to 99
+        if (strstr(mag_str, "n.a.")) {
+            mag_str = NO_VALUE_STR;
+        }
+
+        // convert utc date_str to t
+        // - example format: 2018-Dec-01 00:00,
+        {
+        int year, month, day, hour, minute, cnt;
+        static char month_str[10];
+        struct tm tm;
+        cnt = sscanf(date_str, "%d-%c%c%c-%d %d:%d", &year, month_str+0, month_str+1, month_str+2, &day, &hour, &minute);
+        if (cnt != 7) {
+            ERROR("filename=%s line=%d invalid date_str='%s'\n", filename, line, date_str);
+            return -1;
+        }
+        for (month = 0; month < 12; month++) {
+            if (strcmp(month_str, month_tbl[month]) == 0) {
+                break;
+            }
+        }
+        if (month == 12) {
+            ERROR("filename=%s line=%d invalid month_str='%s'\n", filename, line, month_str);
+            return -1;
+        }
+        memset(&tm,0,sizeof(tm));
+        tm.tm_min   = minute;
+        tm.tm_hour  = hour;
+        tm.tm_mday  = day;
+        tm.tm_mon   = month;       // 0 to 11
+        tm.tm_year  = year-1900;   // based 1900
+        t = timegm(&tm);
+        }
+
+        // convert the righ-ascension, declination, and magniture strings to doubleing point
+        if (sscanf(ra_str, "%lf", &ra) != 1) {
+            ERROR("filename=%s line=%d invalid ra='%s'\n", filename, line, ra_str);
+            return -1;
+        }
+        if (sscanf(dec_str, "%lf", &dec) != 1) {
+            ERROR("filename=%s line=%d invalid dec='%s'\n", filename, line, dec_str);
+            return -1;
+        }
+        if (sscanf(mag_str, "%lf", &mag) != 1) {
+            ERROR("filename=%s line=%d invalid mag='%s'\n", filename, line, mag_str);
+            return -1;
+        }
+        
+        // if the info table for the object currently being input is full
+        // then realloc with 10000 more entries
+        if ((ssinfo->max_info % 10000) == 0) {
+            ssinfo = realloc(ssinfo, SIZEOF_SOLAR_SYS_OBJ_INFO_T(ssinfo->max_info+10000));
+            x->ssinfo = ssinfo;
+        }
+
+        // fill in the info table for the object currently being input
+        ssinfo->info[ssinfo->max_info].t   = t;
+        ssinfo->info[ssinfo->max_info].ra  = ra;
+        ssinfo->info[ssinfo->max_info].dec = dec;
+        ssinfo->info[ssinfo->max_info].mag = mag;
+        ssinfo->max_info++;
+    }
+
+    // close
+    fclose(fp);
+
+    // success
+    INFO("added %d solar_sys_objects from %s\n", num_added, filename);
+    return 0;
+}
+
+int read_place_marks(char *filename)
+{
+    FILE * fp;
+    int line=1, num_added=0, cnt;
+    char str[1000], name[100];
+    double ra, dec;
+
+    // open
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        ERROR("failed to open %s\n", filename);
+        return -1;
+    }
+
+    // read and parse all lines
+    while (fgets(str, sizeof(str), fp) != NULL) {
+        if (str[0] == '#') {
+            continue;
+        }
+
+        cnt = sscanf(str, "%s %lf %lf\n", name, &ra, &dec);
+        if (cnt != 3) {
+            ERROR("filename=%s line=%d invalid, scan cnt %d\n", filename, line, cnt);
+            return -1;
+        }
+        DEBUG("PLACE_MARK '%s' %f %f\n", name, ra, dec);
+
+        strncpy(obj[max_obj].name, name, MAX_OBJ_NAME);
+        obj[max_obj].type   = OBJTYPE_PLACE_MARK;;
+        obj[max_obj].ra     = ra;
+        obj[max_obj].dec    = dec;
+        obj[max_obj].mag    = NO_VALUE;
+        obj[max_obj].ssinfo = NULL;
+        max_obj++;
+
+        line++;
+        num_added++;
+    }
+
+    // close
+    fclose(fp);
+
+    // success
+    INFO("added %d place_mark_objects from %s\n", num_added, filename);
+    return 0;
+}
+
+int obj_sanity_checks(void)
+{
+    int i;
+
+    // verify obj names don't begin or end with a space char
+    for (i = 0; i < max_obj; i++) {
+        obj_t * x = &obj[i];
+        char * name = x->name;
+        if (name[0] == '\0') {
+            continue;
+        }
+        if (name[0] == ' ' || name[strlen(name)-1] == ' ') {
+            ERROR("obj %d invalid name '%s'\n", i, name);
+            return -1;
+        }
+    }
+
+    // sanity checks all passed
+    DEBUG("obj sanity checks all passed\n");
+    return 0;
+}
 
 // -----------------  CONVERT RA/DEC TO AZ/EL UTILS  ----------------------
 
@@ -334,6 +770,74 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 
 // -----------------  MISC  -----------------------------------------------
 
+int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
+{
+    solar_sys_obj_info_t *ssinfo = x->ssinfo;
+    struct info_s *info     = ssinfo->info;
+    int            max_info = ssinfo->max_info;
+    int            idx      = ssinfo->idx_info;
+    char           str[100];
+
+    // this routine fills in the x arg fields az,el,mag
+
+    // interpolated_val = v0 + ((v1 - v0) / (t1 - t0)) * (t - t0)
+    #define INTERPOLATE(t,v0,v1,t0,t1) \
+        ((double)(v0) + (((double)(v1) - (double)(v0)) / ((double)(t1) - (double)(t0))) * ((double)(t) - (double)(t0)))
+
+    // this routine is only to be called for OBJTYPE_SOLAR
+    if (x->type != OBJTYPE_SOLAR) {
+        FATAL("BUG: called for invalid obj type %d\n",x->type);
+    }
+
+    // preset returns to NO_VALUE
+    x->ra  = NO_VALUE;
+    x->dec = NO_VALUE;
+    x->mag = NO_VALUE;
+
+    // start the search at idx_info hint; the hint will usually be
+    // correct, and we can go directly to the interpolation
+    if (t >= info[idx].t && t <= info[idx+1].t) {
+        goto interpolate;
+    }
+
+    // if time is earlier than the idx_info hint then decrement idx
+    while (t < info[idx].t) {
+        idx--;
+        if (idx < 0) {
+            ERROR_INTERVAL(1000000, "time %s too early for solar_sys_object %s\n", gmtime_str(t,str), x->name);
+            return -1;
+        }
+    }
+
+    // if time is greater than the idx_info hint then increment idx
+    while (t > info[idx+1].t) {
+        idx++;
+        if (idx > max_info-2) {
+            ERROR_INTERVAL(1000000, "time %s too large for solar_sys_object %s\n", gmtime_str(t,str), x->name);
+            return -1;
+        }
+    }
+
+    // if time is now not in range, that is a bug
+    if (t < info[idx].t || t > info[idx+1].t) {
+        FATAL("BUG: t=%ld info[%d].t=%ld info[%d].t=%ld\n",
+              t, idx, info[idx].t, idx+1, info[idx+1].t);
+    }
+
+interpolate:
+    // determine ra and dec return values by interpolation;
+    // don't interpolating mag, it can have NO_VALUE
+    x->ra  = INTERPOLATE(t, info[idx].ra, info[idx+1].ra, info[idx].t, info[idx+1].t); 
+    x->dec = INTERPOLATE(t, info[idx].dec, info[idx+1].dec, info[idx].t, info[idx+1].t); 
+    x->mag = info[idx].mag;
+        
+    // save idx hint, to be used on subsequent calls
+    ssinfo->idx_info = idx;
+
+    // return success
+    return 0;
+}
+
 void hr2hms(double hr, int * hour, int * minute, double * seconds)
 {
     double secs = hr * 3600;
@@ -343,6 +847,54 @@ void hr2hms(double hr, int * hour, int * minute, double * seconds)
     *minute = secs / 60;
     secs -= *minute * 60;
     *seconds = secs;
+}
+
+char *gmtime_str(time_t t, char *str)
+{
+    struct tm *tm;
+
+    tm = gmtime(&t);
+    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d:%2.2d UTC",
+            tm->tm_year+1900,
+            month_tbl[tm->tm_mon],
+            tm->tm_mday,
+            tm->tm_hour,
+            tm->tm_min,
+            tm->tm_sec);
+    return str;
+}
+
+char *localtime_str(time_t t, char *str)
+{
+    struct tm *tm;
+
+    tm = localtime(&t);
+    sprintf(str, "%4d-%s-%2.2d %2.2d:%2.2d:%2.2d %s",
+            tm->tm_year+1900,
+            month_tbl[tm->tm_mon],
+            tm->tm_mday,
+            tm->tm_hour,
+            tm->tm_min,
+            tm->tm_sec,
+            tzname[tm->tm_isdst]);
+    return str;
+}
+
+// can be used for hour, latitude, or longitude
+char * hr_str(double hr, char *str)
+{
+    int hour, minute;
+    double seconds;
+    char *sign_str = "";
+
+    if (hr < 0) {
+        hr = - hr;
+        sign_str = "-";
+    }
+
+    hr2hms(hr, &hour, &minute, &seconds);
+    sprintf(str, "%s%d:%2.2d:%05.2f", sign_str, hour, minute, seconds);
+    return str;
 }
 
 // -----------------  TEST ALGORITHMS  ------------------------------------
@@ -436,7 +988,6 @@ void util_sky_unit_test(void)
     INFO("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
     }
 
-#if 0 // XXX move
     // print list of solar_sys objects and their ra,dec,mag,az,el
     { time_t t;
       double lst, az, el;
@@ -513,7 +1064,6 @@ void util_sky_unit_test(void)
                   ra_deviation, dec_deviation);
         }
     } }
-#endif
 
     // test sunrise and sunset
     // https://www.timeanddate.com/sun/usa/marlborough?month=3&year=2018

@@ -139,7 +139,7 @@ int main(int argc, char ** argv)
     }
     
     // initialize 
-    ret = sky_init(incl_ss_obj_str);
+    ret = sky_init(incl_ss_obj_str);  // XXX incl_obj_str,  and allow 'stars'
     if (ret < 0) {
         FATAL("sky_init ret %d\n", ret);
     }

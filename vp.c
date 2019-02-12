@@ -43,5 +43,14 @@ SOFTWARE.
 
 int main(int argc, char ** argv)
 {
+    int ret;
+
+    // init
+    ret = util_sky_init(NULL);
+    if (ret < 0) {
+        FATAL("sky_init ret %d\n", ret);
+    }
+    INFO("util_sky_init okay\n");
+
     return 0;
 }
