@@ -98,17 +98,24 @@ typedef struct {
 //
 
 // XXX static FIX in all files, and for procedures too
-static obj_t obj[MAX_OBJ];  // XXX maybe try malloc/realloc
+static obj_t obj[MAX_OBJ];
 
 char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+bool  incl_filtering_enabled;
+char *incl_obj[1000];
+bool  incl_all_stars;
+bool  incl_all_named_stars;
+bool  incl_all_planets;
+bool  incl_all_placemarks;
 
 //
 // prototypes
 //
 
-int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj);
-int read_solar_sys_data(char * filename, char **incl_obj, int max_incl_obj);
-int read_place_marks(char * filename, char **incl_obj, int max_incl_obj);
+int read_stellar_data(char * filename);
+int read_solar_sys_data(char * filename);
+int read_place_marks(char * filename);
 int obj_sanity_checks(void);
 int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
@@ -119,12 +126,9 @@ bool is_close(double act, double exp, double allowed_deviation, double * deviati
 
 int util_sky_init(char *incl_obj_str, bool run_unit_test) 
 {
-    int ret, i;
+    int ret;
     char str[100];
     bool first = true;
-    char *incl_obj[1000];
-    int max_incl_obj = 0;
-    bool incl_all_stars, incl_all_planets, incl_all_placemarks;
     double lst = ct2lst(longitude, jdconv2(time(NULL)));
 
     INFO("UTC now    = %s\n", gmtime_str(time(NULL),str));
@@ -135,53 +139,49 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test)
     INFO("sizeof obj = %ld MB\n", sizeof(obj)/0x100000);
 
     // parse incl_obj_str, which is a comma seperated list of 
-    // sys objects to be included; if the list is not supplied
-    // then all objects are included
+    // objects to be included; if the list is not supplied
+    // then all objects will be included; special case strings:
+    // - "stars"       - include all stars
+    // - "named_stars" - include all named stars
+    // - "planets"     - include all planets
+    // - "placemarks"  - include all placemarks
     if (incl_obj_str) {
+        int max_incl_obj=0;
+        incl_filtering_enabled = true;
         while (true) {
             char *name = strtok(first ? incl_obj_str : NULL, ",");
             first = false;
             if (name == NULL) {
                 break;
             }
-            incl_obj[max_incl_obj++] = name;
-        }
-    }
-
-    // determine if incl_objs has 'stars' or 'planets' or "placemarks"
-    incl_all_stars = false;
-    incl_all_planets = false;
-    incl_all_placemarks = false;
-    for (i = 0; i < max_incl_obj; i++) {
-        if (strcasecmp(incl_obj[i], "stars") == 0) {
-            incl_all_stars = true;
-        }
-        if (strcasecmp(incl_obj[i], "planets") == 0) {
-            incl_all_planets = true;
-        }
-        if (strcasecmp(incl_obj[i], "placemarks") == 0) {
-            incl_all_placemarks = true;
+            if (strcasecmp(name, "stars") == 0) {
+                incl_all_stars = true;
+            } else if (strcasecmp(name, "named_stars") == 0) {
+                incl_all_named_stars = true;
+            } else if (strcasecmp(name, "planets") == 0) {
+                incl_all_planets = true;
+            } else if (strcasecmp(name, "placemarks") == 0) {
+                incl_all_placemarks = true;
+            } else {
+                incl_obj[max_incl_obj++] = name;
+            }
         }
     }
 
     // read positions of stars from hygdata_v3.csv"
-    // XXX flag or use -i, to include stellar data
-    ret = read_stellar_data("sky_data/hygdata_v3.csv",
-                            incl_obj, incl_all_stars ? 0 : max_incl_obj);
+    ret = read_stellar_data("sky_data/hygdata_v3.csv");
     if (ret < 0) {
         return ret;
     }
 
     // read positions of solar sys objects (planets, moons, etc) from solar_sys_data.csv
-    ret = read_solar_sys_data("sky_data/solar_sys_data.csv", 
-                              incl_obj, incl_all_planets ? 0 : max_incl_obj);
+    ret = read_solar_sys_data("sky_data/solar_sys_data.csv");
     if (ret < 0) {
         return ret;
     }
 
     // read additional place markers from place_marks.dat
-    ret = read_place_marks("sky_data/place_marks.dat", 
-                           incl_obj, incl_all_placemarks ? 0 : max_incl_obj);
+    ret = read_place_marks("sky_data/place_marks.dat");
     if (ret < 0) {
         return ret;
     }
@@ -204,7 +204,7 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test)
     return 0;
 }
 
-int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
+int read_stellar_data(char * filename)
 {
     // csv file format:
     //   id,hip,hd,hr,gl,bf,proper,ra,dec,dist,pmra,pmdec,rv,mag,
@@ -224,7 +224,7 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
         } while (0)
 
     FILE *fp;
-    int line=1, num_added=0, i;
+    int line=0, num_added=0, i;
     char str[10000], *s;
     char *id_str     __attribute__ ((unused)); 
     char *hip_str    __attribute__ ((unused));
@@ -238,6 +238,7 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
     char *rv_str     __attribute__ ((unused));
     char *proper_str, *ra_str, *dec_str, *mag_str;
     double ra, dec, mag;
+    bool include;
 
     // open file
     fp = fopen(filename, "r");
@@ -248,11 +249,15 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
 
     // read and parse all lines
     while (fgets(str, sizeof(str), fp) != NULL) {
+        line++;
+
+        // check if obj table is full
         if (max_obj >= MAX_OBJ) {
             ERROR("filename=%s line=%d obj table is full\n", filename, line);
             return -1;
         }
 
+        // parse s into the various csv fields
         s=str;
         GET_FIELD(id_str); 
         GET_FIELD(hip_str);
@@ -269,12 +274,12 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
         GET_FIELD(rv_str);
         GET_FIELD(mag_str);
 
+        // spot check csv file header line
         if (line == 1) {
             if (strcmp(proper_str, "proper") || strcmp(ra_str, "ra") || strcmp(dec_str, "dec") || strcmp(mag_str, "mag")) {
                 ERROR("csv file header line incorrect, proper='%s' ra=%s dec=%s mag=%s\n", proper_str, ra_str, dec_str, mag_str);
                 return -1;
             }
-            line++;
             continue;
         } 
 
@@ -284,19 +289,30 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
             continue;
         }
 
-        // skip this object if a list of include objects is provided and the 
-        // object name is not on the list
-        if (max_incl_obj) {
-            for (i = 0; i < max_incl_obj; i++) {
-                if (strcasecmp(proper_str, incl_obj[i]) == 0) {
-                    break;
+        // determine if this object is to be included;
+        // if not then continue
+        if (incl_filtering_enabled) {
+            if (incl_all_stars) {
+                include = true;
+            } else if (incl_all_named_stars && proper_str[0] != '\0') {
+                include = true;
+            } else {
+                include = false;
+                for (i = 0; incl_obj[i]; i++) {
+                    if (strcasecmp(proper_str, incl_obj[i]) == 0) {
+                        include = true;
+                        break;
+                    }
                 }
             }
-            if (i == max_incl_obj) {
-                continue;
-            }
+        } else {
+            include = true;
+        }
+        if (!include) {
+            continue;
         }
 
+        // scan the strings to get ra,dec, and mag
         if (sscanf(ra_str, "%lf", &ra) != 1) {
             ERROR("filename=%s line=%d invalid ra='%s'\n", filename, line, ra_str);
             return -1;
@@ -310,18 +326,16 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
             return -1;
         }
 
+        // add this entry to obj table
         strncpy(obj[max_obj].name, proper_str, MAX_OBJ_NAME);
-        obj[max_obj].type = OBJTYPE_STELLAR;
-        obj[max_obj].ra       = ra * 15.;
-        obj[max_obj].dec      = dec;
-        obj[max_obj].mag      = mag;
-        obj[max_obj].ssinfo   = NULL;
-
+        obj[max_obj].type   = OBJTYPE_STELLAR;
+        obj[max_obj].ra     = ra * 15.;
+        obj[max_obj].dec    = dec;
+        obj[max_obj].mag    = mag;
+        obj[max_obj].ssinfo = NULL;
         DEBUG("%16s %10.4f %10.4f %10.4f\n", proper_str, ra, dec, mag);
         max_obj++;
-
         num_added++;
-        line++;
     }
 
     // close file
@@ -332,7 +346,7 @@ int read_stellar_data(char * filename, char **incl_obj, int max_incl_obj)
     return 0;
 }
 
-int read_solar_sys_data(char *filename, char **incl_obj, int max_incl_obj)
+int read_solar_sys_data(char *filename)
 {
     // format, example:
     //   # Venus
@@ -347,7 +361,7 @@ int read_solar_sys_data(char *filename, char **incl_obj, int max_incl_obj)
     char *not_used_str __attribute__ ((unused));
     double ra, dec, mag;
     time_t t;
-    bool skipping_this_obj=false;
+    bool include=true;
 
     // open
     fp = fopen(filename, "r");
@@ -380,21 +394,24 @@ int read_solar_sys_data(char *filename, char **incl_obj, int max_incl_obj)
             len = strlen(name);
             if (len > 0 && name[len-1] == '\n') name[len-1] = 0;
 
-            // if a list of solar sys objects to include has been provided then
-            // check the list for presence of 'name'; if not found then this object
-            // will be skipped
-            if (max_incl_obj > 0) {
-                skipping_this_obj = true;
-                for (i = 0; i < max_incl_obj; i++) {
-                    if (strcasecmp(name, incl_obj[i]) == 0) {
-                        skipping_this_obj = false;
-                        break;
+            // determine if this object is to be included;
+            // if not then continue
+            if (incl_filtering_enabled) {
+                if (incl_all_planets) {
+                    include = true;
+                } else {
+                    include = false;
+                    for (i = 0; incl_obj[i]; i++) {
+                        if (strcasecmp(name, incl_obj[i]) == 0) {
+                            include = true;
+                            break;
+                        }
                     }
                 }
             } else {
-                skipping_this_obj = false;
+                include = true;
             }
-            if (skipping_this_obj) {
+            if (!include) {
                 continue;
             }
 
@@ -418,8 +435,8 @@ int read_solar_sys_data(char *filename, char **incl_obj, int max_incl_obj)
             continue;
         }
 
-        // if skipping this object then continue
-        if (skipping_this_obj) {
+        // if not including this object then continue
+        if (!include) {
             continue;
         }
 
@@ -503,12 +520,13 @@ int read_solar_sys_data(char *filename, char **incl_obj, int max_incl_obj)
     return 0;
 }
 
-int read_place_marks(char *filename, char **incl_obj, int max_incl_obj)
+int read_place_marks(char *filename)
 {
     FILE * fp;
-    int line=1, num_added=0, cnt, i;
+    int line=0, num_added=0, cnt, i;
     char str[1000], name[100];
     double ra, dec;
+    bool include;
 
     // open
     fp = fopen(filename, "r");
@@ -519,10 +537,14 @@ int read_place_marks(char *filename, char **incl_obj, int max_incl_obj)
 
     // read and parse all lines
     while (fgets(str, sizeof(str), fp) != NULL) {
+        line++;
+
+        // skip comment lines
         if (str[0] == '#') {
             continue;
         }
 
+        // scan the line for placemark name, ra, and dec
         cnt = sscanf(str, "%s %lf %lf\n", name, &ra, &dec);
         if (cnt != 3) {
             ERROR("filename=%s line=%d invalid, scan cnt %d\n", filename, line, cnt);
@@ -530,19 +552,28 @@ int read_place_marks(char *filename, char **incl_obj, int max_incl_obj)
         }
         DEBUG("PLACE_MARK '%s' %f %f\n", name, ra, dec);
 
-        // skip this object if a list of include objects is provided and the 
-        // object name is not on the list
-        if (max_incl_obj) {
-            for (i = 0; i < max_incl_obj; i++) {
-                if (strcasecmp(name, incl_obj[i]) == 0) {
-                    break;
+        // determine if this object is to be included;
+        // if not then continue
+        if (incl_filtering_enabled) {
+            if (incl_all_placemarks) {
+                include = true;
+            } else {
+                include = false;
+                for (i = 0; incl_obj[i]; i++) {
+                    if (strcasecmp(name, incl_obj[i]) == 0) {
+                        include = true;
+                        break;
+                    }
                 }
             }
-            if (i == max_incl_obj) {
-                continue;
-            }
+        } else {
+            include = true;
+        }
+        if (!include) {
+            continue;
         }
 
+        // add the placemark to the obj table
         strncpy(obj[max_obj].name, name, MAX_OBJ_NAME);
         obj[max_obj].type   = OBJTYPE_PLACE_MARK;;
         obj[max_obj].ra     = ra;
@@ -550,8 +581,6 @@ int read_place_marks(char *filename, char **incl_obj, int max_incl_obj)
         obj[max_obj].mag    = NO_VALUE;
         obj[max_obj].ssinfo = NULL;
         max_obj++;
-
-        line++;
         num_added++;
     }
 
