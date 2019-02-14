@@ -47,6 +47,9 @@ SOFTWARE.
 // defines
 //
 
+#define MAX_OBJ      200000
+#define MAX_OBJ_NAME 32
+
 #define SIND(x)   (sin((x)*DEG2RAD))
 #define COSD(x)   (cos((x)*DEG2RAD))
 #define TAND(x)   (tan((x)*DEG2RAD))
@@ -59,13 +62,43 @@ SOFTWARE.
 
 #define JD2000 2451545.0
 
+#define SIZEOF_SOLAR_SYS_OBJ_INFO_T(n) (sizeof(solar_sys_obj_info_t) + sizeof(struct info_s) * (n))
+
+
 //
 // typedefs
 //
 
+typedef struct {
+    int max_info;
+    int idx_info;
+    struct info_s {
+        time_t t;
+        double ra;
+        double dec;
+        double mag;
+    } info[0];
+} solar_sys_obj_info_t;
+
+// XXX rename
+typedef struct {
+    char name[MAX_OBJ_NAME];
+    int type;
+    double ra;
+    double dec;
+    double mag;
+    double az;
+    double el;
+    time_t t;
+    solar_sys_obj_info_t * ssinfo;
+} obj_t;
+
 //
 // variables
 //
+
+// XXX static FIX in all files, and for procedures too
+static obj_t obj[MAX_OBJ];  // XXX maybe try malloc/realloc
 
 char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
@@ -77,10 +110,12 @@ int read_stellar_data(char * filename);
 int read_solar_sys_data(char * filename, char **incl_ss_obj, int max_incl_ss_obj);
 int read_place_marks(char * filename);
 int obj_sanity_checks(void);
-
+int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 bool is_close(double act, double exp, double allowed_deviation, double * deviation);
 
-// -----------------  READ SKY DATA  --------------------------------------
+// -----------------  UTIL SKY INIT  --------------------------------------
+
+// the main purpose of these routines is to read the sky_data files
 
 int util_sky_init(char *incl_ss_obj_str)
 {
@@ -91,13 +126,14 @@ int util_sky_init(char *incl_ss_obj_str)
     int max_incl_ss_obj = 0;
     double lst = ct2lst(longitude, jdconv2(time(NULL)));
 
-    INFO("UTC now   = %s\n", gmtime_str(time(NULL),str));
-    INFO("LCL now   = %s\n", localtime_str(time(NULL),str));
-    INFO("Latitude  = %12s  % .6f\n", hr_str(latitude,str), latitude);
-    INFO("Longitude = %12s  % .6f\n", hr_str(longitude,str), longitude);
-    INFO("LST       = %s\n", hr_str(lst,str));
+    INFO("UTC now    = %s\n", gmtime_str(time(NULL),str));
+    INFO("LCL now    = %s\n", localtime_str(time(NULL),str));
+    INFO("Latitude   = %12s  % .6f\n", hr_str(latitude,str), latitude);
+    INFO("Longitude  = %12s  % .6f\n", hr_str(longitude,str), longitude);
+    INFO("LST        = %s\n", hr_str(lst,str));
+    INFO("sizeof obj = %ld MB\n", sizeof(obj)/0x100000);
 
-//XXX just pass this string ?
+    //XXX just pass this string ?
     // parse incl_ss_obj_str, which is a comma seperated list of 
     // solar sys objects to be included; if the list is not supplied
     // then all solar sys objects will be included
@@ -505,6 +541,69 @@ int obj_sanity_checks(void)
     return 0;
 }
 
+// -----------------  GET_OBJ  --------------------------------------------
+
+int get_obj(int i, time_t t, char **name, int *type, double *ra, double *dec, double *mag, double *az, double *el)
+{
+    obj_t *x = &obj[i];
+    double lst;
+
+    static time_t cached_lst_t;
+    static double cached_lst;
+
+    // sanity checks
+    if (i < 0 || i >= max_obj) {
+        FATAL("BUG: obj %d out of range, max_obj=%d\n", i, max_obj);
+    }
+    if (x->type == OBJTYPE_NONE) {
+        FATAL("BUG: obj %d is OBJTYPE_NONE\n", i);
+    }
+    if (t == 0) {
+        FATAL("BUG: time 0 not allowed\n");
+    }
+
+    // if called with the same time as a prior call then 
+    // return prior values
+    if (t == x->t) {
+        goto done;
+    }
+
+    // get local sidereal time, use cached value if available
+    if (t == cached_lst_t) {
+        lst = cached_lst;
+    } else {
+        lst = ct2lst(longitude, jdconv2(t));
+        cached_lst = lst;
+        cached_lst_t = t;
+    }
+
+    // if processing solar-sys object then compute its current ra, dec, and mag
+    if (x->type == OBJTYPE_SOLAR) {
+        if (compute_ss_obj_ra_dec_mag(x, t) != 0) {
+            // XXX limit number of prints, or don't print more than once per 10 secs
+            ERROR("time XXX out of range for solar-sys-obj %s\n", x->name);
+            return -1;   // ERROR_INTERVAL ?
+        }
+    }
+
+    // get az/el from ra/dec
+    radec2azel(&x->az, &x->el, x->ra, x->dec, lst, latitude);
+
+    // save time called
+    x->t = t;
+
+done:
+    // return values
+    *name = x->name;
+    *type = x->type;
+    *ra   = x->ra;
+    *dec  = x->dec;
+    *mag  = x->mag;
+    *az   = x->az;
+    *el   = x->el;
+    return 0;
+}
+
 // -----------------  CONVERT RA/DEC TO AZ/EL UTILS  ----------------------
 
 // INFO
@@ -709,7 +808,7 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 
     // solar mean anomaly
     M = (357.5291 + .98560028 * jstar);
-    if (M < 0) FATAL("M < 0\n");
+    if (M < 0) FATAL("BUG: M < 0\n");
     while (M > 360) M -= 360; 
 
     // equation of the center
@@ -717,7 +816,7 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 
     // ecliptic longitude
     lambda = (M +  C + 180 + 102.9372);
-    if (lambda < 0) FATAL("lambda < 0\n");
+    if (lambda < 0) FATAL("BUG: lambda < 0\n");
     while (lambda > 360) lambda -= 360;
 
     // solar transit
@@ -915,7 +1014,7 @@ void util_sky_unit_test(void)
     { double jd;
     jd = jdconv(2000,1,1,12);
     if (jd != 2451545.0) {
-        FATAL("jd %f should be 2451545.0\n", jd);
+        FATAL("UNIT_TEST_FAILED: jd %f should be 2451545.0\n", jd);
     } }
 
     // test jd2ymdh
@@ -927,7 +1026,7 @@ void util_sky_unit_test(void)
     jd = jdconv(y_exp, m_exp, d_exp, h_exp);
     jd2ymdh(jd, &y_act, &m_act, &d_act, &h_act);
     if (y_act != y_exp || m_act != m_exp || d_act != d_exp || !is_close(h_act,h_exp,.000001,&devi)) {
-        FATAL("jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
+        FATAL("UNIT_TEST_FAILED: jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
               y_exp, m_exp, d_exp, h_exp, y_act, m_act, d_act, h_act);
     }
 
@@ -935,7 +1034,7 @@ void util_sky_unit_test(void)
     jd = jdconv(y_exp, m_exp, d_exp, h_exp);
     jd2ymdh(jd, &y_act, &m_act, &d_act, &h_act);
     if (y_act != y_exp || m_act != m_exp || d_act != d_exp || !is_close(h_act,h_exp,.000001,&devi)) {
-        FATAL("jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
+        FATAL("UNIT_TEST_FAILED: jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
               y_exp, m_exp, d_exp, h_exp, y_act, m_act, d_act, h_act);
     }
 
@@ -943,7 +1042,7 @@ void util_sky_unit_test(void)
     jd = jdconv(y_exp, m_exp, d_exp, h_exp);
     jd2ymdh(jd, &y_act, &m_act, &d_act, &h_act);
     if (y_act != y_exp || m_act != m_exp || d_act != d_exp || !is_close(h_act,h_exp,.000001,&devi)) {
-        FATAL("jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
+        FATAL("UNIT_TEST_FAILED: jd2ymdh exp %d %d %d %f actual %d %d %d %f\n",
               y_exp, m_exp, d_exp, h_exp, y_act, m_act, d_act, h_act);
     } }
 
@@ -956,7 +1055,7 @@ void util_sky_unit_test(void)
     jd = jdconv(2018,12,8,1.8936);  
     lst = ct2lst(-72, jd);
     if (!is_close(lst, 2.21247, 0.00001, &lst_deviation)) {
-        FATAL("lst_deviation = %f, exceeds limit\n", lst_deviation);
+        FATAL("UNIT_TEST_FAILED: lst_deviation = %f, exceeds limit\n", lst_deviation);
     }
     INFO("lst_deviation = %f\n", lst_deviation);
     }
@@ -980,10 +1079,10 @@ void util_sky_unit_test(void)
     radec2azel(&az, &el, ra, dec, lst, lat);
     DEBUG("calc: az=%f el=%f  expected: az=%f el=%f\n", az, el, az_exp, el_exp);
     if (!is_close(az, az_exp, 0.00001, &az_deviation)) {
-        FATAL("az_deviation = %f, exceeds limit\n", az_deviation);
+        FATAL("UNIT_TEST_FAILED: az_deviation = %f, exceeds limit\n", az_deviation);
     }
     if (!is_close(el, el_exp, 0.00001, &el_deviation)) {
-        FATAL("el_deviation = %f, exceeds limit\n", el_deviation);
+        FATAL("UNIT_TEST_FAILED: el_deviation = %f, exceeds limit\n", el_deviation);
     }
     INFO("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
     }
@@ -1059,7 +1158,7 @@ void util_sky_unit_test(void)
         ra_is_close = is_close(ra, x->ra, .0000001, &ra_deviation);
         dec_is_close = is_close(dec, x->dec, .0000001, &dec_deviation);
         if (!ra_is_close || !dec_is_close) {
-            FATAL("objname %s: radec %f %f -> azel %f %f -> radec %f %f (deviation %f %f)\n",
+            FATAL("UNIT_TEST_FAILED: objname %s: radec %f %f -> azel %f %f -> radec %f %f (deviation %f %f)\n",
                   x->name, x->ra, x->dec, az, el, ra, dec,
                   ra_deviation, dec_deviation);
         }
@@ -1081,7 +1180,7 @@ void util_sky_unit_test(void)
         tm->tm_hour   != 18 ||
         tm->tm_min    != 50) 
     {
-        FATAL("sunset %s\n", asctime(tm));
+        FATAL("UNIT_TEST_FAILED: sunset %s\n", asctime(tm));
     }
     
     tm = localtime(&trise);
@@ -1091,7 +1190,7 @@ void util_sky_unit_test(void)
         tm->tm_hour   != 7 ||
         tm->tm_min    != 2) 
     {
-        FATAL("sunset %s\n", asctime(tm));
+        FATAL("UNIT_TEST_FAILED: sunset %s\n", asctime(tm));
     } }
 
     // manual test: the position of the moon ...

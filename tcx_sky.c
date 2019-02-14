@@ -74,22 +74,53 @@ SOFTWARE.
 //#define DELTA_T 180  // XXX make this adjustable
 #define DELTA_T 3600
 
+#define TRACKING_OFF   -1
+#define TRACKING_RADEC -2
+#define IDENT_OFF      -1
+
 //
 // typedefs
 //
 
+typedef struct {
+    char *name;
+    int type;
+    double ra;
+    double dec;
+    double mag;
+    double az;
+    double el;
+    int x;
+    int y;
+    int xvp;
+    int yvp;
+} obj_t;
+
 //
 // variables
 //
+
+obj_t *obj          = NULL;
+time_t sky_time     = 0;
+double lst          = 0;
+double az_ctr       = 0;   // range -180 to +180
+double az_span      = 360;
+double el_ctr       = 45;
+double el_span      = 90;  
+double mag          = DEFAULT_MAG;
+int    tracking     = TRACKING_OFF;
+double tracking_ra  = 0;
+double tracking_dec = 0;
+int    ident        = IDENT_OFF;
 
 //
 // prototypes
 //
 
 // pane support 
-char * trk_str(void);
-char * ident_str(void);
-char * sky_pane_cmd(char * cmd_line);
+char *trk_str(void);
+char *ident_str(void);
+char *sky_pane_cmd(char * cmd_line);
 int azel2xy(double az, double el, double max, double *xret, double *yret);
 
 // sky time utils
@@ -113,27 +144,21 @@ int sky_init(char *incl_ss_obj_str)
     int ret;
 
     ret = util_sky_init(incl_ss_obj_str);
+    if (ret < 0) {
+        ERROR("util_sky_init failed\n");
+        return ret;
+    }
 
-    return ret;
+    obj = calloc(max_obj, sizeof(obj_t));
+    if (obj == NULL) {
+        ERROR("failed calloc max_obj=%d sizeof(obj_t)=%ld\n", max_obj, sizeof(obj_t));
+        return -1;
+    }
+
+    return 0;
 }
 
 // -----------------  SKY PANE HANDLER  -----------------------------------
-
-#define TRACKING_OFF   -1
-#define TRACKING_RADEC -2
-#define IDENT_OFF      -1
-
-time_t sky_time     = 0;
-double lst          = 0;
-double az_ctr       = 0;   // range -180 to +180
-double az_span      = 360;
-double el_ctr       = 45;
-double el_span      = 90;  
-double mag          = DEFAULT_MAG;
-int    tracking     = TRACKING_OFF;
-double tracking_ra  = 0;
-double tracking_dec = 0;
-int    ident        = IDENT_OFF;
 
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
@@ -173,22 +198,11 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         double k_el = (pane->h) / (max_el - min_el);
         double k_az = (pane->w) / (min_az - max_az);
 
-        int xcoord, ycoord, i, ptsz, color, fontsz, row, mode, step_mode;
+        int xcoord, ycoord, i, ptsz, color, fontsz, row, mode, step_mode, ret;;
         double az, el;
         double grid_sep, first_az_line, first_el_line;
         double step_mode_hr_param;
         char str[100], time_mode_str[100], *s;
-
-        // reset all az, al, x, y to NO_VALUE
-        for (i = 0; i < max_obj; i++) {
-            obj_t * x = &obj[i];
-            x->x   = NO_VALUE;
-            x->y   = NO_VALUE;
-            x->az  = NO_VALUE;
-            x->el  = NO_VALUE;
-            x->xvp = NO_VALUE;
-            x->yvp = NO_VALUE;
-        }
 
         // get sky_time, which can be one of the following:
         // - current time
@@ -197,23 +211,25 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // - pause
         sky_time = sky_time_get_time();
 
-        // get local sidereal time        
-        lst = ct2lst(longitude, jdconv2(sky_time));
-
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
-            obj_t * x = &obj[i];
+            obj_t *x = &obj[i];
 
-            // if obj type is not valid then continue
-            if (x->type == OBJTYPE_NONE) {
+            // get info for object 'i', and
+            // reset other obj_t fields to NO_VALUE
+            // note: get_obj can fail if the sky_time is out of range for a solar-sys object
+            ret = get_obj(i, sky_time, &x->name, &x->type, &x->ra, &x->dec, &x->mag, &x->az, &x->el);
+            if (ret != 0) {
                 continue;
             }
+            x->x   = NO_VALUE;
+            x->y   = NO_VALUE;
+            x->xvp = NO_VALUE;
+            x->yvp = NO_VALUE;
 
-            // if processing solar-sys object then compute its current ra, dec, and mag
-            if (x->type == OBJTYPE_SOLAR) {
-                if (compute_ss_obj_ra_dec_mag(x, sky_time) != 0) {
-                    continue;
-                }
+            // if obj type is not valid then fail
+            if (x->type == OBJTYPE_NONE) {
+                FATAL("BUG: obj %d does not exist\n", i);
             }
 
             // magnitude too dim then skip; 
@@ -223,21 +239,15 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 continue;
             }
 
-            // get az/el from ra/dec, and
-            // save az/el in obj_t for later use
-            radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
-            x->az = az;
-            x->el = el;
-
-            // The azimuth returned from radec2azel is in range 0 to 360; 
+            // The azimuth returned from get_obj is in range 0 to 360; 
             // however the min_az..max_az could be as low as -360 to 0;
             // so, if az is too large, try to correct by reducing it by 360.
-            if (az > max_az) {
-                az -= 360;
+            if (x->az > max_az) {
+                x->az -= 360;
             }
 
             // if az or el out of range then skip
-            if (az < min_az || az > max_az || el < min_el || el > max_el) {
+            if (x->az < min_az || x->az > max_az || x->el < min_el || x->el > max_el) {
                 continue;
             }
 
@@ -248,8 +258,8 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
             // convert az/el to pane coordinates; 
             // if coords are out of the pane then skip
-            ycoord = 0 + k_el * (max_el - el);
-            xcoord = 0 + k_az * (min_az - az);
+            ycoord = 0 + k_el * (max_el - x->el);
+            xcoord = 0 + k_az * (min_az - x->az);
             if (xcoord < 0 || xcoord >= pane->w || ycoord < 0 || ycoord >= pane->h) {
                 continue;
             }
@@ -635,7 +645,7 @@ char * sky_pane_cmd(char * cmd_line)
             for (i = 0; i < max_obj; i++) {
                 obj_t *x = &obj[i];
                 if (strcasecmp(arg1, x->name) == 0) {
-                    if (obj[i].mag != NO_VALUE && obj[i].mag > mag) {
+                    if (x->mag != NO_VALUE && x->mag > mag) {
                         return "error: obj too dim";
                     }
                     tracking = i;
@@ -661,7 +671,7 @@ char * sky_pane_cmd(char * cmd_line)
             for (i = 0; i < max_obj; i++) {
                 obj_t *x = &obj[i];
                 if (strcasecmp(arg1, x->name) == 0) {
-                    if (obj[i].mag != NO_VALUE && obj[i].mag > mag) {
+                    if (x->mag != NO_VALUE && x->mag > mag) {
                         return "error: obj too dim";
                     }
                     ident = i;
@@ -1215,7 +1225,7 @@ time_t sky_time_get_time(void)
         }
         break;
     default:
-        FATAL("invalid sky_time_mode %ld\n", __sky_time_mode);
+        FATAL("BUG: invalid sky_time_mode %ld\n", __sky_time_mode);
     }
 
     // return the time
