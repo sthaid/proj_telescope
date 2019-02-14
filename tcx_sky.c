@@ -191,13 +191,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        double min_az = az_ctr - az_span / 2.;
-        double max_az = az_ctr + az_span / 2.;
-        double min_el = el_ctr - el_span / 2.;
-        double max_el = el_ctr + el_span / 2.;
-        double k_el = (pane->h) / (max_el - min_el);
-        double k_az = (pane->w) / (min_az - max_az);
-
+        double min_az, max_az, min_el, max_el, k_el, k_az;
         int xcoord, ycoord, i, ptsz, color, fontsz, row, mode, step_mode, ret;;
         double az, el;
         double grid_sep, first_az_line, first_el_line;
@@ -212,6 +206,27 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // and get local siderial time
         sky_time = sky_time_get_time();
         lst = ct2lst(longitude, jdconv2(sky_time));
+
+        // if we're tracking then update the az/el of sky_pane center to the
+        // az/el of the tracking object
+        if (tracking >= 0) {
+            obj_t x;
+            get_obj(tracking, sky_time, lst, &x.name, &x.type, &x.ra, &x.dec, &x.mag, &x.az, &x.el);
+            radec2azel(&az_ctr, &el_ctr, x.ra, x.dec, lst, latitude);
+            if (az_ctr > 180) az_ctr -= 360;
+        } else if (tracking == TRACKING_RADEC) {
+            radec2azel(&az_ctr, &el_ctr, tracking_ra, tracking_dec, lst, latitude);
+            if (az_ctr > 180) az_ctr -= 360;
+        }
+
+        // init variables that are dependant on az_ctr/el_ctr, which
+        // were just determined above
+        min_az = az_ctr - az_span / 2.;
+        max_az = az_ctr + az_span / 2.;
+        min_el = el_ctr - el_span / 2.;
+        max_el = el_ctr + el_span / 2.;
+        k_el = (pane->h) / (max_el - min_el);
+        k_az = (pane->w) / (min_az - max_az);
 
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
@@ -401,16 +416,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         }
         if (ident >= 0 && obj[ident].mag != NO_VALUE && obj[ident].mag > mag) {
             ident = IDENT_OFF;
-        }
-
-        // if we're tracking then update the az/el of sky_pane center to the
-        // az/el of the tracking object
-        if (tracking >= 0) {
-            radec2azel(&az_ctr, &el_ctr, obj[tracking].ra, obj[tracking].dec, lst, latitude);
-            if (az_ctr > 180) az_ctr -= 360;
-        } else if (tracking == TRACKING_RADEC) {
-            radec2azel(&az_ctr, &el_ctr, tracking_ra, tracking_dec, lst, latitude);
-            if (az_ctr > 180) az_ctr -= 360;
         }
 
         // register control events 
