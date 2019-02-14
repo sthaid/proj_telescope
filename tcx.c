@@ -51,7 +51,7 @@ int main(int argc, char ** argv)
     char *lat_str, *long_str;
     char *az_cal_pos_str, *el_cal_pos_str;
     char *az_tele_leg_1_str, *min_tele_angle_relative_leg_1_str, *max_tele_angle_relative_leg_1_str;
-    char *incl_ss_obj_str = NULL;
+    char *incl_obj_str = NULL;
 
     // get latitude and longitude from env variables TCX_LAT and TCX_LONG;
     // notes
@@ -131,7 +131,7 @@ int main(int argc, char ** argv)
         }
         switch (opt_char) {
         case 'i':
-            incl_ss_obj_str = optarg;
+            incl_obj_str = optarg;
             break;
         default:
             return 1;
@@ -139,7 +139,7 @@ int main(int argc, char ** argv)
     }
     
     // initialize 
-    ret = sky_init(incl_ss_obj_str);  // XXX incl_obj_str,  and allow 'stars'
+    ret = sky_init(incl_obj_str);
     if (ret < 0) {
         FATAL("sky_init ret %d\n", ret);
     }

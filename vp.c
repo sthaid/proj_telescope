@@ -46,7 +46,7 @@ int main(int argc, char ** argv)
     int ret;
 
     // init
-    ret = util_sky_init(NULL);
+    ret = util_sky_init(NULL, false);
     if (ret < 0) {
         FATAL("sky_init ret %d\n", ret);
     }

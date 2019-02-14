@@ -71,8 +71,8 @@ SOFTWARE.
 
 #define SID_DAY_SECS  (23*3600 + 56*60 + 4)
 
-//#define DELTA_T 180  // XXX make this adjustable
-#define DELTA_T 3600
+#define DELTA_T 180  // XXX make this adjustable
+//#define DELTA_T 3600
 
 #define TRACKING_OFF   -1
 #define TRACKING_RADEC -2
@@ -139,11 +139,11 @@ void get_prior_day(int * year, int * month, int * day);
 
 // -----------------  SKY INIT  -------------------------------------------
 
-int sky_init(char *incl_ss_obj_str)
+int sky_init(char *incl_obj_str)
 {
     int ret;
 
-    ret = util_sky_init(incl_ss_obj_str);
+    ret = util_sky_init(incl_obj_str, false);
     if (ret < 0) {
         ERROR("util_sky_init failed\n");
         return ret;
@@ -209,7 +209,9 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // - fast time
         // - advance a siderial day at a time
         // - pause
+        // and get local siderial time
         sky_time = sky_time_get_time();
+        lst = ct2lst(longitude, jdconv2(sky_time));
 
         // draw points for objects
         for (i = 0; i < max_obj; i++) {
@@ -218,7 +220,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             // get info for object 'i', and
             // reset other obj_t fields to NO_VALUE
             // note: get_obj can fail if the sky_time is out of range for a solar-sys object
-            ret = get_obj(i, sky_time, &x->name, &x->type, &x->ra, &x->dec, &x->mag, &x->az, &x->el);
+            ret = get_obj(i, sky_time, lst, &x->name, &x->type, &x->ra, &x->dec, &x->mag, &x->az, &x->el);
             if (ret != 0) {
                 continue;
             }
