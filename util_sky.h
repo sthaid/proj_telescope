@@ -28,10 +28,11 @@ int max_obj;
 //
 
 // init
-int util_sky_init(char *incl_obj_str, bool run_unit_test);
+int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_prints);
 
 // get an object
 int get_obj(int i, time_t t, double lst, char **name, int *type, double *ra, double *dec, double *mag, double *az, double *el);
+char * get_obj_name(int i);
 
 // convert ra,dec to/from az,el
 double jdconv(int yr, int mn, int day, double hour);

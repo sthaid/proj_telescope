@@ -64,6 +64,12 @@ SOFTWARE.
 
 #define SIZEOF_SOLAR_SYS_OBJ_INFO_T(n) (sizeof(solar_sys_obj_info_t) + sizeof(struct info_s) * (n))
 
+#define INFO2(fmt, args...) \
+    do { \
+        if (enable_info_prints) { \
+            INFO(fmt, ## args); \
+        } \
+    } while (0)
 
 //
 // typedefs
@@ -109,6 +115,8 @@ bool  incl_all_named_stars;
 bool  incl_all_planets;
 bool  incl_all_placemarks;
 
+bool enable_info_prints;
+
 //
 // prototypes
 //
@@ -124,19 +132,21 @@ bool is_close(double act, double exp, double allowed_deviation, double * deviati
 
 // the main purpose of these routines is to read the sky_data files
 
-int util_sky_init(char *incl_obj_str, bool run_unit_test) 
+int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_prints_arg)
 {
     int ret;
     char str[100];
     bool first = true;
     double lst = ct2lst(longitude, jdconv2(time(NULL)));
 
-    INFO("UTC now    = %s\n", gmtime_str(time(NULL),str));
-    INFO("LCL now    = %s\n", localtime_str(time(NULL),str));
-    INFO("Latitude   = %12s  % .6f\n", hr_str(latitude,str), latitude);
-    INFO("Longitude  = %12s  % .6f\n", hr_str(longitude,str), longitude);
-    INFO("LST        = %s\n", hr_str(lst,str));
-    INFO("sizeof obj = %ld MB\n", sizeof(obj)/0x100000);
+    enable_info_prints = enable_info_prints_arg;
+
+    INFO2("UTC now    = %s\n", gmtime_str(time(NULL),str));
+    INFO2("LCL now    = %s\n", localtime_str(time(NULL),str));
+    INFO2("Latitude   = %12s  % .6f\n", hr_str(latitude,str), latitude);
+    INFO2("Longitude  = %12s  % .6f\n", hr_str(longitude,str), longitude);
+    INFO2("LST        = %s\n", hr_str(lst,str));
+    INFO2("sizeof obj = %ld MB\n", sizeof(obj)/0x100000);
 
     // parse incl_obj_str, which is a comma seperated list of 
     // objects to be included; if the list is not supplied
@@ -193,7 +203,7 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test)
     }
 
     // debug print the total number of objects that have been read
-    INFO("max_object  = %d\n", max_obj);
+    INFO2("max_object  = %d\n", max_obj);
 
     // run some unit tests (optional)
     if (run_unit_test) {
@@ -342,7 +352,7 @@ int read_stellar_data(char * filename)
     fclose(fp);
 
     // success
-    INFO("added %d stellar_objects from %s\n", num_added, filename);
+    INFO2("added %d stellar_objects from %s\n", num_added, filename);
     return 0;
 }
 
@@ -516,7 +526,7 @@ int read_solar_sys_data(char *filename)
     fclose(fp);
 
     // success
-    INFO("added %d solar_sys_objects from %s\n", num_added, filename);
+    INFO2("added %d solar_sys_objects from %s\n", num_added, filename);
     return 0;
 }
 
@@ -588,7 +598,7 @@ int read_place_marks(char *filename)
     fclose(fp);
 
     // success
-    INFO("added %d place_mark_objects from %s\n", num_added, filename);
+    INFO2("added %d place_mark_objects from %s\n", num_added, filename);
     return 0;
 }
 
@@ -654,14 +664,28 @@ int get_obj(int i, time_t t, double lst, char **name, int *type, double *ra, dou
 
 done:
     // return values
-    *name = x->name;
-    *type = x->type;
-    *ra   = x->ra;
-    *dec  = x->dec;
-    *mag  = x->mag;
-    *az   = x->az;
-    *el   = x->el;
+    if (name) *name = x->name;
+    if (type) *type = x->type;
+    if (ra)   *ra   = x->ra;
+    if (dec)  *dec  = x->dec;
+    if (mag)  *mag  = x->mag;
+    if (az)   *az   = x->az;
+    if (el)   *el   = x->el;
     return 0;
+}
+
+char * get_obj_name(int i) 
+{
+    // sanity checks
+    if (i < 0 || i >= max_obj) {
+        FATAL("BUG: obj %d out of range, max_obj=%d\n", i, max_obj);
+    }
+    if (obj[i].type == OBJTYPE_NONE) {
+        FATAL("BUG: obj %d is OBJTYPE_NONE\n", i);
+    }
+
+    // return the name
+    return obj[i].name;
 }
 
 // -----------------  CONVERT RA/DEC TO AZ/EL UTILS  ----------------------
@@ -1117,7 +1141,7 @@ void util_sky_unit_test(void)
     if (!is_close(lst, 2.21247, 0.00001, &lst_deviation)) {
         FATAL("UNIT_TEST_FAILED: lst_deviation = %f, exceeds limit\n", lst_deviation);
     }
-    INFO("lst_deviation = %f\n", lst_deviation);
+    INFO2("lst_deviation = %f\n", lst_deviation);
     }
 
     // this webiste has a radec2azel convert code, which I did not use; 
@@ -1144,7 +1168,7 @@ void util_sky_unit_test(void)
     if (!is_close(el, el_exp, 0.00001, &el_deviation)) {
         FATAL("UNIT_TEST_FAILED: el_deviation = %f, exceeds limit\n", el_deviation);
     }
-    INFO("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
+    INFO2("az_deviation = %f  el_deviation = %f\n", az_deviation, el_deviation);
     }
 
     // print list of solar_sys objects and their ra,dec,mag,az,el
@@ -1165,7 +1189,7 @@ void util_sky_unit_test(void)
     t = timelocal(&tm);
 #endif
     lst = ct2lst(longitude, jdconv2(t));
-    INFO("            NAME         RA        DEC        MAG         AZ         EL\n");
+    INFO2("            NAME         RA        DEC        MAG         AZ         EL\n");
     for (i = 0; i < max_obj; i++) {
         obj_t *x = &obj[i];
 
@@ -1176,7 +1200,7 @@ void util_sky_unit_test(void)
         compute_ss_obj_ra_dec_mag(x, t);
         radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
 
-        INFO("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
+        INFO2("%16s %10.4f %10.4f %10.1f %10.4f %10.4f\n", x->name, x->ra, x->dec, x->mag, az, el);
     } }
 
     // time how long to convert all stellar objects to az/el
@@ -1195,7 +1219,7 @@ void util_sky_unit_test(void)
         radec2azel(&az, &el, x->ra, x->dec, lst, latitude);
     }
     duration_us = microsec_timer() - start_us;
-    INFO("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
+    INFO2("radec2azel perf: %d objects in %ld ms\n", max_obj, duration_us/1000);
     }
 
     // test azel2radec for all objects at the current time; do this by first
@@ -1288,7 +1312,7 @@ void util_sky_unit_test(void)
     latitude = lat_save;
     longitude = long_save;
 
-    INFO("tests passed\n");
+    INFO2("tests passed\n");
 }
 
 bool is_close(double act, double exp, double allowed_deviation, double * deviation)

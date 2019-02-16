@@ -143,7 +143,7 @@ int sky_init(char *incl_obj_str)
 {
     int ret;
 
-    ret = util_sky_init(incl_obj_str, false);
+    ret = util_sky_init(incl_obj_str, false, true);
     if (ret < 0) {
         ERROR("util_sky_init failed\n");
         return ret;
@@ -704,6 +704,7 @@ char * sky_pane_cmd(char * cmd_line)
         // tstep sunset+2.5   next day sunset + 2 1/2 hours
         // tstep sidday       current time + SID_DAY_SECS
         // tstep 23.25        23:15:00 UTC of the next day 
+// XXX use localtime
 
         double hr = 0;
         if (arg1 == NULL) {
