@@ -37,6 +37,16 @@ SOFTWARE.
         exit(1); \
     } while (0)
 
+#undef DEBUG
+#if 0
+    #define DEBUG(fmt, args...) \
+        do { \
+            printf("DEBUG: " fmt, ## args); \
+        } while (0)
+#else
+    #define DEBUG(fmt, args...) 
+#endif
+
 //
 // typedefs
 //
@@ -62,8 +72,9 @@ typedef struct {
 
 void usage(void);
 void get_lat_long_from_env(void);
-void get_next_day(int *m, int *d, int *y);
-void get_start_and_end_times(int m, int d, int y, time_t *ts, time_t *te);
+void get_next_day(int *y, int *m, int *d);
+int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *ts_arg, time_t *te_arg);
+time_t time_from_str(int m, int d, int y, char *str);
 int check_start_and_end_times(char *start_t_str, char *end_t_str);
 
 // -----------------  MAIN - VIEW PLANNER  --------------------------------
@@ -175,18 +186,25 @@ int main(int argc, char ** argv)
 
         // advance to the next day
         if (d > 0) {
-            get_next_day(&month, &day, &year);
+            get_next_day(&year, &month, &day);
         }
 
         // get start and end times;
         // striving for an interval of about 1 hour:
         // - determine the number of intervals that comprise the time range, and
         // - determine the length of the time interval
-        get_start_and_end_times(month, day, year, &t_start, &t_end);
+        if (get_start_and_end_times(year, month, day, start_time, end_time, &t_start, &t_end) != 0) {
+            FATAL("get_start_and_end_times %d/%d/%d  %s  %s\n", month, day, year, start_time, end_time);
+        }
         n_interval = (t_end - t_start) / 3600;
-        t_interval = (t_end - t_start) / n_interval;
+        if (n_interval) {
+            t_interval = (t_end - t_start) / n_interval;
+        } else {
+            t_interval = 0;
+        }
+        DEBUG("n_interval = %d   t_interval = %f   %f hours\n", n_interval, t_interval, t_interval/3600);
 
-        // for this day, get each object's az/el for the times that comprese the time range
+        // for this day, get each object's az/el for the times that comprise the time range
         // - for each time and object determine if it is in range, setting obj[n][i].in_range flag
         // - set one_or_more_obj_in_range flag if any object is in range for any time
         // - set obj_in_range[i] flag if obj 'i' is in range for any time
@@ -337,7 +355,7 @@ void get_lat_long_from_env(void)
     }
 }
 
-void get_next_day(int *m, int *d, int *y)
+void get_next_day(int *y, int *m, int *d)
 {                                   //   Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
     static char days_in_month[13] = { 0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
@@ -356,30 +374,114 @@ void get_next_day(int *m, int *d, int *y)
     }
 }
 
-// XXX work here
-void get_start_and_end_times(int m, int d, int y, time_t *ts, time_t *te)
+// return 0 for success, -1 for error
+int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *ts_arg, time_t *te_arg)
 {
-// XXX time range based on sunset and sunrise
-    struct tm tm;
+    time_t ts, te;
 
-    memset(&tm, 0, sizeof(tm));
-    tm.tm_mon = m - 1;
-    tm.tm_year = y - 1900;
-    tm.tm_mday = d;
-    tm.tm_hour =  18;
-    tm.tm_isdst = -1;
-    *ts = mktime(&tm);
+    // preset invalid return times
+    *ts_arg = -1;
+    *te_arg = -1;
 
-    memset(&tm, 0, sizeof(tm));
-    tm.tm_mon = m - 1;
-    tm.tm_year = y - 1900;
-    tm.tm_mday = d+1;
-    tm.tm_hour =  7;
-    tm.tm_isdst = -1;
-    *te = mktime(&tm);
+    // get start/end times form start/end time strings
+    ts = time_from_str(m,d,y,sts);
+    te = time_from_str(m,d,y,ets);
+    if (ts == -1 || te == -1) {
+        return -1;
+    }
+
+    // if end time is prior to start time then 
+    // it is probably due to needing to advance the end time by one day
+    if (te < ts) {
+        get_next_day(&y, &m, &d);
+        te = time_from_str(m,d,y,ets);
+        if (te == -1) {
+            return -1;
+        }
+    }
+
+    // check for error
+    // note: may be a problem when time 'falls back'
+    if (te >= ts && te < ts+86400) {
+        // okay
+    } else {
+        return -1;
+    }
+
+    // return start and end time values
+    *ts_arg = ts;
+    *te_arg = te;
+    return 0;
 }
 
-int check_start_and_end_times(char *start_t_str, char *end_t_str)
+// returns time on success else -1
+time_t time_from_str(int m, int d, int y, char *str)
 {
-    return 0;
+    struct tm tm;
+    double hour=0, jd, sec;
+    time_t trise, tset, ret_t;
+    int hr, min;
+
+    // if str is a number then it represents hours, in floating point
+    if (sscanf(str, "%lf", &hour) == 1) {
+        if (hour < 0 || hour >= (24 - 1./3600)) {
+            return 0;
+        }
+        hr2hms(hour, &hr, &min, &sec);
+        memset(&tm, 0, sizeof(tm));
+        tm.tm_mon   = m - 1;
+        tm.tm_year  = y - 1900;
+        tm.tm_mday  = d;
+        tm.tm_hour  = hr; 
+        tm.tm_min   = min; 
+        tm.tm_sec   = lrint(sec);
+        tm.tm_isdst = -1;
+        ret_t = mktime(&tm);   // returns -1 on error
+
+    // else check for 'sunrise[+/-hr]
+    } else if (strncasecmp(str, "sunrise", 7) == 0) {
+        if (str[7] == '+' || str[7] == '-') {
+            if (sscanf(str+7, "%lf", &hour) != 1) {
+                return -1;
+            }
+        } else if (str[7] != '\0') {
+            return -1;
+        }
+
+        jd = jdconv(y, m, d, 12.01);
+        sunrise_sunset(jd, &trise, &tset);
+        ret_t = (trise == -1 ? -1 : trise + hour * 3600);
+     
+    // else check for 'sunset[+/-hr]
+    } else if (strncasecmp(str, "sunset", 6) == 0) {
+        if (str[6] == '+' || str[6] == '-') {
+            if (sscanf(str+6, "%lf", &hour) != 1) {
+                return -1;
+            }
+        } else if (str[6] != '\0') {
+            return -1;
+        }
+
+        jd = jdconv(y, m, d, 12.01);
+        sunrise_sunset(jd, &trise, &tset);
+        ret_t = (tset == -1 ? -1 : tset + hour * 3600);
+
+    // else error
+    } else {
+        ret_t = -1;
+    }
+
+    char time_str[100] __attribute__ ((unused));
+    DEBUG("time_from_str: %s  ->  %s\n",
+          str, 
+          ret_t != -1 ? time2str(time_str, ret_t*1000000, false, false, true) : "ERROR");
+
+    return ret_t;
+}
+
+// spot check start/end time strings
+int check_start_and_end_times(char *sts, char *ets)
+{
+    time_t ts, te;    
+    return get_start_and_end_times(2019, 2, 17, sts, ets, &ts, &te);
 }
