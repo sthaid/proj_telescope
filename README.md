@@ -104,6 +104,33 @@ make -f Makefile.ctlr
 If desired, follow the directions in comments near the beginning of ctlr.c
 'to automatically start the ctlr program when the Raspberry Pi boots'.
 
+### View-Planner Program (vp)
+
+This program identifies viewing times. Inputs are:
+* an area of the sky: az range, el range
+* time span: for example 'sunset+1 sunset+6'
+* number of days
+* list of objects: for example 'mercury,venus,mars'
+
+Example:
+
+    $ ./vp 0 360 15 90 sunset sunset+4 7 mercury
+    az_range   = 0 360
+    el_range   = 15 90
+    start_time = sunset
+    end_time   = sunset+4
+    max_day    = 7
+    lat/long   = 42.422986 -71.623798
+    max_obj    = 1 : Mercury 
+    start_date = 2/17/2019  (m/d/y)
+
+                       Mercury 
+    02/22/19 17:26:48   251 15 
+
+                       Mercury 
+    02/23/19 17:28:04   252 16 
+
+
 ### Credits
 
 * Stellar Data: The Astronomy Nexus  http://www.astronexus.com/
