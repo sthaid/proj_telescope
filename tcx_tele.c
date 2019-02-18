@@ -125,7 +125,7 @@ static void comm_send_msg(msg_t * msg);
 
 static void * tele_ctrl_thread(void * cx);
 static void tele_ctrl_process_cmd(int event_id);
-static void tele_ctrl_get_status(char *str1, char *str2, char *str3);
+static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4);
 static bool tele_ctrl_is_azel_valid(double az, double el);
 
 // 
@@ -573,9 +573,16 @@ static void tele_ctrl_process_cmd(int event_id)
     pthread_mutex_unlock(&mutex);
 }
 
-static void tele_ctrl_get_status(char *str1, char *str2, char *str3)
+static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
 {
     double tgt_az2, act_az2;
+    bool acquired = false;
+
+    // preset returns to empty strings
+    str1[0] = '\0';
+    str2[0] = '\0';
+    str3[0] = '\0';
+    str4[0] = '\0';
 
     // lock mutex
     pthread_mutex_lock(&mutex);
@@ -590,38 +597,40 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3)
     //   MOTORS_CLOSED
     //   MOTORS_ERROR
     //   UNCALIBRATED
-    //   TGT az el DISABLED|INVALID|ACQUIRING|ACHIEVED
+    //   BAD_AZEL
+    //   DISABLED
+    //   ACQUIRING
+    //   ACQUIRED
     if (!connected) {
-        strcpy(str1, "DISCONNECTED");
+        sprintf(str1, "DISCON %s", ctlr_ip);
     } else if (motors == MOTORS_CLOSED) {
-        strcpy(str1, "MOTORS_CLOSED");
+        sprintf(str1, "MTRS_CLOSED");
     } else if (motors == MOTORS_ERROR) {
-        strcpy(str1, "MOTORS_ERROR");
+        sprintf(str1, "MTRS_ERROR");
     } else if (!calibrated) {
-        strcpy(str1, "UNCALIBRATED");
+        sprintf(str1, "UN_CAL");
     } else if (!tgt_azel_valid) {
-        sprintf(str1, "TGT %6.2f %6.2f BAD_AZEL", tgt_az2, tgt_el);
+        sprintf(str1, "BAD_TGT_AZEL");
     } else if (!tracking_enabled) {
-        sprintf(str1, "TGT %6.2f %6.2f DISABLED", tgt_az2, tgt_el);
-    } else if (fabs(act_az2-tgt_az2) > .015 || fabs(act_el-tgt_el) > .015) {
-        sprintf(str1, "TGT %6.2f %6.2f ACQUIRING", tgt_az2, tgt_el);
+        sprintf(str1, "DISABLED");
     } else {
-        sprintf(str1, "TGT %6.2f %6.2f ACQUIRED", tgt_az2, tgt_el);
+        double az_delta = fabs(act_az2-tgt_az2);
+        double el_delta = fabs(act_el-tgt_el);
+        if (az_delta > 180) {
+            az_delta = fabs(360-az_delta);
+        }
+        acquired = (az_delta <= 0.02 && el_delta <= 0.02);
+        if (!acquired) {
+            sprintf(str1, "ACQUIRING");
+        } else {
+            sprintf(str1, "ACQUIRED");
+        }
     }
 
     // STATUS LINE 2 - upper left
-    //    ip_address      (when not connected)
-    //    ACT az el       (when calibrated)
-    //    MOTOR xxx xxx   (when not calibrated)
-    if (!connected) {
-        sprintf(str2, "IPADDR %s", ctlr_ip);
-    } else if (act_azel_available) {
-        if (act_azel_valid) {
-            sprintf(str2, "ACT %6.2f %6.2f", act_az2, act_el);
-        } else {
-            sprintf(str2, "ACT %6.2f %6.2f BAD_AZEL", act_az2, act_el);
-        }
-    } else {
+    //    MOTOR xxx xxx   (when not calibrated and connected and motors are not closed
+    //    TGT az el       (when calibrated)
+    if (!calibrated && connected && motors != MOTORS_CLOSED) {
         char motor0_pos_str[32];
         char motor1_pos_str[32];
         if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[0].opened) {
@@ -635,10 +644,22 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3)
             strcpy(motor1_pos_str, "-");
         }
         sprintf(str2, "MOTOR %s %s", motor0_pos_str, motor1_pos_str);
+    } else if (calibrated) {
+        sprintf(str2, "TGT %6.2f %6.2f", tgt_az2, tgt_el);
     }
 
-    // STATUS LINE 3 - lower left
-    sprintf(str3, "ADJ %.2f %.2f", MSTEP_TO_AZDEG(adj_az_mstep), MSTEP_TO_ELDEG(adj_el_mstep));
+    // STATUS LINE 3 - upper left
+    //    ACT az el       (when act_azel_available and (not-valid or not-acquired)
+    if (act_azel_available && (!act_azel_valid || !acquired)) {
+        if (act_azel_valid) {
+            sprintf(str3, "ACT %6.2f %6.2f", act_az2, act_el);
+        } else {
+            sprintf(str3, "ACT %6.2f %6.2f BAD_AZEL", act_az2, act_el);
+        }
+    }
+
+    // STATUS LINE 4 - lower left
+    sprintf(str4, "ADJ %.2f %.2f", MSTEP_TO_AZDEG(adj_az_mstep), MSTEP_TO_ELDEG(adj_el_mstep));
 
     // unlock mutex
     pthread_mutex_unlock(&mutex);
@@ -703,15 +724,17 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         int fontsz, sdlpr_row, sdlpr_col;
-        char str1[100], str2[100], str3[100];
+        char str1[100], str2[100], str3[100], str4[100];
 
         fontsz = 20;  // tele pane
 
         // display status lines
-        tele_ctrl_get_status(str1, str2, str3);
+        tele_ctrl_get_status(str1, str2, str3, str4);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
-        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str3);
+        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(2,fontsz), fontsz, WHITE, BLACK, "%s", str3);
+
+        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str4);
 
         // display either:
         // - camera image
@@ -758,26 +781,10 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // register control events 
         // - row 0
-        // XXX AAA need to shorten these to make room for tgt state, such as ACQUIRING, or
-        //     put ACQUIRING on seperate line, AND don't display ACTUAL after acquired
-        //          ACQUIRED              MTR_CLS
-        //          TGT xxx.xx  xx.xx     UN_CAL
-        //                                TRK_DIS
-        //                                  ...
-        //                                DSP_SEL
-        //                 MTR_CLS
-        //                 MTR_OPN
-        //                 CAL
-        //                 UN_CAL
-        //                 TRK_EN
-        //                 TRK_DIS
-        //                 SH_CTLR
-        //                 DSP_SEL
-
         if (connected) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(12,fontsz), ROW2Y(0,fontsz), fontsz, 
-                motors != MOTORS_CLOSED ? "MOTORS_CLOSE" : "MOTORS_OPEN",
+                pane, pane->w-COL2X(7,fontsz), ROW2Y(0,fontsz), fontsz, 
+                motors != MOTORS_CLOSED ? "MTR_CLS" : "MTR_OPN",
                 LIGHT_BLUE, BLACK, 
                 motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
@@ -785,8 +792,8 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // - row 1
         if (motors == MOTORS_OPEN) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(12,fontsz), ROW2Y(1,fontsz), fontsz, 
-                calibrated ? "UN_CALIBRATE" : "CALIBRATE",
+                pane, pane->w-COL2X(7,fontsz), ROW2Y(1,fontsz), fontsz, 
+                calibrated ? "UN_CAL" : "CAL",
                 LIGHT_BLUE, BLACK, 
                 calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
@@ -794,23 +801,23 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // - row 2
         if (calibrated && tgt_azel_valid) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
-                tracking_enabled ? "TRK_DISABLE" : "TRK_ENABLE",
+                pane, pane->w-COL2X(7,fontsz), ROW2Y(2,fontsz), fontsz, 
+                tracking_enabled ? "TRK_DIS" : "TRK_EN",
                 LIGHT_BLUE, BLACK, 
                 tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         } else if (motors == MOTORS_CLOSED) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(12,fontsz), ROW2Y(2,fontsz), fontsz, 
-                "SHUTDN_CTLR",
+                pane, pane->w-COL2X(7,fontsz), ROW2Y(2,fontsz), fontsz, 
+                "SH_CTLR",
                 LIGHT_BLUE, BLACK, 
                 SDL_EVENT_SHUTDN_CTLR,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
         // - row last
         sdl_render_text_and_register_event(
-            pane, pane->w-COL2X(11,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
-            "DISP_SELECT",
+            pane, pane->w-COL2X(7,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
+            "DSP_SEL",
             LIGHT_BLUE, BLACK, 
             SDL_EVENT_DISPLAY_CHOICE,
             SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
