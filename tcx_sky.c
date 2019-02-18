@@ -71,8 +71,7 @@ SOFTWARE.
 
 #define SID_DAY_SECS  (23*3600 + 56*60 + 4)
 
-#define DELTA_T 180  // XXX AAA make this adjustable
-//#define DELTA_T 3600
+#define DEFAULT_SKY_TIME_STEP_MODE_DELTA_T 0.1  // hours
 
 #define TRACKING_OFF   -1
 #define TRACKING_RADEC -2
@@ -366,12 +365,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         sky_time_get_mode(&mode);
         sky_time_get_step_mode(&step_mode, &step_mode_hr_param);
         if (mode != SKY_TIME_MODE_CURRENT) {
-            sprintf(time_mode_str, "%s:%s", 
-                    SKY_TIME_STEP_MODE_STR(step_mode), 
-                    SKY_TIME_MODE_STR(mode));
-            if (mode == SKY_TIME_STEP_MODE_TIMEOFDAY) {
-                sprintf(time_mode_str+strlen(time_mode_str), "%0.2f", step_mode_hr_param);
+            sprintf(time_mode_str, "%s", SKY_TIME_STEP_MODE_STR(step_mode));
+            if (step_mode == SKY_TIME_STEP_MODE_TIMEOFDAY ||
+                step_mode == SKY_TIME_STEP_MODE_DELTA_T) 
+            {
+                sprintf(time_mode_str+strlen(time_mode_str), ":%g", step_mode_hr_param);
             }
+            sprintf(time_mode_str+strlen(time_mode_str), ":%s", SKY_TIME_MODE_STR(mode));
         } else {
             time_mode_str[0] = '\0';
         }
@@ -697,9 +697,10 @@ char * sky_pane_cmd(char * cmd_line)
         // is enabled. SKY_TIME_MODE_xxx is controlled using the key cmds 1,2,3,4,5,6
         // in the sky pane.
         // 
-        // EXAMPLES          TIME OF NEXT DISPLAY UPDATE IN SKY_TIME_MODE_FWD
+        // EXAMPLES           TIME OF NEXT DISPLAY UPDATE IN SKY_TIME_MODE_FWD
         // --------           ------------------------------------------------
-        // tstep delta_t      current time + 180 secs
+        // tstep delta_t      current time + .1 hours  (the default)
+        // tstep delta_t=1    current time + 1 hours
         // tstep sunset       next day sunset
         // tstep sunset+2.5   next day sunset + 2 1/2 hours
         // tstep sidday       current time + SID_DAY_SECS
@@ -707,11 +708,19 @@ char * sky_pane_cmd(char * cmd_line)
 
         double hr = 0;
         if (arg1 == NULL) {
-            return "error: expected <delta_t|sidday|sunset[+/-hr]|sunrise[+/-hr]|hr>";
+            return "error: expected <delta_t[=hr]|sidday|sunset[+/-hr]|sunrise[+/-hr]|hr>";
         }
 
-        if (strcasecmp(arg1, "delta_t") == 0) {
-            sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, 0);
+        if (strncasecmp(arg1, "delta_t", 7) == 0) {
+            hr = DEFAULT_SKY_TIME_STEP_MODE_DELTA_T;
+            if (arg1[7] == '=') {
+                if (sscanf(arg1+8, "%lf", &hr) != 1) {
+                    return "error: invalid delta_t hr";
+                }
+            } else if (arg1[7] != '\0') {
+                return "error: invalid delta_t hr";
+            }
+            sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, hr);
             return "okay";
         } else if (strcasecmp(arg1, "sidday") == 0) {
             sky_time_set_step_mode(SKY_TIME_STEP_MODE_SIDDAY, 0);
@@ -1110,7 +1119,7 @@ time_t __sky_time                    = 0;
 long   __sky_time_new_mode_req       = SKY_TIME_MODE_NONE;
 long   __sky_time_mode               = SKY_TIME_MODE_CURRENT;
 int    __sky_time_step_mode          = SKY_TIME_STEP_MODE_DELTA_T;
-double __sky_time_step_mode_hr_param = 0;
+double __sky_time_step_mode_hr_param = DEFAULT_SKY_TIME_STEP_MODE_DELTA_T;
 
 void sky_time_set_mode(int mode)
 {
@@ -1171,7 +1180,7 @@ time_t sky_time_get_time(void)
     case SKY_TIME_MODE_FWD_STEP:
         switch (__sky_time_step_mode) {
         case SKY_TIME_STEP_MODE_DELTA_T:
-            __sky_time = __sky_time + DELTA_T;
+            __sky_time = __sky_time + __sky_time_step_mode_hr_param * 3600;
             jdss = 0;
             break;
         case SKY_TIME_STEP_MODE_SUNRISE:
@@ -1203,7 +1212,7 @@ time_t sky_time_get_time(void)
     case SKY_TIME_MODE_REV_STEP:
         switch (__sky_time_step_mode) {
         case SKY_TIME_STEP_MODE_DELTA_T:
-            __sky_time = __sky_time - DELTA_T;
+            __sky_time = __sky_time - __sky_time_step_mode_hr_param * 3600;
             jdss = 0;
             break;
         case SKY_TIME_STEP_MODE_SUNRISE:
@@ -1311,7 +1320,7 @@ void reset(bool all_sky)
     ident = IDENT_OFF;
     sky_view_scale_tbl_idx = 0;
     sky_time_set_mode(SKY_TIME_MODE_CURRENT);
-    sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T,0);
+    sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, DEFAULT_SKY_TIME_STEP_MODE_DELTA_T);
 }
 
 void get_next_day(int * year, int * month, int * day)
