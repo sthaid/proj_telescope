@@ -71,7 +71,7 @@ SOFTWARE.
 
 #define SID_DAY_SECS  (23*3600 + 56*60 + 4)
 
-#define DELTA_T 180  // XXX make this adjustable
+#define DELTA_T 180  // XXX AAA make this adjustable
 //#define DELTA_T 3600
 
 #define TRACKING_OFF   -1
@@ -703,8 +703,7 @@ char * sky_pane_cmd(char * cmd_line)
         // tstep sunset       next day sunset
         // tstep sunset+2.5   next day sunset + 2 1/2 hours
         // tstep sidday       current time + SID_DAY_SECS
-        // tstep 23.25        23:15:00 UTC of the next day 
-// XXX use localtime
+        // tstep 23.25        23:15:00 Localtime of the next day 
 
         double hr = 0;
         if (arg1 == NULL) {
@@ -1262,8 +1261,9 @@ time_t sky_time_tod_next(time_t t, double hr)
     tm1.tm_hour  = hour;
     tm1.tm_min   = minute;
     tm1.tm_sec   = second;
+    tm1.tm_isdst = -1;
 
-    return timegm(&tm1);
+    return mktime(&tm1);
 }
 
 time_t sky_time_tod_prior(time_t t, double hr) 
@@ -1288,8 +1288,9 @@ time_t sky_time_tod_prior(time_t t, double hr)
     tm1.tm_hour  = hour;
     tm1.tm_min   = minute;
     tm1.tm_sec   = second;
+    tm1.tm_isdst = -1;
 
-    return timegm(&tm1);
+    return mktime(&tm1);
 }
 
 // -----------------  GENERAL UTIL  ---------------------------------------
