@@ -1,3 +1,70 @@
+--- TODO ---
+
+software
+- xxx issues in software
+- improve telescope positioning limits s/w
+
+make list of hardware to buy at lowes
+- longer screw for balancing, so nut can be used to hold it in place, instead 
+  the large knob, and put this in a smaller piece of wood
+- hardware to hold the scope in place when moving
+  - use eye hooks and a dowel
+  - check what I have
+- do I have wood for a ramp already?
+
+disassemble in preparation for wheels
+
+lighten up balancing board, so more weight can be used to do the balncing
+
+confirm bearing by using angle of sunrise, cast a shadow on graph paper, and
+  draw compass on graph paper; need a veritical to cast the shadow, 
+
+-------------
+
+how to move telescope
+- wheels
+  - retractale levelling casters
+  - ordered
+- lock the telescope in place
+
+buy new lens
+- ordered 23 mm   
+- mag shold be 1140 / 23 = 50x
+- mag to see Saturn x50
+
+install new lens, I hope it works without needing to modify the lens position
+
+install siter scope, LATER after lense and other work on platform
+
+telescope orientation practice, in living room
+- re-level
+- orient telescope leg 1 to TRUE north     MB=14
+- image on neighbors barn, and calibrate
+
+recalc the azimuth of deck view and run vp again
+
+how well is the telescope balanced with the new lenses;
+ perhaps can temporarily add weight to front, or remove from rear
+
+if wheels are used will need a ramp
+
+
+==================================
+MAGNETIC DEBIATION
+==================================
+
+http://www.magnetic-declination.com/USA/Boston/2816856.html
+
+Bolton Mass:  MD = -14 deg 22 min  = -14.36
+
+TB = MB + MD     TrueBearing = MagneticBearing + MagneticDeviation
+
+MB = TB - MD     MagneticBearing = TrueBearing - MagneticDeviation
+
+In Bolton
+    MagneticBearing = TrueBearing - MagneticDeviation
+              14    =     0       -      (-14)
+
 ==================================
 MOTOR DRIVE RATE
 ==================================

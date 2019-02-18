@@ -51,7 +51,4 @@ char * gmtime_str(time_t t, char *str);
 char *localtime_str(time_t t, char *str);
 char * hr_str(double hr, char *str);
 
-// unit test
-void util_sky_unit_test(void);
-
 #endif

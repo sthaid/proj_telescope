@@ -86,7 +86,6 @@ typedef struct {
     } info[0];
 } solar_sys_obj_info_t;
 
-// XXX rename
 typedef struct {
     char name[MAX_OBJ_NAME];
     int type;
@@ -103,30 +102,30 @@ typedef struct {
 // variables
 //
 
-// XXX static FIX in all files, and for procedures too
 static obj_t obj[MAX_OBJ];
 
-char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+static char *month_tbl[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
-bool  incl_filtering_enabled;
-char *incl_obj[1000];
-bool  incl_all_stars;
-bool  incl_all_named_stars;
-bool  incl_all_planets;
-bool  incl_all_placemarks;
+static bool  incl_filtering_enabled;
+static char *incl_obj[1000];
+static bool  incl_all_stars;
+static bool  incl_all_named_stars;
+static bool  incl_all_planets;
+static bool  incl_all_placemarks;
 
-bool enable_info_prints;
+static bool enable_info_prints;
 
 //
 // prototypes
 //
 
-int read_stellar_data(char * filename);
-int read_solar_sys_data(char * filename);
-int read_place_marks(char * filename);
-int obj_sanity_checks(void);
-int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
-bool is_close(double act, double exp, double allowed_deviation, double * deviation);
+static int read_stellar_data(char * filename);
+static int read_solar_sys_data(char * filename);
+static int read_place_marks(char * filename);
+static int obj_sanity_checks(void);
+static int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
+static void util_sky_unit_test(void);
+static bool is_close(double act, double exp, double allowed_deviation, double * deviation);
 
 // -----------------  UTIL SKY INIT  --------------------------------------
 
@@ -214,7 +213,7 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_print
     return 0;
 }
 
-int read_stellar_data(char * filename)
+static int read_stellar_data(char * filename)
 {
     // csv file format:
     //   id,hip,hd,hr,gl,bf,proper,ra,dec,dist,pmra,pmdec,rv,mag,
@@ -356,7 +355,7 @@ int read_stellar_data(char * filename)
     return 0;
 }
 
-int read_solar_sys_data(char *filename)
+static int read_solar_sys_data(char *filename)
 {
     // format, example:
     //   # Venus
@@ -530,7 +529,7 @@ int read_solar_sys_data(char *filename)
     return 0;
 }
 
-int read_place_marks(char *filename)
+static int read_place_marks(char *filename)
 {
     FILE * fp;
     int line=0, num_added=0, cnt, i;
@@ -602,7 +601,7 @@ int read_place_marks(char *filename)
     return 0;
 }
 
-int obj_sanity_checks(void)
+static int obj_sanity_checks(void)
 {
     int i;
 
@@ -650,7 +649,7 @@ int get_obj(int i, time_t t, double lst, char **name, int *type, double *ra, dou
     // if processing solar-sys object then compute its current ra, dec, and mag
     if (x->type == OBJTYPE_SOLAR) {
         if (compute_ss_obj_ra_dec_mag(x, t) != 0) {
-            // XXX limit number of prints, or don't print more than once per 10 secs
+            // XXX AAA limit number of prints, or don't print more than once per 10 secs
             ERROR("time XXX out of range for solar-sys-obj %s\n", x->name);
             return -1;   // ERROR_INTERVAL ?
         }
@@ -953,7 +952,7 @@ void sunrise_sunset(double jd, time_t *trise, time_t *tset)
 
 // -----------------  MISC  -----------------------------------------------
 
-int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
+static int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t)
 {
     solar_sys_obj_info_t *ssinfo = x->ssinfo;
     struct info_s *info     = ssinfo->info;
@@ -1082,7 +1081,7 @@ char * hr_str(double hr, char *str)
 
 // -----------------  TEST ALGORITHMS  ------------------------------------
 
-void util_sky_unit_test(void) 
+static void util_sky_unit_test(void) 
 {
     double lat_save, long_save;
 
@@ -1315,7 +1314,7 @@ void util_sky_unit_test(void)
     INFO2("tests passed\n");
 }
 
-bool is_close(double act, double exp, double allowed_deviation, double * deviation)
+static bool is_close(double act, double exp, double allowed_deviation, double * deviation)
 {
     bool is_close;
 

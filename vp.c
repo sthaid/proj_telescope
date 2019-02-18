@@ -20,6 +20,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+//
+// usage: vp min_az max_az min_el max_el start_time end_time max_day obj_name,...
+// 
+// examples of 'start_time end_time'
+//   18 23              : 18:00 to 23:00
+//   18 2               : 18:00 to 02:00 
+//   sunset sunrise     : sunset to sunrise
+//   sunset+1  sunset+5 : one hour after sunset to 5 hours after sunset
+//   sunrise-4 sunrise  : four hours before sunrise to sunrise
+// 
+// example of cmdline:
+//   vp 135 225 20 90 sunset sunset+5 365 saturn,jupiter
+// will provide dates and times to view saturn and jupiter at
+// azimuth 135 to 225 (clockwise), elevation 20 to 90 amd from 
+// sunset to 5 hours after sunset; over the next 365 days
+//
+
 #include "common.h"
 #include "util_sky.h"
 
@@ -70,12 +87,12 @@ typedef struct {
 // prototypes
 //
 
-void usage(void);
-void get_lat_long_from_env(void);
-void get_next_day(int *y, int *m, int *d);
-int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *ts_arg, time_t *te_arg);
-time_t time_from_str(int m, int d, int y, char *str);
-int check_start_and_end_times(char *start_t_str, char *end_t_str);
+static void usage(void);
+static void get_lat_long_from_env(void);
+static void get_next_day(int *y, int *m, int *d);
+static int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *ts_arg, time_t *te_arg);
+static time_t time_from_str(int m, int d, int y, char *str);
+static int check_start_and_end_times(char *start_t_str, char *end_t_str);
 
 // -----------------  MAIN - VIEW PLANNER  --------------------------------
 
@@ -316,7 +333,7 @@ int main(int argc, char ** argv)
 
 // -----------------  SUPPORT ROUTINES  -----------------------------------
 
-void usage(void)
+static void usage(void)
 {
     printf("\
 \n\
@@ -338,7 +355,7 @@ sunset to 5 hours after sunset; over the next 365 days\n\
 ");
 }
 
-void get_lat_long_from_env(void)
+static void get_lat_long_from_env(void)
 {
     char *lat_str, *long_str;
 
@@ -355,7 +372,7 @@ void get_lat_long_from_env(void)
     }
 }
 
-void get_next_day(int *y, int *m, int *d)
+static void get_next_day(int *y, int *m, int *d)
 {                                   //   Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
     static char days_in_month[13] = { 0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
@@ -375,7 +392,7 @@ void get_next_day(int *y, int *m, int *d)
 }
 
 // return 0 for success, -1 for error
-int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *ts_arg, time_t *te_arg)
+static int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *ts_arg, time_t *te_arg)
 {
     time_t ts, te;
 
@@ -415,7 +432,7 @@ int get_start_and_end_times(int y, int m, int d, char *sts, char *ets, time_t *t
 }
 
 // returns time on success else -1
-time_t time_from_str(int m, int d, int y, char *str)
+static time_t time_from_str(int m, int d, int y, char *str)
 {
     struct tm tm;
     double hour=0, jd, sec;
@@ -480,7 +497,7 @@ time_t time_from_str(int m, int d, int y, char *str)
 }
 
 // spot check start/end time strings
-int check_start_and_end_times(char *sts, char *ets)
+static int check_start_and_end_times(char *sts, char *ets)
 {
     time_t ts, te;    
     return get_start_and_end_times(2019, 2, 17, sts, ets, &ts, &te);

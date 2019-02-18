@@ -99,42 +99,42 @@ typedef struct {
 // variables
 //
 
-obj_t *obj          = NULL;
-time_t sky_time     = 0;
-double lst          = 0;
-double az_ctr       = 0;   // range -180 to +180
-double az_span      = 360;
-double el_ctr       = 45;
-double el_span      = 90;  
-double mag          = DEFAULT_MAG;
-int    tracking     = TRACKING_OFF;
-double tracking_ra  = 0;
-double tracking_dec = 0;
-int    ident        = IDENT_OFF;
+static obj_t *obj          = NULL;
+static time_t sky_time     = 0;
+static double lst          = 0;
+static double az_ctr       = 0;   // range -180 to +180
+static double az_span      = 360;
+static double el_ctr       = 45;
+static double el_span      = 90;  
+static double mag          = DEFAULT_MAG;
+static int    tracking     = TRACKING_OFF;
+static double tracking_ra  = 0;
+static double tracking_dec = 0;
+static int    ident        = IDENT_OFF;
 
 //
 // prototypes
 //
 
 // pane support 
-char *trk_str(void);
-char *ident_str(void);
-char *sky_pane_cmd(char * cmd_line);
-int azel2xy(double az, double el, double max, double *xret, double *yret);
+static char *trk_str(void);
+static char *ident_str(void);
+static char *sky_pane_cmd(char * cmd_line);
+static int azel2xy(double az, double el, double max, double *xret, double *yret);
 
 // sky time utils
-void sky_time_set_mode(int mode);
-void sky_time_get_mode(int * mode);
-void sky_time_set_step_mode(int step_mode, double step_mode_hr_param);
-void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param);
-time_t sky_time_get_time(void);
-time_t sky_time_tod_next(time_t t, double hr);
-time_t sky_time_tod_prior(time_t t, double hr);
+static void sky_time_set_mode(int mode);
+static void sky_time_get_mode(int * mode);
+static void sky_time_set_step_mode(int step_mode, double step_mode_hr_param);
+static void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param);
+static time_t sky_time_get_time(void);
+static time_t sky_time_tod_next(time_t t, double hr);
+static time_t sky_time_tod_prior(time_t t, double hr);
 
 // general utils
-void reset(bool all_sky);
-void get_next_day(int * year, int * month, int * day);
-void get_prior_day(int * year, int * month, int * day);
+static void reset(bool all_sky);
+static void get_next_day(int * year, int * month, int * day);
+static void get_prior_day(int * year, int * month, int * day);
 
 // -----------------  SKY INIT  -------------------------------------------
 
@@ -609,7 +609,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
-char * sky_pane_cmd(char * cmd_line)
+static char * sky_pane_cmd(char * cmd_line)
 {
     int i;
     char *cmd, *arg1;
@@ -766,7 +766,7 @@ char * sky_pane_cmd(char * cmd_line)
     return "error: invalid command";
 }
 
-char * trk_str(void)
+static char * trk_str(void)
 {
     static char str[200];
 
@@ -807,7 +807,7 @@ char * trk_str(void)
     return str;
 }
 
-char * ident_str(void)
+static char * ident_str(void)
 {
     static char str[200];
 
@@ -852,8 +852,8 @@ void sky_get_tgt_azel(double * tgt_az, double * tgt_el)
 
 // -----------------  SKY VIEW PANE HANDLER  ------------------------------
 
-int    sky_view_scale_tbl_idx = 0;
-double sky_view_scale_tbl[]   = {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.5};
+static int    sky_view_scale_tbl_idx = 0;
+static double sky_view_scale_tbl[]   = {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.5};
 
 int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
@@ -1069,7 +1069,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
 // This routine returns 
 //   0 on success, or 
 //  -1 if the az/el deviation from az_ctr/el_ctr by more than max
-int azel2xy(double az, double el, double max, double *xret, double *yret)
+static int azel2xy(double az, double el, double max, double *xret, double *yret)
 {
     double x,y,z;
     double incl, az_adj;
@@ -1115,35 +1115,35 @@ int azel2xy(double az, double el, double max, double *xret, double *yret)
 
 // -----------------  SKY TIME UTILS  -------------------------------------
 
-time_t __sky_time                    = 0;
-long   __sky_time_new_mode_req       = SKY_TIME_MODE_NONE;
-long   __sky_time_mode               = SKY_TIME_MODE_CURRENT;
-int    __sky_time_step_mode          = SKY_TIME_STEP_MODE_DELTA_T;
-double __sky_time_step_mode_hr_param = DEFAULT_SKY_TIME_STEP_MODE_DELTA_T;
+static time_t __sky_time                    = 0;
+static long   __sky_time_new_mode_req       = SKY_TIME_MODE_NONE;
+static long   __sky_time_mode               = SKY_TIME_MODE_CURRENT;
+static int    __sky_time_step_mode          = SKY_TIME_STEP_MODE_DELTA_T;
+static double __sky_time_step_mode_hr_param = DEFAULT_SKY_TIME_STEP_MODE_DELTA_T;
 
-void sky_time_set_mode(int mode)
+static void sky_time_set_mode(int mode)
 {
     __sky_time_new_mode_req = mode;
 }
 
-void sky_time_get_mode(int * mode)
+static void sky_time_get_mode(int * mode)
 {
     *mode = __sky_time_mode;
 }
 
-void sky_time_set_step_mode(int step_mode, double step_mode_hr_param)
+static void sky_time_set_step_mode(int step_mode, double step_mode_hr_param)
 {
     __sky_time_step_mode = step_mode;
     __sky_time_step_mode_hr_param = step_mode_hr_param;
 }
 
-void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param)
+static void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param)
 {
     *step_mode = __sky_time_step_mode;
     *step_mode_hr_param = __sky_time_step_mode_hr_param;
 }
 
-time_t sky_time_get_time(void) 
+static time_t sky_time_get_time(void) 
 {
     time_t trise, tset;
     unsigned long time_now;
@@ -1248,7 +1248,7 @@ time_t sky_time_get_time(void)
     return __sky_time;
 } 
 
-time_t sky_time_tod_next(time_t t, double hr) 
+static time_t sky_time_tod_next(time_t t, double hr) 
 {
     int year, month, day, hour, minute;
     double second;
@@ -1275,7 +1275,7 @@ time_t sky_time_tod_next(time_t t, double hr)
     return mktime(&tm1);
 }
 
-time_t sky_time_tod_prior(time_t t, double hr) 
+static time_t sky_time_tod_prior(time_t t, double hr) 
 {
     int year, month, day, hour, minute;
     double second;
@@ -1304,7 +1304,7 @@ time_t sky_time_tod_prior(time_t t, double hr)
 
 // -----------------  GENERAL UTIL  ---------------------------------------
 
-void reset(bool all_sky) 
+static void reset(bool all_sky) 
 {
     az_ctr  = 0;
     az_span = 360;
@@ -1323,7 +1323,7 @@ void reset(bool all_sky)
     sky_time_set_step_mode(SKY_TIME_STEP_MODE_DELTA_T, DEFAULT_SKY_TIME_STEP_MODE_DELTA_T);
 }
 
-void get_next_day(int * year, int * month, int * day)
+static void get_next_day(int * year, int * month, int * day)
 {
                                     // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
     static char days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
@@ -1343,7 +1343,7 @@ void get_next_day(int * year, int * month, int * day)
     }
 }
 
-void get_prior_day(int * year, int * month, int * day)
+static void get_prior_day(int * year, int * month, int * day)
 {
                                     // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
     static char days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };

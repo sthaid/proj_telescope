@@ -41,7 +41,7 @@ SOFTWARE.
 // prototypes
 //
 
-void display_handler(void);
+static void display_handler(void);
 
 // -----------------  MAIN  -----------------------------------------------
 
@@ -155,7 +155,7 @@ int main(int argc, char ** argv)
     return 0;
 }
 
-void display_handler(void)
+static void display_handler(void)
 {
     int win_width  = DEFAULT_WIN_WIDTH;
     int win_height = DEFAULT_WIN_HEIGHT;

@@ -56,23 +56,25 @@ fi
 //
 
 // message routines
-int comm_init(void);
-void comm_send_msg(msg_t * msg);
+static int comm_init(void);
+static void comm_send_msg(msg_t * msg);
 
 // motor routines
-int motor_init(void);
-void motor_exit(void);
-int motor_open_all(void);
-void motor_close_all(void);
-int motor_open(int h);
-void motor_close(int h);
-int motor_set_pos(int h, int mstep);  
-int motor_adv_pos(int h, int mstep, int max_mstep);   
-int motor_request_stop(int h);
-int motor_wait_for_stopped(int h);
-int motor_request_all_stop(void); 
-int motor_wait_for_all_stopped(void); 
-void motor_unit_test(void);
+static int motor_init(void);
+static void motor_exit(void);
+static int motor_open_all(void);
+static void motor_close_all(void);
+static int motor_open(int h);
+static void motor_close(int h);
+static int motor_set_pos(int h, int mstep);  
+static int motor_adv_pos(int h, int mstep, int max_mstep);   
+static int motor_request_stop(int h);
+static int motor_wait_for_stopped(int h);
+static int motor_request_all_stop(void); 
+static int motor_wait_for_all_stopped(void); 
+#ifdef UNIT_TEST
+static void motor_unit_test(void);
+#endif
 
 // -----------------  MAIN  -----------------------------------------------
 
@@ -111,22 +113,22 @@ int main(int argc, char **argv)
 // variables
 //
 
-int sfd = -1;
-bool connected;
+static int sfd = -1;
+static bool connected;
 
 //
 // prototypes
 //
 
-void * comm_thread(void * cx);
-void * comm_heartbeat_thread(void * cx);
-int comm_process_recvd_msg(msg_t * msg);
+static void * comm_thread(void * cx);
+static void * comm_heartbeat_thread(void * cx);
+static int comm_process_recvd_msg(msg_t * msg);
 
 //
 // code
 //
 
-int comm_init(void)
+static int comm_init(void)
 {
     pthread_t thread_id;
 
@@ -136,7 +138,7 @@ int comm_init(void)
     return 0;
 }
 
-void * comm_thread(void * cx)
+static void * comm_thread(void * cx)
 {
     int listen_sfd, len, sfd_temp, rc;
     struct sockaddr_in addr;
@@ -242,7 +244,7 @@ lost_connection:
     goto reconnect;
 }
 
-int comm_process_recvd_msg(msg_t * msg)
+static int comm_process_recvd_msg(msg_t * msg)
 {
     #define CHECK_DATALEN(explen) \
         do { \
@@ -298,7 +300,7 @@ int comm_process_recvd_msg(msg_t * msg)
     return 0;
 }
 
-void comm_send_msg(msg_t * msg)
+static void comm_send_msg(msg_t * msg)
 {
     int len;
 
@@ -314,7 +316,7 @@ void comm_send_msg(msg_t * msg)
     }
 }
 
-void * comm_heartbeat_thread(void * cx)
+static void * comm_heartbeat_thread(void * cx)
 {
     msg_t msg;
 
@@ -327,6 +329,8 @@ void * comm_heartbeat_thread(void * cx)
         }
         usleep(200000);
     }
+
+    return NULL;
 }
 
 // -----------------  MOTOR  ----------------------------------------------
@@ -364,40 +368,39 @@ void * comm_heartbeat_thread(void * cx)
 // variables
 //
 
-struct motor_s {
+static struct motor_s {
     char serial_number[50];
     tic_handle *tic_handle;
 } motor[MAX_MOTOR];
 
-pthread_mutex_t motor_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t motor_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-tic_device ** motor_devices;
-size_t max_motor_devices;
+static tic_device ** motor_devices;
+static size_t max_motor_devices;
 
-bool motor_initialized;
-bool motor_keepalive_thread_running;
-bool motor_getstatus_thread_running;
+static bool motor_initialized;
+static bool motor_keepalive_thread_running;
+static bool motor_getstatus_thread_running;
 
 #ifdef UNIT_TEST
-FILE *fp_unit_test[MAX_MOTOR];
+static FILE *fp_unit_test[MAX_MOTOR];
 #endif
 
 //
 // prototypes
 //
 
-void * motor_get_status_thread(void * cx);
-void * motor_getstatus_thread(void * cx);
-void * motor_keepalive_thread(void * cx);
-int motor_check_settings(int h, bool verbose);
-void motor_inspect_variables(int h, bool verbose);
-char * motor_operation_state_str(int op_state);
-char * motor_error_status_str(int err_stat);
+static void * motor_getstatus_thread(void * cx);
+static void * motor_keepalive_thread(void * cx);
+static int motor_check_settings(int h, bool verbose);
+static void motor_inspect_variables(int h, bool verbose);
+static char * motor_operation_state_str(int op_state);
+static char * motor_error_status_str(int err_stat);
 
 // ---- init & exit ----
 
 // intended to be called once at startup
-int motor_init(void)
+static int motor_init(void)
 {
     tic_error * err;
     pthread_t thread_id;
@@ -497,7 +500,7 @@ int motor_init(void)
 }
 
 // intended to be called once when program is exitting
-void motor_exit(void)
+static void motor_exit(void)
 {
     int i;
 
@@ -527,7 +530,7 @@ void motor_exit(void)
 
 // ---- open and close all motors ----
 
-int motor_open_all(void)
+static int motor_open_all(void)
 {
     int h;
 
@@ -544,7 +547,7 @@ int motor_open_all(void)
     return 0;
 }
 
-void motor_close_all(void)
+static void motor_close_all(void)
 {
     int h;
 
@@ -567,7 +570,7 @@ void motor_close_all(void)
 
 // ---- open and close single motor ----
 
-int motor_open(int h)
+static int motor_open(int h)
 {
     tic_error * err;
     tic_handle * tic_handle;
@@ -620,7 +623,7 @@ int motor_open(int h)
     return 0;
 }
 
-void motor_close(int h)
+static void motor_close(int h)
 {
     INFO("called for motor %d\n", h);
 
@@ -653,7 +656,7 @@ void motor_close(int h)
 
 // ---- set positions ----
 
-int motor_set_pos(int h, int mstep)
+static int motor_set_pos(int h, int mstep)
 {
     tic_error * err;
 
@@ -678,7 +681,7 @@ int motor_set_pos(int h, int mstep)
     return 0;
 }
 
-int motor_adv_pos(int h, int mstep, int max_mstep)
+static int motor_adv_pos(int h, int mstep, int max_mstep)
 {
     int curr_pos, tgt_pos;
     tic_error * err;
@@ -720,7 +723,7 @@ int motor_adv_pos(int h, int mstep, int max_mstep)
 
 // ---- stop motors ----
 
-int motor_request_stop(int h)
+static int motor_request_stop(int h)
 {
     tic_variables * v;
     int stop_pos_mstep;
@@ -754,7 +757,7 @@ int motor_request_stop(int h)
     return 0;
 }
 
-int motor_wait_for_stopped(int h)
+static int motor_wait_for_stopped(int h)
 {
     #define POLL_INTVL_US 100000
     tic_variables * v;
@@ -787,7 +790,7 @@ int motor_wait_for_stopped(int h)
     } while (curr_vel);
 }
 
-int motor_request_all_stop(void)
+static int motor_request_all_stop(void)
 {
     int h;
 
@@ -802,7 +805,7 @@ int motor_request_all_stop(void)
     return 0;
 }
 
-int motor_wait_for_all_stopped(void)
+static int motor_wait_for_all_stopped(void)
 {
     int h;
 
@@ -818,9 +821,9 @@ int motor_wait_for_all_stopped(void)
     return 0;
 }
 
-// ---- motor_get_status_thread ----
+// ---- motor_getstatus_thread ----
 
-void * motor_getstatus_thread(void * cx)
+static void * motor_getstatus_thread(void * cx)
 {
     int h;
     tic_variables * variables[MAX_MOTOR];
@@ -944,7 +947,7 @@ void * motor_getstatus_thread(void * cx)
 
 // ---- motor_keepalive_thread ----
 
-void * motor_keepalive_thread(void * cx)
+static void * motor_keepalive_thread(void * cx)
 {
     int h;
 
@@ -976,7 +979,7 @@ void * motor_keepalive_thread(void * cx)
 
 // ---- misc motor support routines ----
 
-int motor_check_settings(int h, bool verbose)
+static int motor_check_settings(int h, bool verbose)
 {
     tic_settings * settings = NULL;
     int rc=0;
@@ -1068,7 +1071,7 @@ int motor_check_settings(int h, bool verbose)
     return rc;
 }
 
-void motor_inspect_variables(int h, bool verbose)
+static void motor_inspect_variables(int h, bool verbose)
 {
     tic_variables * variables = NULL;
 
@@ -1110,7 +1113,7 @@ void motor_inspect_variables(int h, bool verbose)
     tic_variables_free(variables);
 }
 
-char * motor_operation_state_str(int op_state)
+static char * motor_operation_state_str(int op_state)
 {
     switch (op_state) {
     case 0: return "RESET";
@@ -1123,7 +1126,7 @@ char * motor_operation_state_str(int op_state)
     return "INVALID";
 }
 
-char * motor_error_status_str(int err_stat) 
+static char * motor_error_status_str(int err_stat) 
 {
     static char str[100];
     char *p = str;
@@ -1149,7 +1152,7 @@ char * motor_error_status_str(int err_stat)
 #include <readline/readline.h>
 #include <readline/history.h>
 
-void motor_unit_test(void)
+static void motor_unit_test(void)
 {
     #define MAX_ARGV 10
     char * line = NULL;

@@ -85,55 +85,55 @@ SOFTWARE.
 //
 
 // comm to tele ctlr vars
-int   sfd = -1;
-bool  connected;
+static int   sfd = -1;
+static bool  connected;
 
 // telescope motor status vars
-msg_status_data_t ctlr_motor_status;
-long              ctlr_motor_status_us;
+static msg_status_data_t ctlr_motor_status;
+static long              ctlr_motor_status_us;
 
 // telsecope control vars
-int    motors;
-bool   calibrated;
-bool   tracking_enabled;
+static int    motors;
+static bool   calibrated;
+static bool   tracking_enabled;
 
-int    cal_az0_mstep;
-int    cal_el0_mstep;
+static int    cal_az0_mstep;
+static int    cal_el0_mstep;
 
-double tgt_az, tgt_el;     // az range -180 to +180
-bool   tgt_azel_valid;
+static double tgt_az, tgt_el;     // az range -180 to +180
+static bool   tgt_azel_valid;
 
-double act_az, act_el;     // az range -180 to +180
-bool   act_azel_available;
-bool   act_azel_valid;
+static double act_az, act_el;     // az range -180 to +180
+static bool   act_azel_available;
+static bool   act_azel_valid;
 
-int    adj_az_mstep, adj_el_mstep;
+static int    adj_az_mstep, adj_el_mstep;
 
-double min_valid_az, max_valid_az;  // az range -180 to +180
+static double min_valid_az, max_valid_az;  // az range -180 to +180
 
 // general vars
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 //
 // prototypes
 //
 
-void * comm_thread(void * cx);
-void * comm_heartbeat_thread(void * cx);
-int comm_process_recvd_msg(msg_t * msg);
-void comm_send_msg(msg_t * msg);
+static void * comm_thread(void * cx);
+static void * comm_heartbeat_thread(void * cx);
+static int comm_process_recvd_msg(msg_t * msg);
+static void comm_send_msg(msg_t * msg);
 
-void * tele_ctrl_thread(void * cx);
-void tele_ctrl_process_cmd(int event_id);
-void tele_ctrl_get_status(char *str1, char *str2, char *str3);
-bool tele_ctrl_is_azel_valid(double az, double el);
+static void * tele_ctrl_thread(void * cx);
+static void tele_ctrl_process_cmd(int event_id);
+static void tele_ctrl_get_status(char *str1, char *str2, char *str3);
+static bool tele_ctrl_is_azel_valid(double az, double el);
 
 // 
 // inline procedures
 //
 
 // returns az in range -180 to 179.99999
-inline double sanitize_az(double az) 
+static inline double sanitize_az(double az) 
 {
     if (az >= 180) {
         while (az >= 180) az -= 360;
@@ -168,7 +168,7 @@ int tele_init(void)
 
 // -----------------  COMM TO TELE CTLR  ----------------------------------
 
-void * comm_thread(void * cx)
+static void * comm_thread(void * cx)
 {
     int rc, sfd_temp, len;
     struct sockaddr_in addr;
@@ -247,7 +247,7 @@ lost_connection:
     return NULL;
 }
 
-int comm_process_recvd_msg(msg_t * msg)
+static int comm_process_recvd_msg(msg_t * msg)
 {
     #define CHECK_DATALEN(explen) \
         do { \
@@ -276,7 +276,7 @@ int comm_process_recvd_msg(msg_t * msg)
     return 0;
 }
 
-void comm_send_msg(msg_t * msg)
+static void comm_send_msg(msg_t * msg)
 {
     int len;
 
@@ -292,7 +292,7 @@ void comm_send_msg(msg_t * msg)
     }
 }
 
-void * comm_heartbeat_thread(void * cx)
+static void * comm_heartbeat_thread(void * cx)
 {
     msg_t msg;
 
@@ -305,11 +305,13 @@ void * comm_heartbeat_thread(void * cx)
         }
         usleep(200000);
     }
+
+    return NULL;
 }
 
 // -----------------  TELE CONTROL  ---------------------------------------
 
-void * tele_ctrl_thread(void * cx)
+static void * tele_ctrl_thread(void * cx)
 {
     long time_us, time_last_set_pos_us=0;
 
@@ -448,9 +450,11 @@ void * tele_ctrl_thread(void * cx)
         // unlock mutex
         pthread_mutex_unlock(&mutex);
     }
+
+    return NULL;
 }
 
-void tele_ctrl_process_cmd(int event_id)
+static void tele_ctrl_process_cmd(int event_id)
 {
     // lock mutex
     pthread_mutex_lock(&mutex);
@@ -569,7 +573,7 @@ void tele_ctrl_process_cmd(int event_id)
     pthread_mutex_unlock(&mutex);
 }
 
-void tele_ctrl_get_status(char *str1, char *str2, char *str3)
+static void tele_ctrl_get_status(char *str1, char *str2, char *str3)
 {
     double tgt_az2, act_az2;
 
@@ -641,7 +645,7 @@ void tele_ctrl_get_status(char *str1, char *str2, char *str3)
 }
 
 // return true if the telescope mechanism can be positioned to az/el
-bool tele_ctrl_is_azel_valid(double az, double el)
+static bool tele_ctrl_is_azel_valid(double az, double el)
 {
     if (el < 0 || el > 90) {
         return false;
@@ -754,7 +758,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // register control events 
         // - row 0
-        // XXX need to shorten these to make room for tgt state, such as ACQUIRING, or
+        // XXX AAA need to shorten these to make room for tgt state, such as ACQUIRING, or
         //     put ACQUIRING on seperate line, AND don't display ACTUAL after acquired
         //          ACQUIRED              MTR_CLS
         //          TGT xxx.xx  xx.xx     UN_CAL
