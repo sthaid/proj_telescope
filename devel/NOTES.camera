@@ -1,0 +1,164 @@
+=============================================
+GENERAL                       
+=============================================
+
+LIST OF WEBCAMS FOR ASTROPHOTOGRAPHY
+------------------------------------
+
+google search : webcam sensor size
+  https://rk.edu.pl/astro/kamery-ccd/
+
+https://astro.ecuadors.net/planetary-imaging-comparison-webcams-vs-dslrs-vs-planetary-cams/
+  Best webcams for planetary photography:
+    Philips SPC900nc and   (I found availabe on ebay, used)
+    Toucam Pro 
+  But - this seems to be old info and these are not available
+
+IMAGING PLANETS USING WEBCAMS
+-----------------------------
+
+https://nightskyinfocus.com/equipment/imaging-planets-using-webcams/
+
+This is a good article, describing 
+- prime focus
+- eyepeice projection
+
+Also, post processing
+- registering and stacking
+
+Suggests webcams ...
+Two of the most popular models are the 
+- Logitech Pro 4000
+- Philips SPC900NC, 
+both of which are equipped with CCD sensors that produce far better images than   
+other cameras of the same class, equipped with the less sensitive CMOS sensors.
+
+PRIME FOCUS MAGNIFICATION
+-------------------------
+
+http://www.skyatnightmagazine.com/forum/prime-focus-magnification-t752.html
+
+"To be somewhat more accurate, for a 35mm film camera you should divide the 
+ telescope focal length by the film plane of the camera which is 43mm so the 
+ accurate calculation is 1800 / 43 = 42 X in round numbers."
+
+My telescope with C270:
+- 1140 / 4.11 = 277 magnificatin
+- maybe should find a larger sensor; 
+  to achieve about 50x mag would need a 22mm sensor
+
+POST PROCESSING
+---------------
+
+https://nightskyinfocus.com/equipment/imaging-planets-using-webcams/
+"registering and stacking"
+
+SENSOR SIZE
+-----------
+
+https://video.stackexchange.com/questions/9891/is-it-possible-to-find-a-webcam-with-large-aperture
+  Working at this level, your best bet is probably to use a DSLR and use one of the hacks 
+  available to use them as a webcam via USB. Consumer web-cams use a very small sensors
+
+=============================================
+LOGITECH C270 + ADAPTER
+=============================================
+
+WEBCAM FOR ASTROPHOTOGRAPHY  (Logitech C270 + Adapter)
+------------------------------------------------------
+
+- http://astrophotography-telescope.com/best-webcam-for-astrophotography-2018/
+- http://astrophotography-telescope.com/logitech-c270-astrophotography-planetary-imaging-with-webcam/
+
+The Webcam Logitech C270 for astrophotography ...
+
+The alternative is to begin with just a simple webcam. There are many models 
+available in the marke like the Philips Spc900nc of the Toucam pro. But i 
+personally started with the Logitech C270 and i don’t regret it. This camera 
+is really cheap compared to specialised astrophotography cameras, its price is 
+under 20$ on Amazon !
+
+This webcam is very sensitive, it works in USB 2 and can catch up to 30 frames / second. 
+It has a resolution of 1280×720 (HD) and that’s great for Moon photography !
+
+The camera is also compatible with the famous capture free sofwares like SharpCap 
+(Download SharpCap for free). So you can use it without problem in Windows.
+
+To use it with your telescope you have to modify it so it be placed in the 
+eyepiece holder. The modification is very easy, you just have to remove the 
+lens of the webcam and then place a simple adapter in it’s place.
+
+LOGITECH C270 WEBCAM MOD FOR ASTROPHOTOGRAPHY - INSTRUCTABLES
+-------------------------------------------------------------
+
+https://www.instructables.com/id/Webcam-mod-for-Astrophotography/
+
+The best options seemed to be to remove the eyepiece and the webcam lens and 
+hold the CMOS image sensor about an inch from the eyepiece holder (prime focus).
+
+File saved in~/Downloads/FireShot
+
+WEBCAM ADAPTER
+--------------
+
+- Solomark Webcam Adapter for Telescope 1.25inch Thread(with Good Paint)- Good for Taking Videos and Capture of Moon and Planets
+  This webcam adapter is compatible with many cameras like the 
+     Philips SPC900NC,SPC890NC, 
+     ToUcam Pro II 840k,Philips 
+     ToUcam Pro 740K, 
+     Creative Webcam Pro EX,
+     Creative Webcam Pro NX and of course the 
+     Logitech C270.
+- should also be IR filter
+
+LOGICTECH C270 DETAILS
+----------------------
+
+https://github.com/rwb27/openflexure_microscope/wiki/Resolution-and-Field-of-View
+
+Native Resolution  1280x720
+Pixel Size         2.8um
+Sensor Size        3.58 x 2.02 mm
+Sensor Diagnal     4.11 mm
+
+=============================================
+LOGITECH QUICKCAM PRO 4000
+=============================================
+
+GOOGLE SEARCH : astrophotography webcam
+  and found some videos
+    https://www.youtube.com/watch?v=1gF6iHrZ4Rw
+    https://www.youtube.com/watch?v=MbjAEfbR05Q      Logitech Pro 4000 disassembly
+
+Budget CCD for astrophotography - Logitech Quickcam Pro 4000
+  - how to disassemble
+      https://www.youtube.com/watch?v=MbjAEfbR05Q
+  - webcam info from rkblog
+      CX098AK
+      Sensor size: 1/4"
+      Pixel size: 5.6 x 5.6 μm
+      Frame size: 640 x 480
+      Plug: USB
+      Sensor Type: CCD
+      QE max: 38 %
+  - available on ebay:
+      https://www.ebay.com/itm/Logitech-QuickCam-Pro-4000-PC-Mac-Compatible/264206687270?hash=item3d83f21c26:g:pcAAAOSw8iZcGsGy:rk:1:pf:0
+  - BUT MAY NOT WORK ON RASPBERRY PI
+
+=============================================
+CAMERA COMPATIBLE WITH RASPBERRY PI
+=============================================
+
+https://elinux.org/RPi_USB_Webcams
+
+Logitech Webcam C270, hwid=046d:0825, tested on Raspbian/wheezy; 1280x720	
+  works fine with external power, image/video quality is crisp. 
+  Caution: Pi may hang (at least not accessible remotely) when 
+  using the UVC video kernel module. Fix: load the module using 
+  the following magic incantation: 
+  `modprobe uvcvideo nodrop=1 timeout=5000 quirks=0x80` . 
+  (2014-06-01, Raspbian Linux 3.12.20+). Without external power 
+  (connecting camera directly in RPi) RPi works intermittently. 
+  It works, say, 10 times and then refuses to work. Then begins 
+  to work again. I tried "magic incantation" and it did not help.
+
