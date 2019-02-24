@@ -1,0 +1,156 @@
+==================================================
+INSTALLING RASPBERRY PI
+==================================================
+
+References:
+- https://www.raspberrypi.org/documentation/installation/installing-images/
+- https://www.raspberrypi.org/downloads/
+
+Recovery Procedure: 
+- Make New SD Card
+  - purchase 32GB SD card, or any decent size
+  - download 20xx-xx-xx-raspbian-stretch-lite.zip from https://www.raspberrypi.org/downloads/
+  - run lsblk, insert SD card, and run lsblk again to confirm which is the SD device
+  - unzip 20xx-xx-xx-raspbian-stretch-lite.zip
+  - sudo umount  /run/media/haid/xxxx ...
+  - sudo dd bs=4M if=20xx-xx-xx-raspbian-stretch.img of=/dev/sdb conv=fsync status=progress
+
+- Basic Raspberry Pi Setup
+  - login user=pi password=raspberry
+  - change passwd of pi acct
+  - get wifi working, this could probably be done via 'sudo raspi-config', however 
+    I editted /etc/wpa_supplicant/wpa_supplicant.conf
+    and added the following:
+        network={
+                ssid="haid"
+                psk="xxxxxx"
+        }
+  - sudo raspi-config and select NetworkOptins, Wifi to setup Wifi
+  - sudo raspi-config, and select localization
+    - keyboard: use 'generic 101' and 'US layout'
+    - timezone
+  - systemctl enable ssh
+  - reboot
+  - verify:
+    - date and TZ
+    - keyboard map
+    - ifconfig, wireless device is present with ip-address
+    - ability to ssh into raspberry pi
+
+- Configure Static IP Address
+  - vi /etc/dhcpcd.conf,  and add
+      # static eth0
+      interface eth0
+      static ip_address=192.168.2.10/24
+  - reboot
+  - connect ethernet cable and verify correct address on eth0 via ifconfig
+
+- adduser haid
+  - .ssh setup
+    - mkdir -m 700 .ssh
+    - copy over id_rsa and id_rsa.pub
+    - create authorized_keys file
+  - add to sudoers
+        VISUAL=vi visudo
+        haid            ALL=(ALL)       NOPASSWD: ALL
+  - verify login without password
+  - .bash_aliases
+        # .bash_aliases
+        alias ls='ls -l --color=always --group-directories-first --human-readable'
+        alias vi='vim'
+        alias cscope_init='/usr/bin/cscope -bR'
+        alias cscope='/usr/bin/cscope -d'
+        alias bashrc='. ~/.bashrc'
+        alias bash_profile='. ~/.bash_profile'
+        alias pt='cd ~/proj_telescope'
+  - .bash_profile
+        # .bash_profile
+        # Get the aliases and functions
+        if [ -f ~/.bashrc ]; then
+	    . ~/.bashrc
+	fi
+        # prompt
+        export PS1='[CTLR \u@\h \W]\$ '
+        # for pololu
+        export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig 
+        export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+  - .vimrc
+        source /usr/share/vim/vim80/defaults.vim
+        " tabs
+        set expandtab
+        set tabstop=8
+        set softtabstop=4
+        set shiftwidth=4
+        " enable copy and paste out of vim
+        set mouse=r
+        " disable autoinent
+        set nocindent
+        set nosmartindent
+        set noautoindent
+        set indentexpr=
+        filetype indent off
+        filetype plugin indent off
+        " this was used to disable autoindent of comments,seems not needed now
+        "autocmd FileType * setlocal formatoptions-=c formatoptions-=r formatoptions-=o
+
+- install general software
+  - notes on using apt
+        apt-cache pkgnames    # lists all
+        apt-cache search vim  # search for a package
+        apt-get update        # updates list of pkgs
+  - sudo apt-get update
+  - sudo apt-get install git
+  - sudo apt-get install vim
+  - sudo apt-get install cscope
+  - sudo apt-get install libreadline-dev
+
+- configure git
+      git config --global user.name "Steven Haid"
+      git config --global user.email stevenhaid@gmail.com
+      git config --global credential.helper cache
+      git config --global credential.helper 'cache --timeout=3600'
+      git config -l
+
+- clone proj_telescope
+     git clone https://github.com/sthaid/proj_telescope.git
+
+- building pololu tic software from souce
+    # install packages
+    sudo apt-get install build-essential git cmake libudev-dev qtbase5-dev
+    # clone pololu repos
+    mkdir ~/pololu
+    cd ~/pololu
+    git clone https://github.com/pololu/pololu-tic-software.git tic
+    git clone https://github.com/pololu/libusbp -b v1-latest
+    # build and install libusbp-1.so
+    cd ~/pololu/libusbp/
+    mkdir build
+    cd build
+    cmake ..
+    make
+    sudo make install
+    # check that it was correctly installed
+    export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig        # put this in .bash_profile
+    pkg-config libusbp-1 --cflags
+    # build tic
+    cd ~/pololu/tic
+    mkdir build
+    cd build
+    cmake ..
+    make
+    sudo make install
+    # make sure udev rule file is present, and then plug in the usb device
+    sudo vi /etc/udev/rules.d/99-pololu.rules
+    SUBSYSTEM=="usb", ATTRS{idVendor}=="1ffb", MODE="0666"
+    # check that ticcmd works
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib    # put this in .bash_profile
+    ticcmd -s
+    # build test program
+    cd ~/proj_telescope/devel/pololu/test_pgm
+    make
+
+- build proj_telescope
+    cd ~/proj_telescope
+    make ctlr
+
+- XXX tbd start ctlr automatically
