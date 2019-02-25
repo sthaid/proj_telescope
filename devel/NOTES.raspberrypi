@@ -83,14 +83,20 @@ Install Procedure:
         set indentexpr=
         filetype indent off
         filetype plugin indent off
+        " highlight search
+        set hlsearch
+        " disable show next match while entering a search
+        set noincsearch
+
         " this was used to disable autoindent of comments,seems not needed now
-        "autocmd FileType * setlocal formatoptions-=c formatoptions-=r formatoptions-=o
+        "     autocmd FileType * setlocal formatoptions-=c formatoptions-=r formatoptions-=o
 
 - install general software
   - notes on using apt
         apt-cache pkgnames    # lists all
         apt-cache search vim  # search for a package
         apt-get update        # updates list of pkgs
+        apt-get remove        # remove pkgs
   - sudo apt-get update
   - sudo apt-get install git
   - sudo apt-get install vim
@@ -145,6 +151,22 @@ Install Procedure:
 - build proj_telescope
     cd ~/proj_telescope
     make ctlr
+
+--------------------------------
+-----  DID NOT WORK  -----------
+--------------------------------
+
+- build sdltest program  
+  NOTE - WASN"T ABLE TO GET THIS TO WORK, POSSIBLY SHOULD HAVE
+         STARTED WITH RASPBIAN WITH DISPLAY MANAGER
+    sudo apt-get install libjpeg-dev
+    sudo apt-get install fonts-freefont-ttf
+    also need to install the 3 sdl packages, or build SDL from source
+
+
+--------------------------------
+----------- LATER --------------
+--------------------------------
 
 - XXX tbd start ctlr automatically
 
