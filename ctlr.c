@@ -32,13 +32,14 @@ fi
 #endif
 
 #include "common.h"
+#include <util_cam.h>
 #include <tic.h>
 
 //
 // defines
 //
 
-//#define UNIT_TEST
+//#define MOTOR_UNIT_TEST
 //#define TEST_WITH_ONLY_AZ_MOTOR
 
 #define SWAP(x, y) do { typeof(x) SWAP = x; x = y; y = SWAP; } while (0)
@@ -72,9 +73,12 @@ static int motor_request_stop(int h);
 static int motor_wait_for_stopped(int h);
 static int motor_request_all_stop(void); 
 static int motor_wait_for_all_stopped(void); 
-#ifdef UNIT_TEST
+#ifdef MOTOR_UNIT_TEST
 static void motor_unit_test(void);
 #endif
+
+// camera routines
+static int cam_init(void);
 
 // -----------------  MAIN  -----------------------------------------------
 
@@ -82,13 +86,18 @@ int main(int argc, char **argv)
 {
     int rc;
 
-    // register motor exit handler
-    atexit(motor_exit);
-
+#if 0  // XXX temp
     // motor initialize
     rc = motor_init();
     if (rc < 0) {
         FATAL("motor_init failed\n");
+    }
+#endif
+
+    // camera initialize
+    rc = cam_init();
+    if (rc < 0) {
+        FATAL("cam_init failed\n");
     }
 
     // comm initialize
@@ -97,7 +106,7 @@ int main(int argc, char **argv)
         FATAL("comm_init failed\n");
     }
 
-#ifdef UNIT_TEST
+#ifdef MOTOR_UNIT_TEST
     // unit_test
     motor_unit_test();
 #endif
@@ -382,7 +391,7 @@ static bool motor_initialized;
 static bool motor_keepalive_thread_running;
 static bool motor_getstatus_thread_running;
 
-#ifdef UNIT_TEST
+#ifdef MOTOR_UNIT_TEST
 static FILE *fp_unit_test[MAX_MOTOR];
 #endif
 
@@ -406,13 +415,15 @@ static int motor_init(void)
     pthread_t thread_id;
     int h;
 
-    // fatal error if already initialized
+    // fatal error if already initialized, and 
+    // set initialized flag
     if (motor_initialized) {
         FATAL("already initialized\n");
     }
-
-    // set initialized flag
     motor_initialized = true;
+
+    // register motor exit handler
+    atexit(motor_exit);
 
     // get list of connected devices;
     err = tic_list_connected_devices(&motor_devices, &max_motor_devices);
@@ -475,7 +486,7 @@ static int motor_init(void)
                                              "????"));
     }
 
-#ifdef UNIT_TEST
+#ifdef MOTOR_UNIT_TEST
     // open unit test log files
     for (h = 0; h < max_motor_devices; h++) {
         char fn[100];
@@ -860,7 +871,7 @@ static void * motor_getstatus_thread(void * cx)
         // release mutex
         pthread_mutex_unlock(&motor_mutex);
 
-#ifdef UNIT_TEST
+#ifdef MOTOR_UNIT_TEST
         // unit test, print motor variables to a seperate log file for each motor;
         // print every 4th time, which is once per sec
         static int count;
@@ -1148,7 +1159,7 @@ static char * motor_error_status_str(int err_stat)
     return str;
 }    
 
-#ifdef UNIT_TEST
+#ifdef MOTOR_UNIT_TEST
 #include <readline/readline.h>
 #include <readline/history.h>
 
@@ -1299,3 +1310,77 @@ static void motor_unit_test(void)
     exit(0);
 }
 #endif
+
+// -----------------  CAMERA ----------------------------------------------
+
+// XXX more work here
+//     - comments
+
+bool cam_thread_running;
+bool cam_thread_exit_req;
+
+static void cam_exit(void);
+static void * cam_thread(void * cx);
+
+static int cam_init(void) 
+{
+    int rc;
+    pthread_t thread;
+
+    rc = cam_initialize(640, 480, 5);
+    if (rc < 0) {
+        ERROR("cam_initialize failed, rc=%d\n", rc);
+        return rc;
+    }
+
+    pthread_create(&thread, NULL, cam_thread, NULL);
+
+    atexit(cam_exit);
+
+    return 0;
+}
+
+static void cam_exit(void)
+{
+    cam_thread_exit_req = true;
+
+    while (cam_thread_running) {
+        usleep(1000);
+    }
+}
+
+static void * cam_thread(void * cx)
+{
+    int rc;
+    unsigned char * ptr;
+    unsigned int len;
+
+    static char msg_buffer[10000000];
+    msg_t * msg = (msg_t*)msg_buffer;
+
+    INFO("starting\n");  // XXX del
+    cam_thread_running = true;
+
+    while (!cam_thread_exit_req) {
+        // get cam buff
+        rc = cam_get_buff(&ptr, &len);
+        if (rc != 0) {
+            usleep(100000);
+            continue;
+        }
+        INFO("XXX GOT BUFF %p  len=%d\n", ptr, len);
+
+        // XXX comment
+        msg->id = MSGID_CAM_IMG;
+        msg->datalen = len;
+        memcpy(msg->data, ptr, len);
+        comm_send_msg(msg);
+
+        // put buff
+        cam_put_buff(ptr);
+    }
+
+    INFO("exitting\n");  // XXX del
+    cam_thread_running = false;
+    return NULL;
+}

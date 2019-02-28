@@ -40,7 +40,21 @@ SOFTWARE.
 
 // XXX try cross checking azel for stars using other web sites
 
-#include "common.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <unistd.h>
+#include <string.h>
+#include <errno.h>
+#include <time.h>
+#include <limits.h>
+#include <assert.h>
+#include <math.h>
+
+#include "util_misc.h"
 #include "util_sky.h"
 
 //

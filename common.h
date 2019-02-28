@@ -15,16 +15,11 @@
 #include <assert.h>
 #include <pthread.h>
 #include <math.h>
-#include <signal.h>
-
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <readline/readline.h>
-#include <readline/history.h>
 
-#include "util_sdl.h"
-#include "util_sdl_predefined_panes.h"
-#include "util_misc.h"
+#include <util_sdl.h>
+#include <util_misc.h>
 
 //
 // defines
@@ -44,7 +39,8 @@
 #define MSGID_ADV_POS_SINGLE  6
 #define MSGID_SET_POS_ALL     7
 #define MSGID_STATUS          8
-#define MSGID_SHUTDN_CTLR     9
+#define MSGID_CAM_IMG         9
+#define MSGID_SHUTDN_CTLR     10
 
 #define MSGID_STR(x) \
    ((x) == MSGID_CONNECTED      ? "MSGID_CONNECTED"      : \
@@ -55,6 +51,7 @@
     (x) == MSGID_ADV_POS_SINGLE ? "MSGID_ADV_POS_SINGLE" : \
     (x) == MSGID_SET_POS_ALL    ? "MSGID_SET_POS_ALL"    : \
     (x) == MSGID_STATUS         ? "MSGID_STATUS"         : \
+    (x) == MSGID_CAM_IMG        ? "MSGID_CAM_IMG"        : \
     (x) == MSGID_SHUTDN_CTLR    ? "MSGID_SHUTDN_CTLR"    : \
                                   "????")
 
@@ -97,8 +94,6 @@ typedef struct {
 // environment variables
 //
 
-double latitude;
-double longitude;
 double az_cal_pos;
 double el_cal_pos;
 char *ctlr_ip;

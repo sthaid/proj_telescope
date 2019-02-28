@@ -22,6 +22,8 @@
 //
 
 int max_obj;
+double latitude;
+double longitude;
 
 //
 // prototypes

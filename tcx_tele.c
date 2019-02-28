@@ -170,10 +170,11 @@ int tele_init(void)
 
 static void * comm_thread(void * cx)
 {
+    static char msg_buffer[10000000];
+
     int rc, sfd_temp, len;
     struct sockaddr_in addr;
     struct timeval rcvto = {1, 0};  // sec, usec
-    char msg_buffer[1000];
     msg_t * msg = (msg_t*)msg_buffer;
 
 reconnect:
@@ -264,6 +265,10 @@ static int comm_process_recvd_msg(msg_t * msg)
         CHECK_DATALEN(sizeof(msg_status_data_t));
         ctlr_motor_status = *(msg_status_data_t *)msg->data;
         ctlr_motor_status_us = microsec_timer();
+        break; }
+    case MSGID_CAM_IMG: {
+        // XXX tbd
+        INFO("GOT CAM IMG len %lld\n", msg->datalen);
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);

@@ -21,6 +21,7 @@ SOFTWARE.
 */
 
 #include "common.h"
+#include <util_sky.h>
 
 //
 // defines

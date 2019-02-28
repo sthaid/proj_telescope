@@ -10,16 +10,17 @@ ctlr.o: CFLAGS += -I/usr/local/include/libpololu-tic-1 -Wno-unused-result
 SRC_TCX  = tcx.c \
            tcx_sky.c \
            tcx_tele.c \
-           util_sky.c \
+           util/util_sky.c \
            util/util_sdl.c \
            util/util_sdl_predefined_panes.c \
            util/util_jpeg.c \
            util/util_png.c \
            util/util_misc.c
 SRC_CTLR = ctlr.c \
+           util/util_cam.c \
            util/util_misc.c
 SRC_VP   = vp.c \
-           util_sky.c \
+           util/util_sky.c \
            util/util_misc.c
 
 OBJ_TCX=$(SRC_TCX:.c=.o)
@@ -50,5 +51,5 @@ vp: $(OBJ_VP)
 #
 
 clean:
-	rm -f $(TARGETS) $(OBJ_TCX) $(OBJ_CTL) $(OBJ_VP) $(DEP)
+	rm -f $(TARGETS) $(OBJ_TCX) $(OBJ_CTLR) $(OBJ_VP) $(DEP)
 
