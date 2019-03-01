@@ -80,6 +80,13 @@ SOFTWARE.
 // typedefs
 //
 
+typedef struct {
+    unsigned char * pixels;
+    int width;
+    int height;
+    long time_us;
+} cam_img_t;
+
 //
 // variables
 //
@@ -111,8 +118,11 @@ static int    adj_az_mstep, adj_el_mstep;
 
 static double min_valid_az, max_valid_az;  // az range -180 to +180
 
-// general vars
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t tele_ctrl_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// camera vars
+static cam_img_t cam_img;
+static pthread_mutex_t cam_img_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 //
 // prototypes
@@ -267,8 +277,36 @@ static int comm_process_recvd_msg(msg_t * msg)
         ctlr_motor_status_us = microsec_timer();
         break; }
     case MSGID_CAM_IMG: {
-        // XXX tbd
-        INFO("GOT CAM IMG len %lld\n", msg->datalen);
+        unsigned char * pixels;
+        unsigned int width, height;
+        int rc;
+
+        // convert jpeg to pixels
+#ifdef CAM_DEBUG
+        long start_us, duration_us;
+        start_us = microsec_timer();;
+#endif
+        rc = jpeg_decode(0, JPEG_DECODE_MODE_YUY2,
+                          msg->data, msg->datalen,     // jpeg
+                          &pixels, &width, &height);   // pixels
+        if (rc != 0) {
+            ERROR("jpeg_decode rc %d\n", rc);
+            break;
+        }
+#ifdef CAM_DEBUG
+        duration_us = microsec_timer() - start_us;
+        INFO("IMAGE len=%lld  DECODE rc=%d width=%d height=%d  DURATION=%ld us\n",
+             msg->datalen, rc, cam_img.width, cam_img.height, duration_us);
+#endif
+
+        // make the pixels available to tele_pane_hndlr
+        pthread_mutex_lock(&cam_img_mutex);
+        free(cam_img.pixels);
+        cam_img.pixels = pixels;
+        cam_img.width = width;
+        cam_img.height = height;
+        cam_img.time_us = microsec_timer();
+        pthread_mutex_unlock(&cam_img_mutex);
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
@@ -332,7 +370,7 @@ static void * tele_ctrl_thread(void * cx)
         usleep(50000);
 
         // lock mutex
-        pthread_mutex_lock(&mutex);
+        pthread_mutex_lock(&tele_ctrl_mutex);
 
         // determine motor status from ctlr_motor_status
         if (!connected) {
@@ -453,7 +491,7 @@ static void * tele_ctrl_thread(void * cx)
         act_azel_valid_last = act_azel_valid;
 
         // unlock mutex
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_unlock(&tele_ctrl_mutex);
     }
 
     return NULL;
@@ -462,7 +500,7 @@ static void * tele_ctrl_thread(void * cx)
 static void tele_ctrl_process_cmd(int event_id)
 {
     // lock mutex
-    pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&tele_ctrl_mutex);
 
     DEBUG("processing event_id %s (0x%x)\n", EVENT_ID_STR(event_id), event_id);
 
@@ -575,7 +613,7 @@ static void tele_ctrl_process_cmd(int event_id)
     }
 
     // unlock mutex
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&tele_ctrl_mutex);
 }
 
 static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
@@ -590,7 +628,7 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
     str4[0] = '\0';
 
     // lock mutex
-    pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&tele_ctrl_mutex);
 
     // the target and actual azimuth values returned in the strings 
     // are adjusted to range 0-360
@@ -667,7 +705,7 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
     sprintf(str4, "ADJ %.2f %.2f", MSTEP_TO_AZDEG(adj_az_mstep), MSTEP_TO_ELDEG(adj_el_mstep));
 
     // unlock mutex
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&tele_ctrl_mutex);
 }
 
 // return true if the telescope mechanism can be positioned to az/el
@@ -717,7 +755,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
-        vars->display_choice = DISPLAY_CHOICE_MOTOR_VARIABLES;
+        vars->display_choice = DISPLAY_CHOICE_CAMERA;
         DEBUG("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
@@ -733,27 +771,68 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         fontsz = 20;  // tele pane
 
-        // display status lines
-        tele_ctrl_get_status(str1, str2, str3, str4);
-        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
-        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
-        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(2,fontsz), fontsz, WHITE, BLACK, "%s", str3);
-
-        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str4);
-
         // display either:
         // - camera image
         // - motor variables
         if (vars->display_choice == DISPLAY_CHOICE_CAMERA) {
-            sdlpr_col = 10;
-            sdlpr_row = 10;
-            SDLPR("CAMERA IMAGE HERE"); // XXX tbd
+            int skip_cols, skip_rows;
+            bool render_cam_texture;
+            static texture_t cam_texture = NULL;
+
+            // display camera image ...
+
+            // XXX cam tbd
+            // - pan and zoom
+            // - comments
+            // NOTES
+            // - measured about 1 ms duration for sdl_update_yuy2_texture
+            render_cam_texture = false;
+            pthread_mutex_lock(&cam_img_mutex);
+            if (cam_img.pixels != NULL) do {
+                if (microsec_timer() - cam_img.time_us > 1000000) {
+                    break;
+                }
+
+                if (cam_texture == NULL) {
+                    sdl_destroy_texture(cam_texture);
+                    cam_texture = sdl_create_yuy2_texture(640,480);
+                    if (cam_texture == NULL) {
+                        FATAL("failed to create cam_texture\n");
+                    }
+                }
+
+                skip_cols = 0;   // image_x - image_size/2;
+                skip_rows = 0;   // image_y - image_size/2;
+                long start_us = microsec_timer();
+                sdl_update_yuy2_texture(
+                    cam_texture,
+                    cam_img.pixels + (skip_rows * 640 * 2) + (skip_cols * 2),
+                    640);
+                static long count;
+                if ((count++ % 1000) == 0) {
+                    INFO("%ld UPDATE AND RENDER  DUR=%ld us\n", count, microsec_timer()-start_us);
+                }
+
+                render_cam_texture = true;
+            } while (0);
+            pthread_mutex_unlock(&cam_img_mutex);
+
+            if (render_cam_texture) {
+                rect_t loc = {0,0,pane->w, pane->h};
+                sdl_render_scaled_texture(pane, &loc, cam_texture);
+            } else {
+                sdlpr_col = 10;  // XXX center
+                sdlpr_row = 10;
+                SDLPR("NO CAMERA IMAGE");
+            }
         } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARIABLES) {
             struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
             struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
             char   error_status_str0[100], error_status_str1[100];
             char  *saveptr0, *saveptr1, *errsts0, *errsts1;
             int    errsts_cnt=0;
+
+            // display motor variables...
 
             sdlpr_col = 0;
             sdlpr_row = 3;
@@ -783,6 +862,14 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 }
             }
         }
+
+        // display status lines
+        tele_ctrl_get_status(str1, str2, str3, str4);
+        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
+        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
+        sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(2,fontsz), fontsz, WHITE, BLACK, "%s", str3);
+
+        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str4);
 
         // register control events 
         // - row 0
