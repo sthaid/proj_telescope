@@ -236,6 +236,10 @@ rect_t sdl_render_texture(rect_t * pane, int32_t x, int32_t y, texture_t texture
 rect_t sdl_render_scaled_texture(rect_t * pane, rect_t * loc, texture_t texture);
 void sdl_destroy_texture(texture_t texture);
 
+// render using textures - webcam support
+texture_t sdl_create_yuy2_texture(int32_t w, int32_t h);
+void sdl_update_yuy2_texture(texture_t texture, uint8_t * pixels, int32_t pitch);
+
 // print screen, file_name must end in .jpg or .png
 void sdl_print_screen(char * file_name, bool flash_display, rect_t * rect);
 

@@ -18,7 +18,10 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 
+#include <util_sky.h>
 #include <util_sdl.h>
+#include <util_cam.h>
+#include <util_wc_jpeg_decode.h>
 #include <util_misc.h>
 
 //

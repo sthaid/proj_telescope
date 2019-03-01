@@ -1747,6 +1747,38 @@ void sdl_destroy_texture(texture_t texture)
     }
 }
 
+// -----------------  RENDER USING TEXTURES - WEBCAM SUPPORT ------------ 
+
+// the webcams I use provide jpeg, which when decoded are in yuy2 pixel format
+
+texture_t sdl_create_yuy2_texture(int32_t w, int32_t h)
+{
+    SDL_Texture * texture;
+
+    texture = SDL_CreateTexture(sdl_renderer,
+                                SDL_PIXELFORMAT_YUY2,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                w, h);
+    if (texture == NULL) {
+        ERROR("failed to allocate texture\n");
+        return NULL;
+    }
+
+    return (texture_t)texture;
+}
+
+void sdl_update_yuy2_texture(texture_t texture, uint8_t * pixels, int32_t pitch)
+{
+    int32_t width, height;
+
+    sdl_query_texture(texture, &width, &height);
+
+    SDL_UpdateTexture((SDL_Texture*)texture,
+                      NULL,            // update entire texture
+                      pixels,          // pixels
+                      pitch*2);        // pitch
+}
+
 // -----------------  PRINT SCREEN -------------------------------------- 
 
 void sdl_print_screen(char *file_name, bool flash_display, rect_t * rect_arg) 

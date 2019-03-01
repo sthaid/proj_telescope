@@ -15,6 +15,7 @@ SRC_TCX  = tcx.c \
            util/util_sdl_predefined_panes.c \
            util/util_jpeg.c \
            util/util_png.c \
+           util/util_wc_jpeg_decode.c \
            util/util_misc.c
 SRC_CTLR = ctlr.c \
            util/util_cam.c \

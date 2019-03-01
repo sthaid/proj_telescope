@@ -32,7 +32,6 @@ fi
 #endif
 
 #include "common.h"
-#include <util_cam.h>
 #include <tic.h>
 
 //
