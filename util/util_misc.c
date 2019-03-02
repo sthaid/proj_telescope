@@ -385,20 +385,20 @@ float hypotenuse(float x, float y, float z)
 
 // -----------------  SMOOTHING  -----------------------------------------
 
-void basic_exponential_smoothing(long double x, long double *s, long double alpha)
+void basic_exponential_smoothing(double x, double *s, double alpha)
 {
-    long double s_last = *s;
+    double s_last = *s;
     *s = alpha * x + (1 - alpha) * s_last;
 }
 
-void double_exponential_smoothing(long double x, long double *s, long double *b, long double alpha, long double beta, bool init)
+void double_exponential_smoothing(double x, double *s, double *b, double alpha, double beta, bool init)
 {
     if (init) {
         *s = x;
         *b = 0;
     } else {
-        long double s_last = *s;
-        long double b_last = *b;
+        double s_last = *s;
+        double b_last = *b;
         *s = alpha * x + (1 - alpha) * (s_last + b_last);
         *b = beta * (*s - s_last) + (1 - beta) * b_last;
     }
@@ -406,7 +406,7 @@ void double_exponential_smoothing(long double x, long double *s, long double *b,
 
 // -----------------  MOVING AVERAGE  ------------------------------------
 
-long double moving_average(long double val, ma_t *ma)
+double moving_average(double val, ma_t *ma)
 {
     int64_t idx;
 
@@ -418,7 +418,7 @@ long double moving_average(long double val, ma_t *ma)
     return ma->current;
 }
 
-long double moving_average_query(ma_t *ma)
+double moving_average_query(ma_t *ma)
 {
     return ma->current;
 }
@@ -453,10 +453,10 @@ void moving_average_reset(ma_t * ma)
 
 // - - - - - - - - - - - - - - - - - - - - 
 
-long double timed_moving_average(long double val, long double time_arg, tma_t *tma)
+double timed_moving_average(double val, double time_arg, tma_t *tma)
 {
     int64_t idx, i;
-    long double maq;
+    double maq;
 
     idx = time_arg * (tma->max_bins / tma->time_span);
 
@@ -467,7 +467,7 @@ long double timed_moving_average(long double val, long double time_arg, tma_t *t
         tma->first_call = false;
     } else if (idx > tma->last_idx) {
         for (i = tma->last_idx; i < idx; i++) {
-            long double v;
+            double v;
             if (i == idx-1 && tma->count > 0) {
                 v = tma->sum / tma->count;
             } else {
@@ -489,12 +489,12 @@ long double timed_moving_average(long double val, long double time_arg, tma_t *t
     return tma->current;
 }
 
-long double timed_moving_average_query(tma_t *tma)
+double timed_moving_average_query(tma_t *tma)
 {
     return tma->current;
 }
 
-tma_t * timed_moving_average_alloc(long double time_span, int64_t max_bins)
+tma_t * timed_moving_average_alloc(double time_span, int64_t max_bins)
 {
     tma_t * tma;
 
