@@ -161,11 +161,11 @@ int sky_init(char *incl_obj_str)
 int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
     struct {
-        char   cmd_line[1000];
-        char   cmd_line_last[1000];
-        int    cmd_line_len;
-        char * cmd_status;
-        long   cmd_status_time_us;
+        char     cmd_line[1000];
+        char     cmd_line_last[1000];
+        int      cmd_line_len;
+        char   * cmd_status;
+        uint64_t cmd_status_time_us;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -1115,8 +1115,8 @@ static int azel2xy(double az, double el, double max, double *xret, double *yret)
 // -----------------  SKY TIME UTILS  -------------------------------------
 
 static time_t __sky_time                    = 0;
-static long   __sky_time_new_mode_req       = SKY_TIME_MODE_NONE;
-static long   __sky_time_mode               = SKY_TIME_MODE_CURRENT;
+static int    __sky_time_new_mode_req       = SKY_TIME_MODE_NONE;
+static int    __sky_time_mode               = SKY_TIME_MODE_CURRENT;
 static int    __sky_time_step_mode          = SKY_TIME_STEP_MODE_DELTA_T;
 static double __sky_time_step_mode_hr_param = DEFAULT_SKY_TIME_STEP_MODE_DELTA_T;
 
@@ -1145,9 +1145,9 @@ static void sky_time_get_step_mode(int *step_mode, double *step_mode_hr_param)
 static time_t sky_time_get_time(void) 
 {
     time_t trise, tset;
-    unsigned long time_now;
+    uint64_t time_now;
 
-    static unsigned long time_of_last_call;
+    static uint64_t time_of_last_call;
     static double jdss;  // jd for sunrise/sunset step mode
 
     // if this is an early call (less than 100 ms from last call) then
@@ -1240,7 +1240,7 @@ static time_t sky_time_get_time(void)
         }
         break;
     default:
-        FATAL("BUG: invalid sky_time_mode %ld\n", __sky_time_mode);
+        FATAL("BUG: invalid sky_time_mode %d\n", __sky_time_mode);
     }
 
     // return the time

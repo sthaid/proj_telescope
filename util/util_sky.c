@@ -1220,7 +1220,7 @@ static void util_sky_unit_test(void)
     { double lst, az, el;
       time_t t;
       int i;
-      unsigned long start_us, duration_us;
+      uint64_t start_us, duration_us;
     start_us = microsec_timer();
     t = time(NULL);
     lst = ct2lst(longitude, jdconv2(t));

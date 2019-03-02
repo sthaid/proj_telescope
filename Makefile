@@ -16,9 +16,13 @@ SRC_TCX  = tcx.c \
            util/util_jpeg.c \
            util/util_png.c \
            util/util_wc_jpeg_decode.c \
-           util/util_misc.c
+           util/util_compress.c \
+           util/minilzo-2.10/minilzo.c \
+           util/util_misc.c 
 SRC_CTLR = ctlr.c \
            util/util_cam.c \
+           util/util_compress.c \
+           util/minilzo-2.10/minilzo.c \
            util/util_misc.c
 SRC_VP   = vp.c \
            util/util_sky.c \
