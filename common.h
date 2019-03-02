@@ -18,10 +18,14 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 
+// help ensure portability to Raspbian, use int64_t instead of long
+#define long DONT_USE_LONG
+
 #include <util_sky.h>
 #include <util_sdl.h>
 #include <util_cam.h>
 #include <util_wc_jpeg_decode.h>
+#include <util_compress.h>
 #include <util_misc.h>
 
 //
@@ -63,34 +67,33 @@
 //
 
 typedef struct {
-    long long id;
-    long long datalen;
+    int id;
+    int datalen;
     unsigned char data[0];
 } msg_t;
 
 typedef struct {
     struct motor_status_s {
-        long long opened;
-        long long energized;
-        long long vin_voltage_mv;
-        long long curr_pos_mstep;
-        long long tgt_pos_mstep;
-        double    curr_vel_mstep_per_sec;
-        long long spare1;
-        long long spare2;
-        char      operation_state_str[32];
-        char      error_status_str[32];
+        int    opened;
+        int    energized;
+        int    vin_voltage_mv;
+        int    curr_pos_mstep;
+        int    tgt_pos_mstep;
+        int    spare1;
+        double curr_vel_mstep_per_sec;
+        char   operation_state_str[32];
+        char   error_status_str[32];
     } motor[MAX_MOTOR];
 } msg_status_data_t;
 
 typedef struct {
-    long long h;
-    long long mstep;
-    long long max_mstep;
+    int h;
+    int mstep;
+    int max_mstep;
 } msg_adv_pos_single_data_t;
 
 typedef struct {
-    long long mstep[MAX_MOTOR];
+    int mstep[MAX_MOTOR];
 } msg_set_pos_all_data_t;
 
 //
