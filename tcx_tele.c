@@ -38,13 +38,16 @@ SOFTWARE.
 #define ELMSTEP_180_DEG        (ELMSTEP_360_DEG / 2)
 #define ELMSTEP_1_DEG          ((int)(ELMSTEP_360_DEG / 360. + .5))
 
-#define SDL_EVENT_MOTORS_CLOSE (SDL_EVENT_USER_DEFINED + 0)
-#define SDL_EVENT_MOTORS_OPEN  (SDL_EVENT_USER_DEFINED + 1)
-#define SDL_EVENT_UN_CALIBRATE (SDL_EVENT_USER_DEFINED + 2)
-#define SDL_EVENT_CALIBRATE    (SDL_EVENT_USER_DEFINED + 3)
-#define SDL_EVENT_TRK_DISABLE  (SDL_EVENT_USER_DEFINED + 4)
-#define SDL_EVENT_TRK_ENABLE   (SDL_EVENT_USER_DEFINED + 5)
-#define SDL_EVENT_SHUTDN_CTLR  (SDL_EVENT_USER_DEFINED + 6)
+#define SDL_EVENT_MOTORS_CLOSE   (SDL_EVENT_USER_DEFINED + 0)
+#define SDL_EVENT_MOTORS_OPEN    (SDL_EVENT_USER_DEFINED + 1)
+#define SDL_EVENT_UN_CALIBRATE   (SDL_EVENT_USER_DEFINED + 2)
+#define SDL_EVENT_CALIBRATE      (SDL_EVENT_USER_DEFINED + 3)
+#define SDL_EVENT_TRK_DISABLE    (SDL_EVENT_USER_DEFINED + 4)
+#define SDL_EVENT_TRK_ENABLE     (SDL_EVENT_USER_DEFINED + 5)
+#define SDL_EVENT_SHUTDN_CTLR    (SDL_EVENT_USER_DEFINED + 6)
+#define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 100)
+#define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 101)
+#define SDL_EVENT_DISPLAY_CHOICE (SDL_EVENT_USER_DEFINED + 102)
 
 #define EVENT_ID_STR(x) \
    ((x) == SDL_EVENT_MOTORS_CLOSE          ? "MOTORS_CLOSE"    : \
@@ -54,6 +57,9 @@ SOFTWARE.
     (x) == SDL_EVENT_TRK_DISABLE           ? "TRK_DISABLE"     : \
     (x) == SDL_EVENT_TRK_ENABLE            ? "TRK_ENABLE"      : \
     (x) == SDL_EVENT_SHUTDN_CTLR           ? "SHUTDN_CTLR"     : \
+    (x) == SDL_EVENT_MOUSE_MOTION          ? "MOUSE_MOTION"    : \
+    (x) == SDL_EVENT_MOUSE_WHEEL           ? "MOUSE_WHEEL"     : \
+    (x) == SDL_EVENT_DISPLAY_CHOICE        ? "DISPLAY_CHOICE"  : \
     (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"  : \
     (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW" : \
     (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"    : \
@@ -76,6 +82,8 @@ SOFTWARE.
 
 #define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 1000000)
 
+#define CAM_IMG_AVAIL (microsec_timer() - cam_img.time_us < 1000000)
+
 //
 // typedefs
 //
@@ -84,7 +92,8 @@ typedef struct {
     unsigned char * pixels;
     int width;
     int height;
-    long time_us;
+    int pixel_fmt;
+    uint64_t time_us;
 } cam_img_t;
 
 //
@@ -97,7 +106,7 @@ static bool  connected;
 
 // telescope motor status vars
 static msg_status_data_t ctlr_motor_status;
-static long              ctlr_motor_status_us;
+static uint64_t          ctlr_motor_status_us;
 
 // telsecope control vars
 static int    motors;
@@ -138,6 +147,8 @@ static void tele_ctrl_process_cmd(int event_id);
 static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4);
 static bool tele_ctrl_is_azel_valid(double az, double el);
 
+static void sanitize_pan_zoom(void);
+
 // 
 // inline procedures
 //
@@ -158,6 +169,9 @@ static inline double sanitize_az(double az)
 int tele_init(void)
 {
     pthread_t thread_id;
+
+    // this performs sanity checks for minilzo
+    compress_init();
 
     // determine min_valid_az and max_valid_az, 
     // used by tele_ctrl_is_azel_valid()
@@ -218,7 +232,7 @@ reconnect:
         goto lost_connection;
     }
     if (msg->id != MSGID_CONNECTED) {
-        ERROR("recvd invalid initial msg, id=%lld\n", msg->id);
+        ERROR("recvd invalid initial msg, id=%d\n", msg->id);
         goto lost_connection;
     }
     INFO("established connection to telescope\n");
@@ -233,8 +247,8 @@ reconnect:
             ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
-        len = recv(sfd, msg->data, msg->datalen, MSG_WAITALL);
-        if (len != msg->datalen) {
+        len = recv(sfd, msg->data, msg->data_len, MSG_WAITALL);
+        if (len != msg->data_len) {
             ERROR("recvd msg data with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
@@ -262,13 +276,13 @@ static int comm_process_recvd_msg(msg_t * msg)
 {
     #define CHECK_DATALEN(explen) \
         do { \
-            if (msg->datalen != explen) { \
-                ERROR("incorrect datalen %lld in %s\n", msg->datalen, MSGID_STR(msg->id)); \
+            if (msg->data_len != explen) { \
+                ERROR("incorrect data_len %d in %s\n", msg->data_len, MSGID_STR(msg->id)); \
                 break; \
             } \
         } while (0)
 
-    DEBUG("received %s datalen %lld\n", MSGID_STR(msg->id), msg->datalen);
+    DEBUG("received %s data_len %d\n", MSGID_STR(msg->id), msg->data_len);
 
     switch (msg->id) {
     case MSGID_STATUS: {
@@ -277,42 +291,85 @@ static int comm_process_recvd_msg(msg_t * msg)
         ctlr_motor_status_us = microsec_timer();
         break; }
     case MSGID_CAM_IMG: {
-        unsigned char * pixels;
-        unsigned int width, height;
-        int rc;
+        msg_cam_img_data_t * msg_data = (void*)msg->data;
+        void               * data = msg_data->data;
+        int                  data_len = msg->data_len - sizeof(msg_cam_img_data_t);
+        unsigned char      * pixels = NULL;
+        size_t               pixels_len = 0;
 
-        // convert jpeg to pixels
-#ifdef CAM_DEBUG
-        long start_us, duration_us;
-        start_us = microsec_timer();;
-#endif
-        rc = jpeg_decode(0, JPEG_DECODE_MODE_YUY2,
-                          msg->data, msg->datalen,     // jpeg
-                          &pixels, &width, &height);   // pixels
-        if (rc != 0) {
-            ERROR("jpeg_decode rc %d\n", rc);
+        int expected_pixels_len;
+        bool error;
+
+        // get pixels based on type of compression
+        switch (msg_data->compression) {
+        case COMPRESSION_NONE:
+            pixels = malloc(data_len);
+            memcpy(pixels, data, data_len);
+            pixels_len = data_len;
+            error = false;
+            break;
+        case COMPRESSION_JPEG_YUY2: {
+            int rc;
+            unsigned int w, h;
+            rc = jpeg_decode(0, JPEG_DECODE_MODE_YUY2, data, data_len, &pixels, &w, &h);
+            if (rc != 0) {
+                ERROR("jpeg_decode rc %d\n", rc);
+                error = true;
+                break;
+            }
+            if (w != msg_data->width || h != msg_data->height) {
+                ERROR("jpeg_decode w=%d h=%d, expected w=%d h=%d\n", 
+                      w, h, msg_data->width, msg_data->height);
+                error = true;
+                break;
+            }
+            pixels_len = 2 * w * h;
+            error = false;
+            break; }
+        case COMPRESSION_LZO:
+            pixels = malloc(1000000);
+            pixels_len = 1000000;
+            error = (decompress(data, data_len, pixels, &pixels_len) != 0);
+            if (error) {
+                ERROR("decompress failed, data_len=%d pixels_len=%zd\n", data_len, pixels_len);
+            }
+            break;
+        default:
+            error = true;
+        }
+
+        // if an error occurred then get out
+        if (error) {
+            free(pixels);
             break;
         }
-#ifdef CAM_DEBUG
-        duration_us = microsec_timer() - start_us;
-        INFO("IMAGE len=%lld  DECODE rc=%d width=%d height=%d  DURATION=%ld us\n",
-             msg->datalen, rc, cam_img.width, cam_img.height, duration_us);
-#endif
+
+        // check pixels_len, if invalid then get out
+        expected_pixels_len = 
+            msg_data->pixel_fmt == PIXEL_FMT_YUY2 ? msg_data->width * msg_data->height * 2 :
+            msg_data->pixel_fmt == PIXEL_FMT_IYUV ? msg_data->width * msg_data->height * 3 / 2 :
+                                                    -1;
+        if (pixels_len != expected_pixels_len) {
+            ERROR("pixels_len %zd is not expected %d\n", pixels_len, expected_pixels_len);
+            free(pixels);
+            break;
+        }
 
         // make the pixels available to tele_pane_hndlr
         pthread_mutex_lock(&cam_img_mutex);
         free(cam_img.pixels);
-        cam_img.pixels = pixels;
-        cam_img.width = width;
-        cam_img.height = height;
-        cam_img.time_us = microsec_timer();
+        cam_img.pixels    = pixels;
+        cam_img.width     = msg_data->width;
+        cam_img.height    = msg_data->height;
+        cam_img.pixel_fmt = msg_data->pixel_fmt;
+        cam_img.time_us   = microsec_timer();
         pthread_mutex_unlock(&cam_img_mutex);
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
         break;
     default:
-        ERROR("invalid msgid %lld\n", msg->id);
+        ERROR("invalid msgid %d\n", msg->id);
         return -1;
     }
 
@@ -329,8 +386,8 @@ static void comm_send_msg(msg_t * msg)
 
     DEBUG("sending %s\n", MSGID_STR(msg->id));
 
-    len = send(sfd, msg, sizeof(msg_t)+msg->datalen, MSG_NOSIGNAL);
-    if (len != sizeof(msg_t)+msg->datalen) {
+    len = send(sfd, msg, sizeof(msg_t)+msg->data_len, MSG_NOSIGNAL);
+    if (len != sizeof(msg_t)+msg->data_len) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
 }
@@ -356,7 +413,7 @@ static void * comm_heartbeat_thread(void * cx)
 
 static void * tele_ctrl_thread(void * cx)
 {
-    long time_us, time_last_set_pos_us=0;
+    uint64_t time_us, time_last_set_pos_us=0;
 
     bool connected_last = false;
     int  motors_last = MOTORS_CLOSED;
@@ -441,7 +498,7 @@ static void * tele_ctrl_thread(void * cx)
 
             // format and send MSGID_SET_POS_ALL to the telescope ctrlr
             msg->id = MSGID_SET_POS_ALL;
-            msg->datalen = sizeof(msg_set_pos_all_data_t);
+            msg->data_len = sizeof(msg_set_pos_all_data_t);
             msg_set_pos_all_data->mstep[0] = az_mstep;
             msg_set_pos_all_data->mstep[1] = el_mstep;
             comm_send_msg(msg);
@@ -591,7 +648,7 @@ static void tele_ctrl_process_cmd(int event_id)
                         ? 1 : -1;
             bool fine = (event_id == SDL_EVENT_KEY_SHIFT_LEFT_ARROW || event_id == SDL_EVENT_KEY_SHIFT_RIGHT_ARROW ||
                          event_id == SDL_EVENT_KEY_SHIFT_UP_ARROW || event_id == SDL_EVENT_KEY_SHIFT_DOWN_ARROW);
-            long mstep, max_mstep;
+            int mstep, max_mstep;
 
             if (h == 0 ) {
                 max_mstep = AZDEG_TO_MSTEP(1);
@@ -602,7 +659,7 @@ static void tele_ctrl_process_cmd(int event_id)
             }
 
             msg->id = MSGID_ADV_POS_SINGLE;
-            msg->datalen = sizeof(msg_adv_pos_single_data_t);
+            msg->data_len = sizeof(msg_adv_pos_single_data_t);
             msg_adv_pos_single_data->h = h;
             msg_adv_pos_single_data->mstep = mstep;
             msg_adv_pos_single_data->max_mstep = max_mstep;
@@ -677,12 +734,12 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
         char motor0_pos_str[32];
         char motor1_pos_str[32];
         if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[0].opened) {
-            sprintf(motor0_pos_str, "%lld", ctlr_motor_status.motor[0].curr_pos_mstep);
+            sprintf(motor0_pos_str, "%d", ctlr_motor_status.motor[0].curr_pos_mstep);
         } else {
             strcpy(motor0_pos_str, "-");
         }
         if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[1].opened) {
-            sprintf(motor1_pos_str, "%lld", ctlr_motor_status.motor[1].curr_pos_mstep);
+            sprintf(motor1_pos_str, "%d", ctlr_motor_status.motor[1].curr_pos_mstep);
         } else {
             strcpy(motor1_pos_str, "-");
         }
@@ -730,6 +787,29 @@ static bool tele_ctrl_is_azel_valid(double az, double el)
 
 // -----------------  TELE PANE HNDLR  ------------------------------------
 
+// structure for camera digital pan and zoom
+// - image_width, image_height: the size of the texture
+// - skip_cols, skip_rows: the number of columns and rows to skip
+//   to locate the top left of the image; used in call to 
+//   sdl_update_xxx_texture 
+// - image_x_ctr, image_y_ctr: these control the pan location, and are
+//   updated by SDL_EVENT_MOUSE_MOTION
+// - image_scale: controls the zoom, and is updated by SDL_EVENT_MOUSE_WHEEL
+// - cam_width, cam_height: these are used to check for a change in the 
+//   actual camera width/height (found in cam_img), and if change is detected
+//   the image_scale, and image_x/y_ctr are reset
+static struct {
+    int image_width;
+    int image_height;
+    int skip_cols;
+    int skip_rows;
+    int image_x_ctr;
+    int image_y_ctr;
+    double image_scale;
+    int cam_width;
+    int cam_height;
+} pz;
+
 int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
     struct {
@@ -746,8 +826,6 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
             sdl_render_printf(pane, COL2X(sdlpr_col,fontsz), ROW2Y(sdlpr_row,fontsz), fontsz, WHITE, BLACK, fmt, ## args); \
             sdlpr_row++; \
         } while (0)
-
-    #define SDL_EVENT_DISPLAY_CHOICE   (SDL_EVENT_USER_DEFINED + 100)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -775,54 +853,99 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // - camera image
         // - motor variables
         if (vars->display_choice == DISPLAY_CHOICE_CAMERA) {
-            int skip_cols, skip_rows;
-            bool render_cam_texture;
+            int required_cam_texture_signature;
+
             static texture_t cam_texture = NULL;
+            static int cam_texture_signature = 0;
 
             // display camera image ...
 
-            // XXX cam tbd
-            // - pan and zoom
-            // - comments
-            // NOTES
-            // - measured about 1 ms duration for sdl_update_yuy2_texture
-            render_cam_texture = false;
-            pthread_mutex_lock(&cam_img_mutex);
-            if (cam_img.pixels != NULL) do {
-                if (microsec_timer() - cam_img.time_us > 1000000) {
-                    break;
-                }
+            // lock cam_img struct
+            // if image avail
+            //     sanitize the pan/zoom control info
+            //     create texture
+            //     copy pixels to the texture
+            //     unlock cam_img struct
+            //     render the texture
+            // else
+            //     unlock cam_img struct
+            //     display 'no image'
+            // endif
 
-                if (cam_texture == NULL) {
+            // lock cam_img struct
+            pthread_mutex_lock(&cam_img_mutex);
+
+            // if image avail
+            if (CAM_IMG_AVAIL) {
+                // sanitize the pan/zoom control info
+                sanitize_pan_zoom();
+
+                // create texture
+                required_cam_texture_signature = (cam_img.pixel_fmt << 28) |
+                                                 (pz.image_width    << 14) |
+                                                 (pz.image_height   <<  0);
+                if (cam_texture_signature != required_cam_texture_signature) {
                     sdl_destroy_texture(cam_texture);
-                    cam_texture = sdl_create_yuy2_texture(640,480);
+
+                    if (cam_img.pixel_fmt == PIXEL_FMT_IYUV) {
+                        cam_texture = sdl_create_iyuv_texture(pz.image_width, pz.image_height);
+                    } else if (cam_img.pixel_fmt == PIXEL_FMT_YUY2) {
+                        cam_texture = sdl_create_yuy2_texture(pz.image_width, pz.image_height);
+                    } else {
+                        FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
+                    }
                     if (cam_texture == NULL) {
                         FATAL("failed to create cam_texture\n");
                     }
+
+                    cam_texture_signature = required_cam_texture_signature;
                 }
 
-                skip_cols = 0;   // image_x - image_size/2;
-                skip_rows = 0;   // image_y - image_size/2;
-                long start_us = microsec_timer();
-                sdl_update_yuy2_texture(
-                    cam_texture,
-                    cam_img.pixels + (skip_rows * 640 * 2) + (skip_cols * 2),
-                    640);
-                static long count;
-                if ((count++ % 1000) == 0) {
-                    INFO("%ld UPDATE AND RENDER  DUR=%ld us\n", count, microsec_timer()-start_us);
+                // copy pixels to the texture
+                if (cam_img.pixel_fmt == PIXEL_FMT_IYUV) {
+                    unsigned char *y_plane, *u_plane, *v_plane;
+                    int y_pitch, u_pitch, v_pitch;
+
+                    y_plane = cam_img.pixels;
+                    y_pitch = cam_img.width;
+                    u_plane = y_plane + (cam_img.width * cam_img.height);
+                    u_pitch = cam_img.width/2;
+                    v_plane = u_plane + ((cam_img.width/2) * (cam_img.height/2));
+                    v_pitch = cam_img.width/2;
+
+                    INFO("imgx,y,w,h = %d %d %d %d  sr=%d sc=%d\n",
+                        pz.image_x_ctr, pz.image_y_ctr, pz.image_width, pz.image_height,
+                        pz.skip_rows, pz.skip_cols);
+
+                    y_plane += pz.skip_rows * cam_img.width + pz.skip_cols;
+                    u_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
+                    v_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
+
+                    sdl_update_iyuv_texture(cam_texture, y_plane, y_pitch, u_plane, u_pitch, v_plane, v_pitch);
+                } else if (cam_img.pixel_fmt == PIXEL_FMT_YUY2) {
+                    sdl_update_yuy2_texture(
+                        cam_texture,
+                        cam_img.pixels + (pz.skip_rows * cam_img.width * 2) + (pz.skip_cols * 2),
+                        cam_img.width * 2);
+                    INFO("%d %d\n", pz.skip_rows, pz.skip_cols);
+                } else {
+                    FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
                 }
 
-                render_cam_texture = true;
-            } while (0);
-            pthread_mutex_unlock(&cam_img_mutex);
+                // unlock cam_img struct
+                pthread_mutex_unlock(&cam_img_mutex);
 
-            if (render_cam_texture) {
-                rect_t loc = {0,0,pane->w, pane->h};
+                // render the texture
+                rect_t loc = {0, 0, pane->w, pane->h};
                 sdl_render_scaled_texture(pane, &loc, cam_texture);
             } else {
-                sdlpr_col = 10;  // XXX center
-                sdlpr_row = 10;
+                // unlock cam_img struct
+                pthread_mutex_unlock(&cam_img_mutex);
+
+                // display 'no image'
+                sdlpr_col = (sdl_pane_cols(pane,fontsz) - 15) / 2;
+                if (sdlpr_col < 0) sdlpr_col = 0;
+                sdlpr_row = sdl_pane_rows(pane,fontsz) / 2;
                 SDLPR("NO CAMERA IMAGE");
             }
         } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARIABLES) {
@@ -836,11 +959,11 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
             sdlpr_col = 0;
             sdlpr_row = 3;
-            SDLPR("OPENED   %9lld %9lld", m0->opened, m1->opened);
-            SDLPR("ENERG    %9lld %9lld", m0->energized, m1->energized);
-            SDLPR("VOLTAGE  %9lld %9lld", m0->vin_voltage_mv, m1->vin_voltage_mv);
-            SDLPR("CURR_POS %9lld %9lld", m0->curr_pos_mstep, m1->curr_pos_mstep);
-            SDLPR("TGT_POS  %9lld %9lld", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
+            SDLPR("OPENED   %9d %9d", m0->opened, m1->opened);
+            SDLPR("ENERG    %9d %9d", m0->energized, m1->energized);
+            SDLPR("VOLTAGE  %9d %9d", m0->vin_voltage_mv, m1->vin_voltage_mv);
+            SDLPR("CURR_POS %9d %9d", m0->curr_pos_mstep, m1->curr_pos_mstep);
+            SDLPR("TGT_POS  %9d %9d", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
             SDLPR("CURR_VEL %9.1f %9.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
             SDLPR("OP_STATE %9s %9s",     m0->operation_state_str, m1->operation_state_str);
             while (true) {
@@ -868,15 +991,19 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(2,fontsz), fontsz, WHITE, BLACK, "%s", str3);
-
         sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str4);
+
+        // register mouse motion and wheel events to support camera digital pan/zoom
+        rect_t loc = {0,0,pane->w,pane->h};
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 
         // register control events 
         // - row 0
         if (connected) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(7,fontsz), ROW2Y(0,fontsz), fontsz, 
-                motors != MOTORS_CLOSED ? "MTR_CLS" : "MTR_OPN",
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(0,fontsz), fontsz, 
+                motors != MOTORS_CLOSED ? "MTR_CLOSE" : "MTR_OPEN",
                 LIGHT_BLUE, BLACK, 
                 motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
@@ -884,8 +1011,8 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // - row 1
         if (motors == MOTORS_OPEN) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(7,fontsz), ROW2Y(1,fontsz), fontsz, 
-                calibrated ? "UN_CAL" : "CAL",
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(1,fontsz), fontsz, 
+                calibrated ? "UN_CAL" : "CALIBRATE",
                 LIGHT_BLUE, BLACK, 
                 calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
@@ -893,23 +1020,23 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // - row 2
         if (calibrated && tgt_azel_valid) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(7,fontsz), ROW2Y(2,fontsz), fontsz, 
-                tracking_enabled ? "TRK_DIS" : "TRK_EN",
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(2,fontsz), fontsz, 
+                tracking_enabled ? "TRACK_DIS" : "TRACK_ENA",
                 LIGHT_BLUE, BLACK, 
                 tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         } else if (motors == MOTORS_CLOSED) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(7,fontsz), ROW2Y(2,fontsz), fontsz, 
-                "SH_CTLR",
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(2,fontsz), fontsz, 
+                "SHDN_CTLR",
                 LIGHT_BLUE, BLACK, 
                 SDL_EVENT_SHUTDN_CTLR,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
         // - row last
         sdl_render_text_and_register_event(
-            pane, pane->w-COL2X(7,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
-            "DSP_SEL",
+            pane, pane->w-COL2X(9,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
+            "DISP_SEL",
             LIGHT_BLUE, BLACK, 
             SDL_EVENT_DISPLAY_CHOICE,
             SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
@@ -924,13 +1051,29 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     if (request == PANE_HANDLER_REQ_EVENT) {
         int ret;
 
-        // some of the event_ids are handled here
+        // some of the event_ids are handled here, and the majority
+        // of the event_ids are handled by call to tele_ctrl_process_cmd
         if (event->event_id == SDL_EVENT_DISPLAY_CHOICE) {
             vars->display_choice = (vars->display_choice + 1) % MAX_DISPLAY_CHOICE;
+        } else if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
+            if (CAM_IMG_AVAIL) {
+                pz.image_x_ctr -= event->mouse_motion.delta_x;
+                pz.image_y_ctr -= event->mouse_motion.delta_y;
+            }
+        } else if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
+            if (CAM_IMG_AVAIL) {
+                int dy = event->mouse_wheel.delta_y;
+                if (dy < 0 && pz.image_scale < 1) {
+                    pz.image_scale *= 1.1;
+                    if (pz.image_scale > 1) pz.image_scale = 1;
+                }
+                if (dy > 0 && pz.image_scale > .1) {
+                    pz.image_scale /= 1.1;
+                }
+            }
+        } else {
+            tele_ctrl_process_cmd(event->event_id);
         }
-
-        // the remainng event_ids are processed by the tele_ctrl_process_cmd routine
-        tele_ctrl_process_cmd(event->event_id);
 
         // for arrow keys do not redraw the displays because they occur rapidly
         // when they key is held, and the arrow key events will accumulate, so that
@@ -968,3 +1111,47 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
+static void sanitize_pan_zoom(void)
+{
+    // sanity check image_scale, must be <= 1
+    if (pz.image_scale > 1) {
+        FATAL("BUG: image_scale %f is greater than 1\n", pz.image_scale);
+    }
+
+    // if camera width or height has changed then
+    // reset image_scale
+    if (pz.cam_width != cam_img.width || pz.cam_height != cam_img.height) {
+        pz.image_scale = 1;
+        pz.cam_width = cam_img.width;
+        pz.cam_height = cam_img.height;
+    }
+
+    // determine image_width and image_height
+    pz.image_width  = pz.cam_width * pz.image_scale;
+    pz.image_height = pz.cam_height * pz.image_scale;
+
+    // sanitize x/y center to ensure that the image_width
+    // and image_height don't extend off the boundary
+    if (pz.image_x_ctr - pz.image_width/2 < 0) {
+        pz.image_x_ctr = pz.image_width/2;
+    }
+    if (pz.image_x_ctr + pz.image_width/2 >= pz.cam_width) {
+        pz.image_x_ctr = pz.cam_width - pz.image_width/2;
+    }
+    if (pz.image_y_ctr - pz.image_height/2 < 0) {
+        pz.image_y_ctr = pz.image_height/2;
+    }
+    if (pz.image_y_ctr + pz.image_height/2 >= pz.cam_height) {
+        pz.image_y_ctr = pz.cam_height - pz.image_height/2;
+    }
+
+    // determine pixel rows and cols to skip when passing
+    // pixels to sdl_update_xxx_texture
+    pz.skip_cols = pz.image_x_ctr - pz.image_width/2;
+    pz.skip_rows = pz.image_y_ctr - pz.image_height/2;
+
+    // the sdl_update_yuy2_texture does not work well when
+    // skip_cols is odd; so if skip_cols is odd decrement 
+    // it by 1
+    if (pz.skip_cols & 1) pz.skip_cols -= 1;
+}

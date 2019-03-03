@@ -31,6 +31,7 @@ SOFTWARE.
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -59,6 +60,8 @@ SOFTWARE.
 #define WC_VIDEO   "/dev/video"   // base name
 #define MAX_BUFMAP 16
 
+#define PIXEL_FMT_CHARS(x)  (x) & 0xff, ((x) >> 8) & 0xff, ((x) >> 16) & 0xff, ((x) >> 24) & 0xff
+
 //
 // typedefs
 //
@@ -74,6 +77,7 @@ typedef struct {
 
 static int32_t   cam_fd = -1;
 static bufmap_t  bufmap[MAX_BUFMAP];
+static bool      cam_exit_handler_registered;
 
 //
 // prototypes
@@ -83,7 +87,8 @@ static void cam_exit_handler(void);
 
 // -----------------  API  ---------------------------------------------------------
 
-int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
+int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, double req_tpf,
+                       int32_t *act_fmt, int32_t *act_width, int32_t *act_height, double *act_tpf)
 {
     struct v4l2_capability     cap;
     struct v4l2_cropcap        cropcap;
@@ -96,29 +101,34 @@ int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
     int32_t                    i;
 
     // print args
-    INFO("width=%d height=%d\n", width, height);
+    INFO("req_fmt='%c%c%c%c' req_width=%d req_height=%d req_tpf=%f\n",
+         PIXEL_FMT_CHARS(req_fmt), req_width, req_height, req_tpf);
+
+    // preset returns to invalid
+    *act_fmt = 0;
+    *act_width = 0;
+    *act_height = 0;
+    *act_tpf = 0;
 
     // if cam_fd is open then this is a re-initialize call,
     // so start by closing cam_fd
     if (cam_fd != -1) {
-        INFO("CLOSING %d\n", cam_fd);
         close(cam_fd);
         cam_fd = -1;
     }
 
-    // open webcam, try devices /dev/video0 to 1
+    // open webcam, try devices /dev/video0,1,...
     for (i = 0; i < 10; i++) {
         char devpath[100];
         sprintf(devpath, "%s%d", WC_VIDEO, i);
         cam_fd = open(devpath, O_RDWR|O_NONBLOCK);
         if (cam_fd < 0) {
-            // WARN("open failed %s %s\n",  devpath, strerror(errno));
+            DEBUG("open failed %s %s\n",  devpath, strerror(errno));
             continue;
         }
         break;
     }
     if (cam_fd < 0) {
-        ERROR("open failed\n");
         goto error;
     }
 
@@ -144,31 +154,32 @@ int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
         ERROR("ioctl VIDIOC_G_FMT %s\n", strerror(errno));
         goto error;
     }
-    format.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-    format.fmt.pix.width  =  width;
-    format.fmt.pix.height =  height;
+    format.fmt.pix.pixelformat = req_fmt;
+    format.fmt.pix.width       = req_width;
+    format.fmt.pix.height      = req_height;
     if (ioctl(cam_fd, VIDIOC_S_FMT, &format) < 0) {
         ERROR("ioctl VIDIOC_S_FMT %s\n", strerror(errno));
         goto error;
     }
+    DEBUG("VIDIOC_S_FMT ret: fmt='%c%c%c%c' width=%d height=%d\n",
+          PIXEL_FMT_CHARS(format.fmt.pix.pixelformat), 
+          format.fmt.pix.width , format.fmt.pix.height);
 
-    // get crop capabilities
+    // get crop capabilities; 
+    // if success then set crop to default
     bzero(&cropcap,sizeof(cropcap));
     cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(cam_fd, VIDIOC_CROPCAP, &cropcap) < 0) {
-        WARN("ioctl VIDIOC_CROPCAP, %s\n", strerror(errno));
-    }
-
-    // set crop to default 
-    bzero(&crop, sizeof(crop));
-    crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    crop.c = cropcap.defrect;
-    if (ioctl(cam_fd, VIDIOC_S_CROP, &crop) < 0) {
-        if (errno == EINVAL || errno == ENOTTY) {
-            DEBUG("crop not supported\n");
-        } else {
-            ERROR("ioctl VIDIOC_S_CROP, %s\n", strerror(errno));
-            goto error;
+    if (ioctl(cam_fd, VIDIOC_CROPCAP, &cropcap) == 0) {
+        bzero(&crop, sizeof(crop));
+        crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        crop.c = cropcap.defrect;
+        if (ioctl(cam_fd, VIDIOC_S_CROP, &crop) < 0) {
+            if (errno == EINVAL || errno == ENOTTY) {
+                DEBUG("crop not supported\n");
+            } else {
+                ERROR("ioctl VIDIOC_S_CROP, %s\n", strerror(errno));
+                goto error;
+            }
         }
     }
 
@@ -176,11 +187,15 @@ int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
     bzero(&streamparm, sizeof(streamparm));
     streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     streamparm.parm.capture.timeperframe.numerator   = 1;
-    streamparm.parm.capture.timeperframe.denominator = frames_per_sec;
+    streamparm.parm.capture.timeperframe.denominator = lrint(1 / req_tpf);
     if (ioctl(cam_fd, VIDIOC_S_PARM, &streamparm) < 0) {
         ERROR("ioctl VIDIOC_S_PARM, %s\n", strerror(errno));
         goto error;
     }
+    DEBUG("VIDIOC_S_PARM ret: timeperframe=%f   (%d / %d)\n",
+          (double)streamparm.parm.capture.timeperframe.numerator / streamparm.parm.capture.timeperframe.denominator,
+          streamparm.parm.capture.timeperframe.numerator,
+          streamparm.parm.capture.timeperframe.denominator);
 
     // request memory mapped buffers
     bzero(&reqbuf, sizeof(reqbuf));
@@ -241,7 +256,20 @@ int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
     }
 
     // register exit handler
-    atexit(cam_exit_handler);
+    if (!cam_exit_handler_registered) {
+        atexit(cam_exit_handler);
+        cam_exit_handler_registered = true;
+    }
+
+    // set return values
+    *act_fmt    = format.fmt.pix.pixelformat;
+    *act_width  = format.fmt.pix.width;
+    *act_height = format.fmt.pix.height;
+    *act_tpf    = (double)streamparm.parm.capture.timeperframe.numerator / 
+                  streamparm.parm.capture.timeperframe.denominator;
+
+    INFO("act_fmt='%c%c%c%c' act_width=%d act_height=%d act_tpf=%f\n",
+         PIXEL_FMT_CHARS(*act_fmt), *act_width, *act_height, *act_tpf);
 
     // return success
     INFO("success\n");

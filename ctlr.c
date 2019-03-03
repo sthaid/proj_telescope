@@ -39,6 +39,19 @@ fi
 // - common.h enforces not using 'long'
 // - fortunately tic.h doesn't use 'long'
 
+// Logitech QuickCam Pro 4000
+// - v4l2-ctl --list-formats-ext
+//         Index       : 1
+//         Type        : Video Capture
+//         Pixel Format: 'YU12'
+//         Name        : Planar YUV 4:2:0
+// - http://wiki.oz9aec.net/index.php/Pixel_formats 
+//   says YU12 is 1420
+// - http://fourcc.org/yuv.php#IYUV
+//   says IYUV and I420 are identical
+// - SDL supports
+//   SDL_PIXELFORMAT_IYUV
+
 #include "common.h"
 #include <tic.h>
 
@@ -49,7 +62,12 @@ fi
 //#define MOTOR_UNIT_TEST
 //#define TEST_WITH_ONLY_AZ_MOTOR
 
-#define SWAP(x, y) do { typeof(x) SWAP = x; x = y; y = SWAP; } while (0)
+#define SWAP_VALUES(x,y) do { typeof(x) SWAP = (x); (x) = (y); (y) = SWAP; } while (0)
+
+#define SWAP32(x) ((((x) >> 0) & 0xff) << 24 | \
+                   (((x) >> 8) & 0xff) << 16 | \
+                   (((x) >>16) & 0xff) <<  8 | \
+                   (((x) >>24) & 0xff) <<  0)
 
 //
 // typedefs
@@ -481,7 +499,7 @@ static int motor_init(void)
         return -1;
     }
     if (strcmp(sn0, AZ_MOTOR_SN) != 0) {
-        SWAP(motor_devices[0], motor_devices[1]);
+        SWAP_VALUES(motor_devices[0], motor_devices[1]);
     }
 #endif
 
@@ -1322,10 +1340,6 @@ static void motor_unit_test(void)
 
 // -----------------  CAMERA ----------------------------------------------
 
-#define CAM_WIDTH   640
-#define CAM_HEIGHT  480
-#define CAM_FPS     5
-
 bool cam_thread_running;
 bool cam_thread_exit_req;
 
@@ -1355,6 +1369,8 @@ static void * cam_thread(void * cx)
     unsigned char * ptr;
     unsigned int len;
     size_t cmp_len;
+    int act_fmt, act_width, act_height;
+    double act_tpf;
 
     static char msg_buffer[1000000];
     msg_t *msg = (msg_t*)msg_buffer;
@@ -1369,8 +1385,7 @@ re_init:
             goto done;
         }
 
-        // XXX this will need to return pixel fmt and jpeg info
-        rc = cam_initialize(CAM_WIDTH, CAM_HEIGHT, CAM_FPS);
+        rc = cam_initialize(SWAP32('MJPG'), 1280, 960, 0.2, &act_fmt, &act_width, &act_height, &act_tpf);
         if (rc == 0) {
             break;
         }
@@ -1393,25 +1408,41 @@ re_init:
         }
 
         // prepare the msg
+        switch (act_fmt) {
+        case SWAP32('MJPG'):
+            msg->id = MSGID_CAM_IMG;
+            msg->data_len         = sizeof(msg_cam_img_data_t) + len;
+            msg_data->pixel_fmt   = PIXEL_FMT_YUY2;
+            msg_data->compression = COMPRESSION_JPEG_YUY2;
+            msg_data->width       = act_width;
+            msg_data->height      = act_height;
+            memcpy(msg_data->data, ptr, len);
+            break;
+        case SWAP32('YU12'):
 #if 0
-        msg->id = MSGID_CAM_IMG;
-        msg->data_len         = sizeof(msg_cam_img_data_t) + len;
-        msg_data->pixel_fmt   = PIXEL_FMT_IYUV;
-        msg_data->compression = COMPRESSION_NONE;
-        msg_data->width       = CAM_WIDTH;
-        msg_data->height      = CAM_HEIGHT;
-        memcpy(msg_data->data, ptr, len);
+            // not compressed
+            msg->id = MSGID_CAM_IMG;
+            msg->data_len         = sizeof(msg_cam_img_data_t) + len;
+            msg_data->pixel_fmt   = PIXEL_FMT_IYUV;
+            msg_data->compression = COMPRESSION_NONE;
+            msg_data->width       = act_width;
+            msg_data->height      = act_height;
+            memcpy(msg_data->data, ptr, len);
 #else
-        cmp_len = sizeof(msg_buffer) - sizeof(msg_t) - sizeof(msg_cam_img_data_t);
-        compress(ptr, len, msg_data->data, &cmp_len);
-        msg->id = MSGID_CAM_IMG;
-        msg->data_len         = sizeof(msg_cam_img_data_t) + cmp_len;
-        msg_data->pixel_fmt   = PIXEL_FMT_IYUV;
-        msg_data->compression = COMPRESSION_LZO;
-        msg_data->width       = CAM_WIDTH;
-        msg_data->height      = CAM_HEIGHT;
-        INFO("msg->data_len %d\n", msg->data_len);
+            // lzo compressed
+            cmp_len = sizeof(msg_buffer) - sizeof(msg_t) - sizeof(msg_cam_img_data_t);
+            compress(ptr, len, msg_data->data, &cmp_len);
+            msg->id = MSGID_CAM_IMG;
+            msg->data_len         = sizeof(msg_cam_img_data_t) + cmp_len;
+            msg_data->pixel_fmt   = PIXEL_FMT_IYUV;
+            msg_data->compression = COMPRESSION_LZO;
+            msg_data->width       = act_width;
+            msg_data->height      = act_height;
 #endif
+            break;
+        defaut:
+            FATAL("unsupported pixel_fmt 0x%x\n", act_fmt);
+        }
 
         // send the msg
         comm_send_msg(msg);
