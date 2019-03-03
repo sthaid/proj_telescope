@@ -57,7 +57,7 @@ SOFTWARE.
 //
 
 #define WC_VIDEO   "/dev/video"   // base name
-#define MAX_BUFMAP 32  
+#define MAX_BUFMAP 16
 
 //
 // typedefs
@@ -98,13 +98,21 @@ int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
     // print args
     INFO("width=%d height=%d\n", width, height);
 
+    // if cam_fd is open then this is a re-initialize call,
+    // so start by closing cam_fd
+    if (cam_fd != -1) {
+        INFO("CLOSING %d\n", cam_fd);
+        close(cam_fd);
+        cam_fd = -1;
+    }
+
     // open webcam, try devices /dev/video0 to 1
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 10; i++) {
         char devpath[100];
         sprintf(devpath, "%s%d", WC_VIDEO, i);
         cam_fd = open(devpath, O_RDWR|O_NONBLOCK);
         if (cam_fd < 0) {
-            WARN("open failed %s %s\n",  devpath, strerror(errno));
+            // WARN("open failed %s %s\n",  devpath, strerror(errno));
             continue;
         }
         break;
@@ -148,8 +156,7 @@ int32_t cam_initialize(int32_t width, int32_t height, int32_t frames_per_sec)
     bzero(&cropcap,sizeof(cropcap));
     cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (ioctl(cam_fd, VIDIOC_CROPCAP, &cropcap) < 0) {
-        ERROR("ioctl VIDIOC_CROPCAP, %s\n", strerror(errno));
-        goto error;
+        WARN("ioctl VIDIOC_CROPCAP, %s\n", strerror(errno));
     }
 
     // set crop to default 
@@ -325,7 +332,7 @@ try_again:
     //   endif
     // endif
     if (max_buffer_avail == 0) {
-        if (duration > 2000000) {
+        if (duration > 10000000) {
             ERROR("cam not responding\n");
             return -1;
         } else {
@@ -339,8 +346,8 @@ try_again:
     // discard all but the newest
     if (max_buffer_avail > 3) {
         int32_t i;
+        WARN("discarding buffs because holding=%d is greater than 3\n", max_buffer_avail);
         for (i = 0; i < max_buffer_avail-1; i++) {
-            WARN("discarding, index=%d\n", buffer_avail[i].index);
             cam_put_buff(bufmap[buffer_avail[i].index].addr);
         }
 
