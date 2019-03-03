@@ -53,7 +53,7 @@ void compress(void *buff, size_t buff_len, void *cmp, size_t *cmp_len_arg)
     size_t min_required_cmp_len = (buff_len + buff_len / 16 + 64 + 3);
 
     if (cmp_len < min_required_cmp_len) {
-        FATAL("cmp_len=%zd is less than min required %zd\n", 
+        FATAL("cmp_len=%ld is less than min required %zd\n", 
               cmp_len, min_required_cmp_len);
     }
 

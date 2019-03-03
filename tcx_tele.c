@@ -913,9 +913,9 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                     v_plane = u_plane + ((cam_img.width/2) * (cam_img.height/2));
                     v_pitch = cam_img.width/2;
 
-                    INFO("imgx,y,w,h = %d %d %d %d  sr=%d sc=%d\n",
-                        pz.image_x_ctr, pz.image_y_ctr, pz.image_width, pz.image_height,
-                        pz.skip_rows, pz.skip_cols);
+                    DEBUG("imgx,y,w,h = %d %d %d %d  sr=%d sc=%d\n",
+                          pz.image_x_ctr, pz.image_y_ctr, pz.image_width, pz.image_height,
+                          pz.skip_rows, pz.skip_cols);
 
                     y_plane += pz.skip_rows * cam_img.width + pz.skip_cols;
                     u_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
@@ -927,7 +927,6 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                         cam_texture,
                         cam_img.pixels + (pz.skip_rows * cam_img.width * 2) + (pz.skip_cols * 2),
                         cam_img.width * 2);
-                    INFO("%d %d\n", pz.skip_rows, pz.skip_cols);
                 } else {
                     FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
                 }
