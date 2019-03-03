@@ -474,7 +474,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
 
         case SDL_EVENT_MOUSE_WHEEL: {
-            int dy = event->mouse_motion.delta_y;
+            int dy = event->mouse_wheel.delta_y;
             if (dy < 0 && az_span < 359.99) {
                 az_span *= 1.1;
                 el_span *= 1.1;
@@ -1027,9 +1027,9 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             DEBUG("MOUSE MOTION dx=%d dy=%d  az_ctr=%f el_ctr=%f\n", dx, dy, az_ctr, el_ctr);
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
         case SDL_EVENT_MOUSE_WHEEL: {
-            if (event->mouse_motion.delta_y > 0) {
+            if (event->mouse_wheel.delta_y > 0) {
                 sky_view_scale_tbl_idx++;
-            } else if (event->mouse_motion.delta_y < 0) {
+            } else if (event->mouse_wheel.delta_y < 0) {
                 sky_view_scale_tbl_idx--;
             }
 
