@@ -34,11 +34,9 @@ SOFTWARE.
 #define SHOW_DEFINE(x) INFO("define %s = %s\n", #x, SHOW_DEFINE_STR(x))
 #define SHOW_DEFINE_STR(x) #x
 
-// for use in call to madvise XXX comment
+// for use in call to madvise
 #define PAGE_SIZE 4096L
-#define ROUND_UP(x,n) (((uint64_t)(x) + ((uint64_t)(n) - 1)) & ~((uint64_t)(n) - 1))  // XXX pwr 2
-
-// XXX use of int32_t vs int  in this directory
+#define ROUND_UP(x,n) (((uint64_t)(x) + ((uint64_t)(n) - 1)) & ~((uint64_t)(n) - 1))  // x must be pwr 2
 
 // -----------------  LOGGING  -----------------------------------
 

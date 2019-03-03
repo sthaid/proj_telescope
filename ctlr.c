@@ -69,6 +69,11 @@ fi
                    (((x) >>16) & 0xff) <<  8 | \
                    (((x) >>24) & 0xff) <<  0)
 
+#define MULTI_CHAR(a,b,c,d) ( ((a)<<0) | ((b)<<8) | ((c)<<16) | ((d)<<24) )
+
+#define FMT_MJPG  MULTI_CHAR('M','J','P','G')
+#define FMT_YU12  MULTI_CHAR('Y','U','1','2')
+
 //
 // typedefs
 //
@@ -114,7 +119,7 @@ int main(int argc, char **argv)
     // this performs sanity checks for minilzo
     compress_init();
 
-#if 0  // XXX temp
+#if 0  // XXX temp comment out motor_init
     // motor initialize
     rc = motor_init();
     if (rc < 0) {
@@ -1385,7 +1390,7 @@ re_init:
             goto done;
         }
 
-        rc = cam_initialize(SWAP32('MJPG'), 1280, 960, 0.2, &act_fmt, &act_width, &act_height, &act_tpf);
+        rc = cam_initialize(FMT_MJPG, 1280, 960, 0.2, &act_fmt, &act_width, &act_height, &act_tpf);
         if (rc == 0) {
             break;
         }
@@ -1409,7 +1414,7 @@ re_init:
 
         // prepare the msg
         switch (act_fmt) {
-        case SWAP32('MJPG'):
+        case FMT_MJPG:
             msg->id = MSGID_CAM_IMG;
             msg->data_len         = sizeof(msg_cam_img_data_t) + len;
             msg_data->pixel_fmt   = PIXEL_FMT_YUY2;
@@ -1418,7 +1423,7 @@ re_init:
             msg_data->height      = act_height;
             memcpy(msg_data->data, ptr, len);
             break;
-        case SWAP32('YU12'):
+        case FMT_YU12:
 #if 0
             // not compressed
             msg->id = MSGID_CAM_IMG;
@@ -1440,7 +1445,7 @@ re_init:
             msg_data->height      = act_height;
 #endif
             break;
-        defaut:
+        default:
             FATAL("unsupported pixel_fmt 0x%x\n", act_fmt);
         }
 

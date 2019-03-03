@@ -52,6 +52,9 @@ SOFTWARE.
 //
 // sample code:
 //  - https://gist.github.com/Circuitsoft/1126411  print capabilities
+//
+// https://help.ubuntu.com/community/Webcam#VLC
+//
 
 //
 // defines

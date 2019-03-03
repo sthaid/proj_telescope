@@ -663,8 +663,8 @@ int get_obj(int i, time_t t, double lst, char **name, int *type, double *ra, dou
     // if processing solar-sys object then compute its current ra, dec, and mag
     if (x->type == OBJTYPE_SOLAR) {
         if (compute_ss_obj_ra_dec_mag(x, t) != 0) {
-            // XXX AAA limit number of prints, or don't print more than once per 10 secs
-            ERROR("time XXX out of range for solar-sys-obj %s\n", x->name);
+            // XXX limit number of prints, or don't print more than once per 10 secs
+            ERROR("time out of range for solar-sys-obj %s\n", x->name);
             return -1;   // ERROR_INTERVAL ?
         }
     }
