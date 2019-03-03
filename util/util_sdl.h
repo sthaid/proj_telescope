@@ -123,7 +123,7 @@ typedef struct {
         } mouse_click;
         struct {
             int32_t delta_x;
-            int32_t delta_y;;
+            int32_t delta_y;
         } mouse_motion;
         struct {
             int32_t delta_x;
@@ -239,6 +239,9 @@ void sdl_destroy_texture(texture_t texture);
 // render using textures - webcam support
 texture_t sdl_create_yuy2_texture(int32_t w, int32_t h);
 void sdl_update_yuy2_texture(texture_t texture, uint8_t * pixels, int32_t pitch);
+texture_t sdl_create_iyuv_texture(int32_t w, int32_t h);
+void sdl_update_iyuv_texture(texture_t texture, uint8_t *y_plane, int y_pitch, 
+            uint8_t *u_plane, int u_pitch, uint8_t *v_plane, int v_pitch);
 
 // print screen, file_name must end in .jpg or .png
 void sdl_print_screen(char * file_name, bool flash_display, rect_t * rect);

@@ -1494,7 +1494,7 @@ texture_t sdl_create_texture_from_pane_pixels(rect_t * pane)
     }
 
     // update the texture with the pixels
-    sdl_update_texture(texture, pixels, pane->w);
+    SDL_UpdateTexture(texture, NULL, pixels, pane->w * BYTES_PER_PIXEL);
 
     // free pixels
     free(pixels);
@@ -1597,14 +1597,10 @@ texture_t sdl_create_text_texture(int32_t fg_color, int32_t bg_color, int32_t fo
 
 void sdl_update_texture(texture_t texture, uint8_t * pixels, int32_t pitch) 
 {
-    int32_t width, height;
-
-    sdl_query_texture(texture, &width, &height);
-
     SDL_UpdateTexture((SDL_Texture*)texture,
                       NULL,                   // update entire texture
                       pixels,                 // pixels
-                      pitch*BYTES_PER_PIXEL); // pitch  
+                      pitch);                 // pitch  
 }
 
 void sdl_query_texture(texture_t texture, int32_t * width, int32_t * height)
@@ -1751,6 +1747,8 @@ void sdl_destroy_texture(texture_t texture)
 
 // the webcams I use provide jpeg, which when decoded are in yuy2 pixel format
 
+// - - - -  YUY2   - - - - - - - - 
+
 texture_t sdl_create_yuy2_texture(int32_t w, int32_t h)
 {
     SDL_Texture * texture;
@@ -1769,14 +1767,40 @@ texture_t sdl_create_yuy2_texture(int32_t w, int32_t h)
 
 void sdl_update_yuy2_texture(texture_t texture, uint8_t * pixels, int32_t pitch)
 {
-    int32_t width, height;
-
-    sdl_query_texture(texture, &width, &height);
-
     SDL_UpdateTexture((SDL_Texture*)texture,
                       NULL,            // update entire texture
                       pixels,          // pixels
-                      pitch*2);        // pitch
+                      pitch);          // pitch
+}
+
+// - - - -  IYUV   - - - - - - - - 
+
+texture_t sdl_create_iyuv_texture(int32_t w, int32_t h)
+{
+    SDL_Texture * texture;
+
+    texture = SDL_CreateTexture(sdl_renderer,
+                                SDL_PIXELFORMAT_IYUV,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                w, h);
+    if (texture == NULL) {
+        ERROR("failed to allocate texture\n");
+        return NULL;
+    }
+
+    return (texture_t)texture;
+}
+
+void sdl_update_iyuv_texture(texture_t texture, 
+                             uint8_t *y_plane, int y_pitch,
+                             uint8_t *u_plane, int u_pitch,
+                             uint8_t *v_plane, int v_pitch)
+{
+    SDL_UpdateYUVTexture((SDL_Texture*)texture,
+                         NULL,            // update entire texture
+                         y_plane, y_pitch,
+                         u_plane, u_pitch,
+                         v_plane, v_pitch);
 }
 
 // -----------------  PRINT SCREEN -------------------------------------- 
