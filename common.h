@@ -62,13 +62,20 @@
     (x) == MSGID_SHUTDN_CTLR    ? "MSGID_SHUTDN_CTLR"    : \
                                   "????")
 
+#define COMPRESSION_NONE      1
+#define COMPRESSION_JPEG_YUY2 2
+#define COMPRESSION_LZO       3
+
+#define PIXEL_FMT_YUY2 1
+#define PIXEL_FMT_IYUV 2
+
 //
 // typedefs
 //
 
 typedef struct {
     int id;
-    int datalen;
+    int data_len;
     unsigned char data[0];
 } msg_t;
 
@@ -95,6 +102,14 @@ typedef struct {
 typedef struct {
     int mstep[MAX_MOTOR];
 } msg_set_pos_all_data_t;
+
+typedef struct {
+    int pixel_fmt;
+    int compression;
+    int width;
+    int height;
+    unsigned char data[0];
+} msg_cam_img_data_t;
 
 //
 // environment variables
