@@ -182,8 +182,8 @@ static void display_handler(void)
 
     tele_pane_x = sky_view_pane_w;
     tele_pane_y = sky_pane_h;  
-    tele_pane_w = win_height - sky_pane_h;
     tele_pane_h = win_height - sky_pane_h;
+    tele_pane_w = tele_pane_h * (640. / 480.);
     INFO("tele_pane x,y,w,h = %d %d %d %d\n", tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h);
 
     sdl_pane_manager(
