@@ -31,6 +31,14 @@ then
 fi  
 #endif
 
+// This program should work on either 32 or 64 bit linux. Raspbian is 32 bit.
+// Guidelines / Notes:
+// - don't use 'long'
+// - size_t is 4 bytes on Raspian and 8 bytes on 64 bit Linux. 
+//   Use %zd when printing a size_t
+// - common.h enforces not using 'long'
+// - fortunately tic.h doesn't use 'long'
+
 #include "common.h"
 #include <tic.h>
 
@@ -84,6 +92,9 @@ static int cam_init(void);
 int main(int argc, char **argv)
 {
     int rc;
+
+    // this performs sanity checks for minilzo
+    compress_init();
 
 #if 0  // XXX temp
     // motor initialize
@@ -210,7 +221,7 @@ reconnect:
         goto lost_connection;
     }
     if (msg->id != MSGID_CONNECTED) {
-        ERROR("recvd invalid initial msg, id=%lld\n", msg->id);
+        ERROR("recvd invalid initial msg, id=%d\n", msg->id);
         goto lost_connection;
     }
     connected = true;
@@ -224,8 +235,8 @@ reconnect:
             ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
-        len = recv(sfd, msg->data, msg->datalen, MSG_WAITALL);
-        if (len != msg->datalen) {
+        len = recv(sfd, msg->data, msg->data_len, MSG_WAITALL);
+        if (len != msg->data_len) {
             ERROR("recvd msg data with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
@@ -256,8 +267,8 @@ static int comm_process_recvd_msg(msg_t * msg)
 {
     #define CHECK_DATALEN(explen) \
         do { \
-            if (msg->datalen != explen) { \
-                ERROR("incorrect datalen %lld in %s\n", msg->datalen, MSGID_STR(msg->id)); \
+            if (msg->data_len != explen) { \
+                ERROR("incorrect data_len %d in %s\n", msg->data_len, MSGID_STR(msg->id)); \
                 break; \
             } \
         } while (0)
@@ -301,7 +312,7 @@ static int comm_process_recvd_msg(msg_t * msg)
         CHECK_DATALEN(0);
         break;
     default:
-        ERROR("invalid msgid %lld\n", msg->id);
+        ERROR("invalid msgid %d\n", msg->id);
         return -1;
     }
 
@@ -318,8 +329,8 @@ static void comm_send_msg(msg_t * msg)
 
     DEBUG("sending %s\n", MSGID_STR(msg->id));
 
-    len = send(sfd, msg, sizeof(msg_t) + msg->datalen, MSG_NOSIGNAL);
-    if (len != sizeof(msg_t) + msg->datalen) {
+    len = send(sfd, msg, sizeof(msg_t) + msg->data_len, MSG_NOSIGNAL);
+    if (len != sizeof(msg_t) + msg->data_len) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
 }
@@ -912,7 +923,7 @@ static void * motor_getstatus_thread(void * cx)
 
         // fill in the status msg, and send it
         msg_status->id = MSGID_STATUS;
-        msg_status->datalen = sizeof(msg_status_data_t);
+        msg_status->data_len = sizeof(msg_status_data_t);
         memset(msg_status_data, 0, sizeof(msg_status_data_t));
         for (h = 0; h < MAX_MOTOR; h++) {
             tic_variables *v = variables[h];
@@ -928,7 +939,6 @@ static void * motor_getstatus_thread(void * cx)
             msg_status_data->motor[h].tgt_pos_mstep          = TARGET_POSITION(v);
             msg_status_data->motor[h].curr_vel_mstep_per_sec = CURRENT_VELOCITY(v) / 10000.0;
             msg_status_data->motor[h].spare1                 = 0;
-            msg_status_data->motor[h].spare2                 = 0;
             strncpy(msg_status_data->motor[h].operation_state_str, 
                     motor_operation_state_str(OPERATION_STATE(v)),
                     sizeof(msg_status_data->motor[h].operation_state_str)-1);
@@ -1312,8 +1322,9 @@ static void motor_unit_test(void)
 
 // -----------------  CAMERA ----------------------------------------------
 
-// XXX more work here
-//     - comments
+#define CAM_WIDTH   640
+#define CAM_HEIGHT  480
+#define CAM_FPS     5
 
 bool cam_thread_running;
 bool cam_thread_exit_req;
@@ -1323,26 +1334,16 @@ static void * cam_thread(void * cx);
 
 static int cam_init(void) 
 {
-    int rc;
     pthread_t thread;
 
-    rc = cam_initialize(640, 480, 5);
-    if (rc < 0) {
-        ERROR("cam_initialize failed, rc=%d\n", rc);
-        return rc;
-    }
-
     pthread_create(&thread, NULL, cam_thread, NULL);
-
     atexit(cam_exit);
-
     return 0;
 }
 
 static void cam_exit(void)
 {
     cam_thread_exit_req = true;
-
     while (cam_thread_running) {
         usleep(1000);
     }
@@ -1353,33 +1354,73 @@ static void * cam_thread(void * cx)
     int rc;
     unsigned char * ptr;
     unsigned int len;
+    size_t cmp_len;
 
-    static char msg_buffer[10000000];
-    msg_t * msg = (msg_t*)msg_buffer;
+    static char msg_buffer[1000000];
+    msg_t *msg = (msg_t*)msg_buffer;
+    msg_cam_img_data_t *msg_data = (msg_cam_img_data_t*)msg->data;
 
-    INFO("starting\n");  // XXX del
     cam_thread_running = true;
 
-    while (!cam_thread_exit_req) {
-        // get cam buff
+re_init:
+    // initialize camera
+    while (true) {
+        if (cam_thread_exit_req) {
+            goto done;
+        }
+
+        // XXX this will need to return pixel fmt and jpeg info
+        rc = cam_initialize(CAM_WIDTH, CAM_HEIGHT, CAM_FPS);
+        if (rc == 0) {
+            break;
+        }
+        ERROR("cam_initialize failed, rc=%d\n", rc);
+
+        sleep(1);
+    }
+
+    while (true) {
+        // check for time to exit
+        if (cam_thread_exit_req) {
+            goto done;
+        }
+
+        // get cam buff:
+        // if this fails then re-initialize camera
         rc = cam_get_buff(&ptr, &len);
         if (rc != 0) {
-            usleep(100000);
-            continue;
+            goto re_init;
         }
-        INFO("XXX GOT BUFF %p  len=%d\n", ptr, len);
 
-        // XXX comment
+        // prepare the msg
+#if 0
         msg->id = MSGID_CAM_IMG;
-        msg->datalen = len;
-        memcpy(msg->data, ptr, len);
+        msg->data_len         = sizeof(msg_cam_img_data_t) + len;
+        msg_data->pixel_fmt   = PIXEL_FMT_IYUV;
+        msg_data->compression = COMPRESSION_NONE;
+        msg_data->width       = CAM_WIDTH;
+        msg_data->height      = CAM_HEIGHT;
+        memcpy(msg_data->data, ptr, len);
+#else
+        cmp_len = sizeof(msg_buffer) - sizeof(msg_t) - sizeof(msg_cam_img_data_t);
+        compress(ptr, len, msg_data->data, &cmp_len);
+        msg->id = MSGID_CAM_IMG;
+        msg->data_len         = sizeof(msg_cam_img_data_t) + cmp_len;
+        msg_data->pixel_fmt   = PIXEL_FMT_IYUV;
+        msg_data->compression = COMPRESSION_LZO;
+        msg_data->width       = CAM_WIDTH;
+        msg_data->height      = CAM_HEIGHT;
+        INFO("msg->data_len %d\n", msg->data_len);
+#endif
+
+        // send the msg
         comm_send_msg(msg);
 
         // put buff
         cam_put_buff(ptr);
     }
 
-    INFO("exitting\n");  // XXX del
+done:
     cam_thread_running = false;
     return NULL;
 }
