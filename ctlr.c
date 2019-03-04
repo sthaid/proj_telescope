@@ -345,6 +345,7 @@ static int comm_process_recvd_msg(msg_t * msg)
 static void comm_send_msg(msg_t * msg)
 {
     int len;
+    static pthread_mutex_t send_mutex = PTHREAD_MUTEX_INITIALIZER;
 
     if (!connected && msg->id != MSGID_CONNECTED) {
         return;
@@ -352,7 +353,10 @@ static void comm_send_msg(msg_t * msg)
 
     DEBUG("sending %s\n", MSGID_STR(msg->id));
 
-    len = send(sfd, msg, sizeof(msg_t) + msg->data_len, MSG_NOSIGNAL);
+    pthread_mutex_lock(&send_mutex);
+    len = do_send(sfd, msg, sizeof(msg_t) + msg->data_len);
+    pthread_mutex_unlock(&send_mutex);
+
     if (len != sizeof(msg_t) + msg->data_len) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
