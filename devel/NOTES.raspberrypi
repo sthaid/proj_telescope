@@ -148,9 +148,23 @@ Install Procedure:
     cd ~/proj_telescope/devel/pololu/test_pgm
     make
 
+- udev rules for video device permissions
+  - # make sure udev rule file is present, and then plug in the webcam
+    sudo vi /etc/udev/rules.d/10-local.rules  
+    KERNEL=="video*", MODE="0666"
+  - NOTES on using udev ...
+    # to reload rules without rebooting
+    sudo udevadm control --reload-rules && udevadm trigge
+    # to get udev info
+    sudo udevadm info  -n video0
+
 - build proj_telescope
     cd ~/proj_telescope
     make ctlr
+
+==================================================
+BACKUP                         
+==================================================
 
 --------------------------------
 -----  DID NOT WORK  -----------
