@@ -1,18 +1,3 @@
-//
-// notes:
-//
-// v4l2-ctl is useful to determine webcam capabilities
-//  - yum install v4l-utils
-//  - v4l2-ctl --help-all
-//  - v4l2-ctl --list-formats-ext
-//
-// sample code:
-//  - https://gist.github.com/Circuitsoft/1126411  print capabilities
-//
-// https://help.ubuntu.com/community/Webcam#VLC
-
-
-
 =============================================
 GENERAL                       
 =============================================
@@ -177,3 +162,16 @@ Logitech Webcam C270, hwid=046d:0825, tested on Raspbian/wheezy; 1280x720
   It works, say, 10 times and then refuses to work. Then begins 
   to work again. I tried "magic incantation" and it did not help.
 
+=============================================
+LINUX WEBCAM SOFTWARE
+=============================================
+
+v4l2-ctl is useful to determine webcam capabilities
+ - yum install v4l-utils
+ - v4l2-ctl --help-all
+ - v4l2-ctl --list-formats-ext
+
+sample code:
+ - https://gist.github.com/Circuitsoft/1126411  print capabilities
+
+https://help.ubuntu.com/community/Webcam#VLC
