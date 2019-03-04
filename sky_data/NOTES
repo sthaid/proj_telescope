@@ -8,7 +8,7 @@ for the Moon.
   hygdata_v3.csv.gz
   solar_sys_data.csv.gz
 
-To decompress, use gunzip.
+To decompress, use gunzip -k.
 
 
 Scripts Used to Acquire Stellar and SolarSys Data
