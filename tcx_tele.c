@@ -38,6 +38,7 @@ SOFTWARE.
 #define ELMSTEP_180_DEG        (ELMSTEP_360_DEG / 2)
 #define ELMSTEP_1_DEG          ((int)(ELMSTEP_360_DEG / 360. + .5))
 
+//XXX rename these  to SDL_EVENT_TELE_xxx
 #define SDL_EVENT_MOTORS_CLOSE   (SDL_EVENT_USER_DEFINED + 0)
 #define SDL_EVENT_MOTORS_OPEN    (SDL_EVENT_USER_DEFINED + 1)
 #define SDL_EVENT_UN_CALIBRATE   (SDL_EVENT_USER_DEFINED + 2)
@@ -47,7 +48,6 @@ SOFTWARE.
 #define SDL_EVENT_SHUTDN_CTLR    (SDL_EVENT_USER_DEFINED + 6)
 #define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 100)
 #define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 101)
-#define SDL_EVENT_DISPLAY_CHOICE (SDL_EVENT_USER_DEFINED + 102)
 
 #define EVENT_ID_STR(x) \
    ((x) == SDL_EVENT_MOTORS_CLOSE          ? "MOTORS_CLOSE"    : \
@@ -59,7 +59,6 @@ SOFTWARE.
     (x) == SDL_EVENT_SHUTDN_CTLR           ? "SHUTDN_CTLR"     : \
     (x) == SDL_EVENT_MOUSE_MOTION          ? "MOUSE_MOTION"    : \
     (x) == SDL_EVENT_MOUSE_WHEEL           ? "MOUSE_WHEEL"     : \
-    (x) == SDL_EVENT_DISPLAY_CHOICE        ? "DISPLAY_CHOICE"  : \
     (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"  : \
     (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW" : \
     (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"    : \
@@ -83,6 +82,12 @@ SOFTWARE.
 #define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 1000000)
 
 #define CAM_IMG_AVAIL (microsec_timer() - cam_img.time_us < 1000000)
+
+#define SDLPR(fmt, args...) \
+    do { \
+        sdl_render_printf(pane, COL2X(sdlpr_col,fontsz), ROW2Y(sdlpr_row,fontsz), fontsz, WHITE, BLACK, fmt, ## args); \
+        sdlpr_row++; \
+    } while (0)
 
 //
 // typedefs
@@ -367,6 +372,10 @@ static int comm_process_recvd_msg(msg_t * msg)
         break; }
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
+        break;
+    case MSGID_CAM_CTRLS_GET_ALL:
+        INFO("XXX RECEIVED MSGID_CAM_CTRLS_GET_ALL, len=%d\n", msg->data_len);
+        // will want to make a copu for the tele_cam_pane
         break;
     default:
         ERROR("invalid msgid %d\n", msg->id);
@@ -817,19 +826,9 @@ static struct {
 int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
     struct {
-        int display_choice;
+        int none;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
-
-    #define DISPLAY_CHOICE_CAMERA 0
-    #define DISPLAY_CHOICE_MOTOR_VARIABLES  1
-    #define MAX_DISPLAY_CHOICE 2
-
-    #define SDLPR(fmt, args...) \
-        do { \
-            sdl_render_printf(pane, COL2X(sdlpr_col,fontsz), ROW2Y(sdlpr_row,fontsz), fontsz, WHITE, BLACK, fmt, ## args); \
-            sdlpr_row++; \
-        } while (0)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -837,7 +836,6 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
-        vars->display_choice = DISPLAY_CHOICE_CAMERA;
         DEBUG("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
@@ -849,144 +847,102 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         int fontsz, sdlpr_row, sdlpr_col;
+        int required_cam_texture_signature;
         char str1[100], str2[100], str3[100], str4[100];
+
+        static texture_t cam_texture = NULL;
+        static int cam_texture_signature = 0;
 
         fontsz = 20;  // tele pane
 
-        // display either:
-        // - camera image
-        // - motor variables
-        if (vars->display_choice == DISPLAY_CHOICE_CAMERA) {
-            int required_cam_texture_signature;
+        // display camera image ...
 
-            static texture_t cam_texture = NULL;
-            static int cam_texture_signature = 0;
+        // lock cam_img struct
+        // if image avail
+        //     sanitize the pan/zoom control info
+        //     create texture
+        //     copy pixels to the texture
+        //     unlock cam_img struct
+        //     render the texture
+        // else
+        //     unlock cam_img struct
+        //     display 'no image'
+        // endif
 
-            // display camera image ...
+        // lock cam_img struct
+        pthread_mutex_lock(&cam_img_mutex);
 
-            // lock cam_img struct
-            // if image avail
-            //     sanitize the pan/zoom control info
-            //     create texture
-            //     copy pixels to the texture
-            //     unlock cam_img struct
-            //     render the texture
-            // else
-            //     unlock cam_img struct
-            //     display 'no image'
-            // endif
+        // if image avail
+        if (CAM_IMG_AVAIL) {
+            // sanitize the pan/zoom control info
+            sanitize_pan_zoom();
 
-            // lock cam_img struct
-            pthread_mutex_lock(&cam_img_mutex);
+            // create texture
+            required_cam_texture_signature = (cam_img.pixel_fmt << 28) |
+                                             (pz.image_width    << 14) |
+                                             (pz.image_height   <<  0);
+            if (cam_texture_signature != required_cam_texture_signature) {
+                sdl_destroy_texture(cam_texture);
 
-            // if image avail
-            if (CAM_IMG_AVAIL) {
-                // sanitize the pan/zoom control info
-                sanitize_pan_zoom();
-
-                // create texture
-                required_cam_texture_signature = (cam_img.pixel_fmt << 28) |
-                                                 (pz.image_width    << 14) |
-                                                 (pz.image_height   <<  0);
-                if (cam_texture_signature != required_cam_texture_signature) {
-                    sdl_destroy_texture(cam_texture);
-
-                    if (cam_img.pixel_fmt == PIXEL_FMT_IYUV) {
-                        cam_texture = sdl_create_iyuv_texture(pz.image_width, pz.image_height);
-                    } else if (cam_img.pixel_fmt == PIXEL_FMT_YUY2) {
-                        cam_texture = sdl_create_yuy2_texture(pz.image_width, pz.image_height);
-                    } else {
-                        FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
-                    }
-                    if (cam_texture == NULL) {
-                        FATAL("failed to create cam_texture\n");
-                    }
-
-                    cam_texture_signature = required_cam_texture_signature;
-                }
-
-                // copy pixels to the texture
                 if (cam_img.pixel_fmt == PIXEL_FMT_IYUV) {
-                    unsigned char *y_plane, *u_plane, *v_plane;
-                    int y_pitch, u_pitch, v_pitch;
-
-                    y_plane = cam_img.pixels;
-                    y_pitch = cam_img.width;
-                    u_plane = y_plane + (cam_img.width * cam_img.height);
-                    u_pitch = cam_img.width/2;
-                    v_plane = u_plane + ((cam_img.width/2) * (cam_img.height/2));
-                    v_pitch = cam_img.width/2;
-
-                    DEBUG("imgx,y,w,h = %d %d %d %d  sr=%d sc=%d\n",
-                          pz.image_x_ctr, pz.image_y_ctr, pz.image_width, pz.image_height,
-                          pz.skip_rows, pz.skip_cols);
-
-                    y_plane += pz.skip_rows * cam_img.width + pz.skip_cols;
-                    u_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
-                    v_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
-
-                    sdl_update_iyuv_texture(cam_texture, y_plane, y_pitch, u_plane, u_pitch, v_plane, v_pitch);
+                    cam_texture = sdl_create_iyuv_texture(pz.image_width, pz.image_height);
                 } else if (cam_img.pixel_fmt == PIXEL_FMT_YUY2) {
-                    sdl_update_yuy2_texture(
-                        cam_texture,
-                        cam_img.pixels + (pz.skip_rows * cam_img.width * 2) + (pz.skip_cols * 2),
-                        cam_img.width * 2);
+                    cam_texture = sdl_create_yuy2_texture(pz.image_width, pz.image_height);
                 } else {
                     FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
                 }
+                if (cam_texture == NULL) {
+                    FATAL("failed to create cam_texture\n");
+                }
 
-                // unlock cam_img struct
-                pthread_mutex_unlock(&cam_img_mutex);
+                cam_texture_signature = required_cam_texture_signature;
+            }
 
-                // render the texture
-                rect_t loc = {0, 0, pane->w, pane->h};
-                sdl_render_scaled_texture(pane, &loc, cam_texture);
+            // copy pixels to the texture
+            if (cam_img.pixel_fmt == PIXEL_FMT_IYUV) {
+                unsigned char *y_plane, *u_plane, *v_plane;
+                int y_pitch, u_pitch, v_pitch;
+
+                y_plane = cam_img.pixels;
+                y_pitch = cam_img.width;
+                u_plane = y_plane + (cam_img.width * cam_img.height);
+                u_pitch = cam_img.width/2;
+                v_plane = u_plane + ((cam_img.width/2) * (cam_img.height/2));
+                v_pitch = cam_img.width/2;
+
+                DEBUG("imgx,y,w,h = %d %d %d %d  sr=%d sc=%d\n",
+                      pz.image_x_ctr, pz.image_y_ctr, pz.image_width, pz.image_height,
+                      pz.skip_rows, pz.skip_cols);
+
+                y_plane += pz.skip_rows * cam_img.width + pz.skip_cols;
+                u_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
+                v_plane += (pz.skip_rows / 2) * (cam_img.width / 2) + (pz.skip_cols / 2);
+
+                sdl_update_iyuv_texture(cam_texture, y_plane, y_pitch, u_plane, u_pitch, v_plane, v_pitch);
+            } else if (cam_img.pixel_fmt == PIXEL_FMT_YUY2) {
+                sdl_update_yuy2_texture(
+                    cam_texture,
+                    cam_img.pixels + (pz.skip_rows * cam_img.width * 2) + (pz.skip_cols * 2),
+                    cam_img.width * 2);
             } else {
-                // unlock cam_img struct
-                pthread_mutex_unlock(&cam_img_mutex);
-
-                // display 'no image'
-                sdlpr_col = (sdl_pane_cols(pane,fontsz) - 15) / 2;
-                if (sdlpr_col < 0) sdlpr_col = 0;
-                sdlpr_row = sdl_pane_rows(pane,fontsz) / 2;
-                SDLPR("NO CAMERA IMAGE");
+                FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
             }
-        } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARIABLES) {
-            struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
-            struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
-            char   error_status_str0[100], error_status_str1[100];
-            char  *saveptr0, *saveptr1, *errsts0, *errsts1;
-            int    errsts_cnt=0;
 
-            // display motor variables...
+            // unlock cam_img struct
+            pthread_mutex_unlock(&cam_img_mutex);
 
-            sdlpr_col = 0;
-            sdlpr_row = 3;
-            SDLPR("OPENED   %9d %9d", m0->opened, m1->opened);
-            SDLPR("ENERG    %9d %9d", m0->energized, m1->energized);
-            SDLPR("VOLTAGE  %9d %9d", m0->vin_voltage_mv, m1->vin_voltage_mv);
-            SDLPR("CURR_POS %9d %9d", m0->curr_pos_mstep, m1->curr_pos_mstep);
-            SDLPR("TGT_POS  %9d %9d", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
-            SDLPR("CURR_VEL %9.1f %9.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
-            SDLPR("OP_STATE %9s %9s",     m0->operation_state_str, m1->operation_state_str);
-            while (true) {
-                if (errsts_cnt == 0) {
-                    strcpy(error_status_str0, m0->error_status_str);
-                    strcpy(error_status_str1, m1->error_status_str);
-                    errsts0 = strtok_r(error_status_str0, " ", &saveptr0);
-                    errsts1 = strtok_r(error_status_str1, " ", &saveptr1);
-                }
+            // render the texture
+            rect_t loc = {0, 0, pane->w, pane->h};
+            sdl_render_scaled_texture(pane, &loc, cam_texture);
+        } else {
+            // unlock cam_img struct
+            pthread_mutex_unlock(&cam_img_mutex);
 
-                if (errsts0 == NULL) errsts0 = " ";
-                if (errsts1 == NULL) errsts1 = " ";
-                SDLPR("%8s %9s %9s", errsts_cnt == 0 ? "ERR_STAT" : "", errsts0, errsts1);
-
-                errsts0 = strtok_r(NULL, " ", &saveptr0);
-                errsts1 = strtok_r(NULL, " ", &saveptr1);
-                if ((errsts0 == NULL && errsts1 == NULL) || ++errsts_cnt == 5) {
-                    break;
-                }
-            }
+            // display 'no image'
+            sdlpr_col = (sdl_pane_cols(pane,fontsz) - 15) / 2;
+            if (sdlpr_col < 0) sdlpr_col = 0;
+            sdlpr_row = sdl_pane_rows(pane,fontsz) / 2;
+            SDLPR("NO CAMERA IMAGE");
         }
 
         // display status lines
@@ -1036,13 +992,6 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 SDL_EVENT_SHUTDN_CTLR,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
-        // - row last
-        sdl_render_text_and_register_event(
-            pane, pane->w-COL2X(9,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, 
-            "DISP_SEL",
-            LIGHT_BLUE, BLACK, 
-            SDL_EVENT_DISPLAY_CHOICE,
-            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -1056,9 +1005,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // some of the event_ids are handled here, and the majority
         // of the event_ids are handled by call to tele_ctrl_process_cmd
-        if (event->event_id == SDL_EVENT_DISPLAY_CHOICE) {
-            vars->display_choice = (vars->display_choice + 1) % MAX_DISPLAY_CHOICE;
-        } else if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
+        if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
             if (CAM_IMG_AVAIL) {
                 pz.image_x_ctr -= event->mouse_motion.delta_x;
                 pz.image_y_ctr -= event->mouse_motion.delta_y;
@@ -1158,3 +1105,147 @@ static void sanitize_pan_zoom(void)
     // it by 1
     if (pz.skip_cols & 1) pz.skip_cols -= 1;
 }
+
+// -----------------  TELE INFO PANE HNDLR  -------------------------------
+
+int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
+{
+    struct {
+        int display_choice;
+    } * vars = pane_cx->vars;
+    rect_t * pane = &pane_cx->pane;
+
+    #define SDL_EVENT_TELE_INFO_DISPLAY_CHOICE (SDL_EVENT_USER_DEFINED + 0)
+
+    #define DISPLAY_CHOICE_CAM_CTRLS 0
+    #define DISPLAY_CHOICE_MOTOR_VARS  1
+    #define MAX_DISPLAY_CHOICE 2
+
+    // ----------------------------
+    // -------- INITIALIZE --------
+    // ----------------------------
+
+    if (request == PANE_HANDLER_REQ_INITIALIZE) {
+        vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        vars->display_choice = DISPLAY_CHOICE_MOTOR_VARS;
+        DEBUG("PANE x,y,w,h  %d %d %d %d\n",
+            pane->x, pane->y, pane->w, pane->h);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ------------------------
+    // -------- RENDER --------
+    // ------------------------
+
+    if (request == PANE_HANDLER_REQ_RENDER) {
+        int fontsz, sdlpr_row, sdlpr_col;
+        fontsz = 20;  // tele pane
+
+        // display either:
+        // - camera controls
+        // - motor variables
+        if (vars->display_choice == DISPLAY_CHOICE_CAM_CTRLS) {
+            // display camera controls ...
+
+            // title
+            sdlpr_col = 12; sdlpr_row = 0; SDLPR("CAMERA CTRLS");
+
+            // if camera controls are available then
+            //   display the camera controls
+            // else
+            //   display 'UNAVAILABLE'
+            // endif
+            if (0) {
+                // XXX
+            } else {
+                sdlpr_col = 12;
+                sdlpr_row = 4;
+                SDLPR("NOT AVAILABLE");
+            }
+        } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARS) {
+            struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
+            struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
+            char   error_status_str0[100], error_status_str1[100];
+            char  *saveptr0, *saveptr1, *errsts0, *errsts1;
+            int    errsts_cnt=0;
+
+            // display motor variables...
+
+            // title
+            sdlpr_col = 12; sdlpr_row = 0; SDLPR("MOTOR INFO");
+
+            // if motor vars available then
+            //   display the motor variables
+            // else
+            //   display 'UNAVAILABLE'
+            // endif
+            if (CTLR_MOTOR_STATUS_VALID) {
+                sdlpr_col = 0; sdlpr_row = 2;
+                SDLPR("OPENED   %9d %9d", m0->opened, m1->opened);
+                SDLPR("ENERG    %9d %9d", m0->energized, m1->energized);
+                SDLPR("VOLTAGE  %9d %9d", m0->vin_voltage_mv, m1->vin_voltage_mv);
+                SDLPR("CURR_POS %9d %9d", m0->curr_pos_mstep, m1->curr_pos_mstep);
+                SDLPR("TGT_POS  %9d %9d", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
+                SDLPR("CURR_VEL %9.1f %9.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
+                SDLPR("OP_STATE %9s %9s",     m0->operation_state_str, m1->operation_state_str);
+                while (true) {
+                    if (errsts_cnt == 0) {
+                        strcpy(error_status_str0, m0->error_status_str);
+                        strcpy(error_status_str1, m1->error_status_str);
+                        errsts0 = strtok_r(error_status_str0, " ", &saveptr0);
+                        errsts1 = strtok_r(error_status_str1, " ", &saveptr1);
+                    }
+
+                    if (errsts0 == NULL) errsts0 = " ";
+                    if (errsts1 == NULL) errsts1 = " ";
+                    SDLPR("%8s %9s %9s", errsts_cnt == 0 ? "ERR_STAT" : "", errsts0, errsts1);
+
+                    errsts0 = strtok_r(NULL, " ", &saveptr0);
+                    errsts1 = strtok_r(NULL, " ", &saveptr1);
+                    if ((errsts0 == NULL && errsts1 == NULL) || ++errsts_cnt == 5) {
+                        break;
+                    }
+                }
+            } else {
+                sdlpr_col = 12; sdlpr_row = 4; SDLPR("NOT AVAILABLE");
+            }
+        }
+
+        // register the SDL_EVENT_DISPLAY_CHOICE event
+        sdl_render_text_and_register_event(
+            pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, 
+            "DISP_SEL",
+            LIGHT_BLUE, BLACK, 
+            SDL_EVENT_TELE_INFO_DISPLAY_CHOICE,
+            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // -----------------------
+    // -------- EVENT --------
+    // -----------------------
+
+    if (request == PANE_HANDLER_REQ_EVENT) {
+        switch (event->event_id) {
+        case SDL_EVENT_TELE_INFO_DISPLAY_CHOICE:
+            vars->display_choice = (vars->display_choice + 1) % MAX_DISPLAY_CHOICE;
+            break;
+        }
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ---------------------------
+    // -------- TERMINATE --------
+    // ---------------------------
+
+    if (request == PANE_HANDLER_REQ_TERMINATE) {
+        free(vars);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // not reached
+    assert(0);
+    return PANE_HANDLER_RET_NO_ACTION;
+}
+

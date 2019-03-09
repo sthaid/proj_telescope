@@ -167,11 +167,29 @@ LINUX WEBCAM SOFTWARE
 =============================================
 
 v4l2-ctl is useful to determine webcam capabilities
- - yum install v4l-utils
- - v4l2-ctl --help-all
- - v4l2-ctl --list-formats-ext
+  yum install v4l-utils
+  v4l2-ctl --help-all
+  v4l2-ctl --list-formats-ext
+  v4l2-ctl --list-ctrls
 
-sample code:
- - https://gist.github.com/Circuitsoft/1126411  print capabilities
+Controls Example
+  v4l2-ctl --set-ctrl=gain=00
+  v4l2-ctl --set-ctrl=exposure_auto=1
+  v4l2-ctl --set-ctrl=exposure_absolute=10
+  v4l2-ctl --set-ctrl=brightness=62
 
-https://help.ubuntu.com/community/Webcam#VLC
+Sample Code:
+  https://gist.github.com/Circuitsoft/1126411 
+
+Webcam Info
+ - https://help.ubuntu.com/community/Webcam#VLC
+ - cheese: yum install cheese
+
+Doc: Video for Linux API
+  https://linuxtv.org/downloads/v4l-dvb-apis/uapi/v4l/v4l2.html
+  https://www.linuxtv.org/downloads/v4l-dvb-apis-old/vidioc-queryctrl.html
+
+vlc - media player, install on Fedora needs rpmfusion
+  rpm -ivh http://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-stable.noarch.rpm
+  dnf install vlc
+  

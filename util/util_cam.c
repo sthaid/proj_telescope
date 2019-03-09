@@ -87,8 +87,10 @@ static bool      cam_exit_handler_registered;
 //
 
 static void cam_exit_handler(void);
+static void cam_ctrls_reset(void);
+static int32_t cam_ctrls_query(void);
 
-// -----------------  API  ---------------------------------------------------------
+// -----------------  CAM INIT  ----------------------------------------------------
 
 int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, double req_tpf,
                        int32_t *act_fmt, int32_t *act_width, int32_t *act_height, double *act_tpf)
@@ -112,6 +114,9 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     *act_width = 0;
     *act_height = 0;
     *act_tpf = 0;
+
+    // reset cam_ctrls; a subsequent call to cam_ctrls_query will re-initialize 
+    cam_ctrls_reset();
 
     // if cam_fd is open then this is a re-initialize call,
     // so start by closing cam_fd
@@ -258,6 +263,12 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
         goto error;
     }
 
+    // query controls
+    if (cam_ctrls_query() < 0) {
+        ERROR("cam_ctrls_query failed\n");
+        goto error;
+    }
+
     // register exit handler
     if (!cam_exit_handler_registered) {
         atexit(cam_exit_handler);
@@ -270,7 +281,6 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     *act_height = format.fmt.pix.height;
     *act_tpf    = (double)streamparm.parm.capture.timeperframe.numerator / 
                   streamparm.parm.capture.timeperframe.denominator;
-
     INFO("act_fmt='%c%c%c%c' act_width=%d act_height=%d act_tpf=%f\n",
          PIXEL_FMT_CHARS(*act_fmt), *act_width, *act_height, *act_tpf);
 
@@ -302,6 +312,8 @@ static void cam_exit_handler(void)
 
     close(cam_fd);
 }
+
+// -----------------  CAM VIDEO STREAMING  -----------------------------------------
 
 int32_t cam_get_buff(uint8_t **buff, uint32_t *len)
 {
@@ -433,3 +445,487 @@ void cam_put_buff(uint8_t * buff)
         ERROR("ioctl VIDIOC_QBUF index=%d %s\n", buff_idx, strerror(errno));
     }
 }
+
+// -----------------  CAM CONTROLS  ------------------------------------------------
+
+// references
+//   https://linuxtv.org/downloads/v4l-dvb-apis/uapi/v4l/control.html
+//   https://www.linuxtv.org/downloads/v4l-dvb-apis-old/vidioc-queryctrl.html#control-flags
+
+// defines
+#define READABLE(f) \
+        (((f) &  \
+          (V4L2_CTRL_FLAG_DISABLED | V4L2_CTRL_FLAG_INACTIVE | V4L2_CTRL_FLAG_WRITE_ONLY)) \
+         == 0)
+#define WRITEABLE(f) \
+        (((f) &  \
+          (V4L2_CTRL_FLAG_DISABLED | V4L2_CTRL_FLAG_GRABBED | V4L2_CTRL_FLAG_READ_ONLY | V4L2_CTRL_FLAG_INACTIVE | \
+           V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_HAS_PAYLOAD)) \
+         == 0)
+#define LOCK   do { pthread_mutex_lock(&cam_ctrls_mutex); } while (0)
+#define UNLOCK do { pthread_mutex_unlock(&cam_ctrls_mutex); } while (0)
+
+// variables
+static char query_ctrl_buff[10000];
+static query_ctrl_t * query_ctrl = (void*)query_ctrl_buff;
+static int32_t query_ctrl_len;
+static pthread_mutex_t cam_ctrls_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// prototypes
+static char * flags_str(int32_t flags) __attribute__ ((unused));
+static char * type_str(int32_t type) __attribute__ ((unused));
+static void debug_print_query_ctrl(void);
+
+// - - - - CAM CTRLS INIT  - - - - 
+
+// clear query_ctrl variable; 
+// a subsequent call to cam_ctrls_query will be needed to re-init the query_ctrl var
+static void cam_ctrls_reset(void) 
+{
+    LOCK;
+    memset(query_ctrl_buff,0,sizeof(query_ctrl_buff));
+    query_ctrl_len = 0;
+    UNLOCK;
+}
+
+// query controls and store result variable 'query_ctrl"
+static int32_t cam_ctrls_query(void)
+{
+    int32_t rc;
+    struct v4l2_queryctrl queryctrl;
+    char strings[8102];
+    int32_t strings_offset, strings_offset_save, strings_count;
+
+    // lock cam_ctrls mutex
+    LOCK;
+
+    // init
+    memset(query_ctrl_buff, 0, sizeof(query_ctrl_buff));
+    memset(strings,0,sizeof(strings));
+    strings_count = 0;
+    strings_offset = 0;
+
+    // issue VIDIOC_QUERYCTRL until all controls are queried
+    DEBUG("VIDIOC_QUERYCTRL ...\n");
+    memset(&queryctrl, 0, sizeof(queryctrl));
+    while (true) {
+        // issue the QUERYCTRL ioctl
+        queryctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+        rc = ioctl(cam_fd, VIDIOC_QUERYCTRL, &queryctrl);
+        if (rc < 0) {
+            break;
+        }
+
+        // if this control is not relevant then continue
+        if ((queryctrl.flags & V4L2_CTRL_FLAG_DISABLED) ||
+            (queryctrl.flags & V4L2_CTRL_FLAG_INACTIVE)) 
+        {
+            continue;  
+        }
+
+        // debug print the ctrl
+        DEBUG("%32s (0x%x) %s mmsd=(%d %d %d %d) (%s%s) %s\n", 
+             queryctrl.name,
+             queryctrl.id,
+             type_str(queryctrl.type),
+             queryctrl.minimum,
+             queryctrl.maximum,
+             queryctrl.step,
+             queryctrl.default_value,
+             READABLE(queryctrl.flags) ? "R" : "",
+             WRITEABLE(queryctrl.flags) ? "W" : "",
+             flags_str(queryctrl.flags));
+
+        // store the ctrl in 'query_ctrl variable'
+        struct cam_ctrl_s *x = &query_ctrl->cam_ctrl[query_ctrl->max_cam_ctrl++];
+        strncpy(x->name, (char*)queryctrl.name, sizeof(x->name));
+        x->cid                 = queryctrl.id;
+        x->readable            = READABLE(queryctrl.flags);
+        x->writeable           = WRITEABLE(queryctrl.flags);
+        x->pad                 = 0;
+        x->current_value       = NO_CAM_VALUE;
+        x->minimum             = queryctrl.minimum;
+        x->maximum             = queryctrl.maximum;
+        x->step                = queryctrl.step;
+        x->default_value       = queryctrl.default_value;
+        x->menu_strings_count  = 0;
+        x->menu_strings_offset = 0;
+
+        // if there are menu strings then query the strings and
+        // add them to the 'strings' buffer
+        strings_offset_save = strings_offset;
+        strings_count = 0;
+        if (queryctrl.type == V4L2_CTRL_TYPE_MENU) {
+            struct v4l2_querymenu querymenu;
+            char name[100];
+
+            memset(&querymenu, 0, sizeof(querymenu));
+            querymenu.id = queryctrl.id;
+            for (querymenu.index = queryctrl.minimum;
+                 querymenu.index <= queryctrl.maximum;
+                 querymenu.index++) 
+            {
+                rc = ioctl(cam_fd, VIDIOC_QUERYMENU, &querymenu);
+                if (rc == 0) {
+                    strcpy(name, (char*)querymenu.name);
+                } else {
+                    sprintf(name, "Invalid-%d", querymenu.index);
+                }
+                DEBUG("%32s menu index=%d name=%s\n", "", querymenu.index, name);
+
+                strcat(&strings[strings_offset], name);
+                strings_offset += strlen(name) + 1;
+                strings_count++;
+            }
+        }
+
+        // if there are menu strings then update the query_ctrl variable
+        // to include the number of menu strings and the offset to the first
+        // of the menu strings
+        x->menu_strings_count  = strings_count;
+        x->menu_strings_offset = (strings_count ? strings_offset_save : 0);
+    }
+
+    // append strings to query_ctrl
+    memcpy(&query_ctrl->cam_ctrl[query_ctrl->max_cam_ctrl],
+           strings,
+           strings_offset);
+
+    // set query_ctrl_len
+    query_ctrl_len = offsetof(query_ctrl_t, cam_ctrl[query_ctrl->max_cam_ctrl]) + strings_offset;
+
+    // debug print query_ctrl
+    debug_print_query_ctrl();
+
+#if 0
+    // the basic queryctrl is sufficient for what I amd doing
+    struct v4l2_query_ext_ctrl query_ext_ctrl;
+    DEBUG("VIDIOC_QUERY_EXT_CTRL ...\n");
+    memset(&query_ext_ctrl, 0, sizeof(query_ext_ctrl));
+    while (true) {
+        query_ext_ctrl.id |= (V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND);
+        rc = ioctl(cam_fd, VIDIOC_QUERY_EXT_CTRL, &query_ext_ctrl);
+        if (rc < 0) {
+            break;
+        }
+
+        if ((query_ext_ctrl.flags & V4L2_CTRL_FLAG_DISABLED) ||
+            (query_ext_ctrl.flags & V4L2_CTRL_FLAG_INACTIVE)) 
+        {
+            continue;  
+        }
+
+        DEBUG("%32s (0x%x) %s mmsd=(%lld %lld %lld %lld) (%s%s) %s\n", 
+             query_ext_ctrl.name,
+             query_ext_ctrl.id,
+             type_str(query_ext_ctrl.type),
+             query_ext_ctrl.minimum,
+             query_ext_ctrl.maximum,
+             query_ext_ctrl.step,
+             query_ext_ctrl.default_value,
+             READABLE(query_ext_ctrl.flags) ? "R" : "",
+             WRITEABLE(query_ext_ctrl.flags) ? "W" : "",
+             flags_str(query_ext_ctrl.flags));
+    }
+#endif
+
+    // unlock cam_ctrls mutex
+    UNLOCK;
+
+    return 0;
+}
+
+static char * flags_str(int32_t flags)
+{
+    static char str[1000];
+
+    #define CHECK_FLAG(flg) if (flags & (V4L2_CTRL_FLAG_##flg)) strcat(str, #flg " ");
+
+    str[0] = '\0';
+    CHECK_FLAG(DISABLED);
+    CHECK_FLAG(GRABBED);
+    CHECK_FLAG(READ_ONLY);
+    CHECK_FLAG(UPDATE);
+    CHECK_FLAG(INACTIVE);
+    CHECK_FLAG(SLIDER);
+    CHECK_FLAG(WRITE_ONLY);
+    CHECK_FLAG(VOLATILE);
+    CHECK_FLAG(HAS_PAYLOAD);
+    CHECK_FLAG(EXECUTE_ON_WRITE);
+    CHECK_FLAG(MODIFY_LAYOUT);
+
+    return str;
+}
+
+static char * type_str(int32_t type)
+{
+    static char str[100];
+    #define CHECK_TYPE(t) if (type == V4L2_CTRL_TYPE_##t) return #t;
+
+    CHECK_TYPE(INTEGER);
+    CHECK_TYPE(BOOLEAN);
+    CHECK_TYPE(MENU);
+    CHECK_TYPE(BUTTON);
+    CHECK_TYPE(INTEGER64);
+    CHECK_TYPE(CTRL_CLASS);
+    CHECK_TYPE(STRING);
+    CHECK_TYPE(BITMASK);
+    CHECK_TYPE(INTEGER_MENU);
+
+    sprintf(str, "V4L2_CTRL_TYPE_%d", type);
+    return str;
+}
+
+static void debug_print_query_ctrl(void)
+{
+    int32_t i, j;
+    char *strings, *s, *str_array[100];
+
+    strings = (char*)&query_ctrl->cam_ctrl[query_ctrl->max_cam_ctrl];
+
+    INFO("--- QUERY CTRL TABLE (len=%d) ---\n", query_ctrl_len);
+
+    for (i = 0; i < query_ctrl->max_cam_ctrl; i++) {
+        struct cam_ctrl_s *x = &query_ctrl->cam_ctrl[i];
+
+        s = strings + x->menu_strings_offset;
+        for (j = 0; j < x->menu_strings_count; j++) {
+            str_array[j] = s;
+            s += strlen(s) + 1;
+        }
+
+        INFO("%32s %8x  %c%c mmsd=%d,%d,%d,%d strings=%d\n",
+             x->name,
+             x->cid,
+             x->readable ? 'R' : ' ',
+             x->writeable ? 'W' : ' ',
+             x->minimum,
+             x->maximum,
+             x->step,
+             x->default_value,
+             x->menu_strings_count);
+        for (j = 0; j < x->menu_strings_count; j++) {
+            INFO("%42s %s\n", "", str_array[j]);
+        }
+    }
+
+    INFO("------------------------\n");
+}
+
+// - - - - CAM CTRLS API - - - - 
+
+// note - qclen is in/out
+int32_t cam_ctrls_get_all(query_ctrl_t *qc, int32_t *qclen)
+{
+    int32_t i, rc;
+
+    // lock cam_ctrls mutex
+    LOCK;
+
+    // if query_ctrl is not valid then return error
+    if (query_ctrl->max_cam_ctrl == 0 || query_ctrl_len == 0) {
+        UNLOCK;
+        return -1;
+    }
+
+    // if caller's buffer is not big enough return error
+    if (*qclen < query_ctrl_len) {
+        ERROR("caller's bufflen %d too small, required=%d\n", *qclen, query_ctrl_len);
+        UNLOCK;
+        return -1;
+    }
+
+    // copy query_ctrl to caller's buffer
+    memcpy(qc, query_ctrl, query_ctrl_len);
+
+    // get all readable values
+    for (i = 0; i < qc->max_cam_ctrl; i++) {
+        struct cam_ctrl_s *x = &qc->cam_ctrl[i];
+        if (x->readable == false) {
+            continue;
+        }
+        rc = cam_ctrls_get(x->cid, &x->current_value);
+        if (rc != 0) {
+            UNLOCK;
+            return rc;
+        }
+    }
+
+    // also return qclen
+    *qclen = query_ctrl_len;
+
+    // unlock cam_ctrls mutex
+    UNLOCK;
+
+    // return success
+    return 0;
+}
+
+int32_t cam_ctrls_set_all_to_default(void)
+{
+    int32_t i, rc;
+
+    // lock cam_ctrls mutex
+    LOCK;
+
+    // if query_ctrl is not valid then return error
+    if (query_ctrl->max_cam_ctrl == 0 || query_ctrl_len == 0) {
+        UNLOCK;
+        return -1;
+    }
+
+    // loop over all writeable ctrls, and set to default
+    for (i = 0; i < query_ctrl->max_cam_ctrl; i++) {
+        struct cam_ctrl_s *x = &query_ctrl->cam_ctrl[i];
+        if (x->writeable == false) {
+            continue;
+        }
+        rc = cam_ctrls_set(x->cid, x->default_value);
+        if (rc != 0) {
+            UNLOCK;
+            return rc;
+        }
+    }
+
+    // unlock cam_ctrls mutex
+    UNLOCK;
+
+    // success
+    return 0;
+}
+
+int32_t cam_ctrls_get(int32_t cid, int32_t *cid_value)
+{
+    struct v4l2_control control;
+
+    memset(&control, 0, sizeof(control));
+    control.id = cid;
+    if (ioctl(cam_fd, VIDIOC_G_CTRL, &control) != 0) {
+        *cid_value = NO_CAM_VALUE;
+        ERROR("failed get of cid 0x%x, %s\n", cid, strerror(errno));
+        return -1;
+    }
+
+    *cid_value = control.value;
+    return 0;
+}
+
+int32_t cam_ctrls_set(int32_t cid, int32_t cid_value)
+{
+    struct v4l2_control control;
+
+    memset(&control, 0, sizeof(control));
+    control.id = cid;
+    control.value = cid_value;
+    if (ioctl(cam_fd, VIDIOC_S_CTRL, &control) != 0) {
+        ERROR("failed set of cid 0x%x to %d, %s\n", cid, cid_value, strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
+int32_t cam_ctrls_incr(int32_t cid)
+{
+    struct cam_ctrl_s *x = NULL;
+    int32_t cid_value, rc, i;
+
+    // lock cam_ctrls mutex
+    LOCK;
+
+    // if query_ctrl is not valid then return error
+    if (query_ctrl->max_cam_ctrl == 0 || query_ctrl_len == 0) {
+        UNLOCK;
+        return -1;
+    }
+
+    // search the query_ctrl table for the cid
+    for (i = 0; i < query_ctrl->max_cam_ctrl; i++) {
+        x = &query_ctrl->cam_ctrl[i];
+        if (x->cid == cid) {
+            break;
+        }
+    }
+    if (i == query_ctrl->max_cam_ctrl) {
+        ERROR("cid 0x%x not found in query_ctrl\n", cid);
+        UNLOCK;
+        return -1;  
+    }
+
+    // the cid must be both readable and writeable
+    if (!x->readable || !x->writeable) {
+        ERROR("cid 0x%x must be both readable and writeable\n", cid);
+        UNLOCK;
+        return -1;
+    }
+
+    // get the cid_value, 
+    // increment it, and
+    // set the cid to the incremented value
+    rc = cam_ctrls_get(cid, &cid_value);
+    if (rc == 0) {
+        cid_value += x->step;
+        if (cid_value <= x->maximum) {
+            rc = cam_ctrls_set(cid, cid_value);
+        }
+    }
+
+    // unlock cam_ctrls mutex
+    UNLOCK;
+
+    // return status
+    return rc;
+}
+
+int32_t cam_ctrls_decr(int32_t cid)
+{
+    struct cam_ctrl_s *x = NULL;
+    int32_t cid_value, rc, i;
+
+    // lock cam_ctrls mutex
+    LOCK;
+
+    // if query_ctrl is not valid then return error
+    if (query_ctrl->max_cam_ctrl == 0 || query_ctrl_len == 0) {
+        UNLOCK;
+        return -1;
+    }
+
+    // search the query_ctrl table for the cid
+    for (i = 0; i < query_ctrl->max_cam_ctrl; i++) {
+        x = &query_ctrl->cam_ctrl[i];
+        if (x->cid == cid) {
+            break;
+        }
+    }
+    if (i == query_ctrl->max_cam_ctrl) {
+        ERROR("cid 0x%x not found in query_ctrl\n", cid);
+        UNLOCK;
+        return -1;  
+    }
+
+    // the cid must be both readable and writeable
+    if (!x->readable || !x->writeable) {
+        ERROR("cid 0x%x must be both readable and writeable\n", cid);
+        UNLOCK;
+        return -1;
+    }
+
+    // get the cid_value, 
+    // decrement it, and
+    // set the cid to the decremented value
+    rc = cam_ctrls_get(cid, &cid_value);
+    if (rc == 0) {
+        cid_value -= x->step;
+        if (cid_value >= x->minimum) {
+            rc = cam_ctrls_set(cid, cid_value);
+        }
+    }
+
+    // unlock cam_ctrls mutex
+    UNLOCK;
+
+    // return status
+    return rc;
+}
+

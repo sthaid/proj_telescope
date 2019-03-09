@@ -334,6 +334,22 @@ static int comm_process_recvd_msg(msg_t * msg)
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
         break;
+#if 0
+    // XXX new cam messages
+    case MSGID_CAM_CTRLS_SET_ALL_TO_DEFAULT:
+        CHECK_DATALEN(0);
+        break;
+    case MSGID_CAM_CTRLS_SET_ONE:
+        CHECK_DATALEN(sizeof(xxx));
+        cam_ctrls_set_one(cid, cid_value);
+        XXX get value back and send reply
+        break;
+    case MSGID_CAM_CTRLS_GET_ONE:
+        CHECK_DATALEN(sizoef(xxx));
+        rc = cam_ctrls_get_one(cid, &cid_value);
+        XXX xxx get the value into the struct and set it
+        break;
+#endif
     default:
         ERROR("invalid msgid %d\n", msg->id);
         return -1;
@@ -1361,6 +1377,12 @@ static int cam_init(void)
 
     pthread_create(&thread, NULL, cam_thread, NULL);
     atexit(cam_exit);
+
+#if 0 // XXX
+    INFO("PAUSING\n");
+    while (1) pause();
+#endif
+
     return 0;
 }
 
@@ -1380,6 +1402,7 @@ static void * cam_thread(void * cx)
     size_t cmp_len;
     int act_fmt, act_width, act_height;
     double act_tpf;
+    uint64_t time_now_us, time_last_cam_ctrlrs_get_all=0;
 
     static char msg_buffer[1000000];
     msg_t *msg = (msg_t*)msg_buffer;
@@ -1458,6 +1481,18 @@ re_init:
 
         // put buff
         cam_put_buff(ptr);
+
+        // once per second get all of the ctrl values and send them to tcx
+        time_now_us = microsec_timer();
+        if (time_now_us - time_last_cam_ctrlrs_get_all > 900000) {
+            time_last_cam_ctrlrs_get_all = time_now_us;
+            if (cam_ctrls_get_all((query_ctrl_t*)msg->data, &msg->data_len) != 0) {
+                ERROR("cam_ctrls_get_all failed\n");
+            }
+            INFO("XXX GOT LEN %d\n", msg->data_len);
+            msg->id = MSGID_CAM_CTRLS_GET_ALL;
+            comm_send_msg(msg);
+        }
     }
 
 done:
