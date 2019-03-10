@@ -46,9 +46,10 @@ SOFTWARE.
 #define SDL_EVENT_TRK_DISABLE    (SDL_EVENT_USER_DEFINED + 4)
 #define SDL_EVENT_TRK_ENABLE     (SDL_EVENT_USER_DEFINED + 5)
 #define SDL_EVENT_SHUTDN_CTLR    (SDL_EVENT_USER_DEFINED + 6)
-#define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 100)
-#define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 101)
+#define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 7)
+#define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 8)
 
+// XXX do we need this vvv
 #define EVENT_ID_STR(x) \
    ((x) == SDL_EVENT_MOTORS_CLOSE          ? "MOTORS_CLOSE"    : \
     (x) == SDL_EVENT_MOTORS_OPEN           ? "MOTORS_OPEN"     : \
@@ -134,9 +135,14 @@ static double min_valid_az, max_valid_az;  // az range -180 to +180
 
 static pthread_mutex_t tele_ctrl_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// camera vars
-static cam_img_t cam_img;
+// webcam image vars
+static cam_img_t       cam_img;
 static pthread_mutex_t cam_img_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// webcam ctrl vars
+static char                cam_ctrls_buff[10000];
+static cam_query_ctrls_t * cam_ctrls = (void*)cam_ctrls_buff; 
+static int                 cam_ctrls_len;
 
 //
 // prototypes
@@ -374,9 +380,26 @@ static int comm_process_recvd_msg(msg_t * msg)
         CHECK_DATALEN(0);
         break;
     case MSGID_CAM_CTRLS_GET_ALL:
-        INFO("XXX RECEIVED MSGID_CAM_CTRLS_GET_ALL, len=%d\n", msg->data_len);
-        // will want to make a copu for the tele_cam_pane
+        // XXX get lock and check the length
+        // XXX search for all users of cam_ctrls
+        memcpy(cam_ctrls, msg->data, msg->data_len);
+        cam_ctrls_len = msg->data_len;
+        // XXX??will want to make a copu for the tele_cam_pane
         break;
+    case MSGID_CAM_CTRLS_GET: {
+        msg_cam_ctrls_get_t *d = (void*)msg->data;
+        int i;
+        for (i = 0; i < cam_ctrls->max_cam_ctrl; i++) {
+            struct cam_ctrl_s *x = &cam_ctrls->cam_ctrl[i];
+            if (x->cid == d->cid) {
+                x->current_value = d->value;
+                break;
+            }
+        }
+        if (i == cam_ctrls->max_cam_ctrl) {
+            ERROR("rcvd MSGID_CAM_CTRLS_GET: cid 0x%x not found in cam_ctrls\n", d->cid);
+        }
+        break; }
     default:
         ERROR("invalid msgid %d\n", msg->id);
         return -1;
@@ -1106,20 +1129,27 @@ static void sanitize_pan_zoom(void)
     if (pz.skip_cols & 1) pz.skip_cols -= 1;
 }
 
-// -----------------  TELE INFO PANE HNDLR  -------------------------------
+// -----------------  TELE CAM INFO PANE HNDLR  ---------------------------
 
-int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
+// XXX try other webcam, with buttons
+// XXX selected should clear self when cam data is invalid
+// XXX detect invalid cam data
+// XXX scroll arrows or mouse motion for moving the menu
+// XXX drop the display when no recent query_ctrl received
+// XXX locking
+
+int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
     struct {
-        int display_choice;
+        int selected;
+        uint64_t selected_time_us;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
-    #define SDL_EVENT_TELE_INFO_DISPLAY_CHOICE (SDL_EVENT_USER_DEFINED + 0)
-
-    #define DISPLAY_CHOICE_CAM_CTRLS 0
-    #define DISPLAY_CHOICE_MOTOR_VARS  1
-    #define MAX_DISPLAY_CHOICE 2
+    #define SDL_EVENT_TELE_CAM_INFO_MOUSE_WHEEL          (SDL_EVENT_USER_DEFINED + 0)
+    #define SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES (SDL_EVENT_USER_DEFINED + 1)
+    #define SDL_EVENT_TELE_CAM_INFO_CLEAR_SELECTED       (SDL_EVENT_USER_DEFINED + 2)
+    #define SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE           (SDL_EVENT_USER_DEFINED + 10)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -1127,7 +1157,7 @@ int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, s
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
-        vars->display_choice = DISPLAY_CHOICE_MOTOR_VARS;
+        vars->selected = -1;
         DEBUG("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
@@ -1139,85 +1169,105 @@ int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, s
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         int fontsz, sdlpr_row, sdlpr_col;
-        fontsz = 20;  // tele pane
 
-        // display either:
-        // - camera controls
-        // - motor variables
-        if (vars->display_choice == DISPLAY_CHOICE_CAM_CTRLS) {
-            // display camera controls ...
+        fontsz = 20;  // tele cam info pane
 
-            // title
-            sdlpr_col = 12; sdlpr_row = 0; SDLPR("CAMERA CTRLS");
+        // register CLEAR_SELECTED first, this event is the full pane
+        rect_t loc = {0,0,pane->w,pane->h};
+        sdl_register_event(pane, &loc, SDL_EVENT_TELE_CAM_INFO_CLEAR_SELECTED, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
-            // if camera controls are available then
-            //   display the camera controls
-            // else
-            //   display 'UNAVAILABLE'
-            // endif
-            if (0) {
-                // XXX
-            } else {
-                sdlpr_col = 12;
-                sdlpr_row = 4;
-                SDLPR("NOT AVAILABLE");
-            }
-        } else if (vars->display_choice == DISPLAY_CHOICE_MOTOR_VARS) {
-            struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
-            struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
-            char   error_status_str0[100], error_status_str1[100];
-            char  *saveptr0, *saveptr1, *errsts0, *errsts1;
-            int    errsts_cnt=0;
+        // title
+        sdlpr_col = 12; sdlpr_row = 0; SDLPR("CAMERA CTRLS");
 
-            // display motor variables...
+        // if camera controls are available then
+        //   display the camera controls
+        // else
+        //   display 'UNAVAILABLE'
+        // endif
+        if (cam_ctrls->max_cam_ctrl != 0 && cam_ctrls_len != 0) {  // XXX and time
+            int32_t i, j;
+            char *strings, *s, *menu_strings[100], current_value_str[100];
+            char cam_ctrl_str[100];
+            strings = (char*)&cam_ctrls->cam_ctrl[cam_ctrls->max_cam_ctrl];
 
-            // title
-            sdlpr_col = 12; sdlpr_row = 0; SDLPR("MOTOR INFO");
+            for (i = 0; i < cam_ctrls->max_cam_ctrl; i++) {
+                struct cam_ctrl_s *x = &cam_ctrls->cam_ctrl[i];
 
-            // if motor vars available then
-            //   display the motor variables
-            // else
-            //   display 'UNAVAILABLE'
-            // endif
-            if (CTLR_MOTOR_STATUS_VALID) {
-                sdlpr_col = 0; sdlpr_row = 2;
-                SDLPR("OPENED   %9d %9d", m0->opened, m1->opened);
-                SDLPR("ENERG    %9d %9d", m0->energized, m1->energized);
-                SDLPR("VOLTAGE  %9d %9d", m0->vin_voltage_mv, m1->vin_voltage_mv);
-                SDLPR("CURR_POS %9d %9d", m0->curr_pos_mstep, m1->curr_pos_mstep);
-                SDLPR("TGT_POS  %9d %9d", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
-                SDLPR("CURR_VEL %9.1f %9.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
-                SDLPR("OP_STATE %9s %9s",     m0->operation_state_str, m1->operation_state_str);
-                while (true) {
-                    if (errsts_cnt == 0) {
-                        strcpy(error_status_str0, m0->error_status_str);
-                        strcpy(error_status_str1, m1->error_status_str);
-                        errsts0 = strtok_r(error_status_str0, " ", &saveptr0);
-                        errsts1 = strtok_r(error_status_str1, " ", &saveptr1);
-                    }
-
-                    if (errsts0 == NULL) errsts0 = " ";
-                    if (errsts1 == NULL) errsts1 = " ";
-                    SDLPR("%8s %9s %9s", errsts_cnt == 0 ? "ERR_STAT" : "", errsts0, errsts1);
-
-                    errsts0 = strtok_r(NULL, " ", &saveptr0);
-                    errsts1 = strtok_r(NULL, " ", &saveptr1);
-                    if ((errsts0 == NULL && errsts1 == NULL) || ++errsts_cnt == 5) {
-                        break;
-                    }
+                // build table of menu_strings
+                s = strings + x->menu_strings_offset;
+                for (j = 0; j < x->menu_strings_count; j++) {
+                    menu_strings[j] = s;
+                    s += strlen(s) + 1;
                 }
-            } else {
-                sdlpr_col = 12; sdlpr_row = 4; SDLPR("NOT AVAILABLE");
-            }
-        }
 
-        // register the SDL_EVENT_DISPLAY_CHOICE event
-        sdl_render_text_and_register_event(
-            pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, 
-            "DISP_SEL",
-            LIGHT_BLUE, BLACK, 
-            SDL_EVENT_TELE_INFO_DISPLAY_CHOICE,
-            SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+                // construct the current_value_str, if menu_strings are available
+                // then use the appropriate menu_string, otherwise convert 
+                // current_value to number
+                if (x->menu_strings_count > 0 &&
+                    x->current_value >= 0 && x->current_value < x->menu_strings_count)
+                {
+                    sprintf(current_value_str, "%s", menu_strings[x->current_value]);
+                } else {
+                    sprintf(current_value_str, "%d", x->current_value);
+                }
+
+                // create the string that will be displayed for the cam_ctrl
+                // currently being processed
+                if (x->type == CAM_CTRL_TYPE_BUTTON) {
+                    sprintf(cam_ctrl_str, "BUTTON %s", x->name);
+                } else if (x->type == CAM_CTRL_TYPE_READ_WRITE) {
+                    sprintf(cam_ctrl_str, "RDWR   %s = %s", x->name, current_value_str);
+                } else if (x->type == CAM_CTRL_TYPE_READ_ONLY) {
+                    sprintf(cam_ctrl_str, "RDONLY %s = %s", x->name, current_value_str);
+                } else {
+                    sprintf(cam_ctrl_str, "OTHER  %s = %s", x->name, current_value_str);
+                }
+    
+                // if the cam_ctrl can be written then register an event,
+                // otherwise just display
+                if (x->type == CAM_CTRL_TYPE_BUTTON || 
+                    x->type == CAM_CTRL_TYPE_READ_WRITE)
+                {
+                    sdl_render_text_and_register_event(
+                        pane, COL2X(0,fontsz), ROW2Y(2+i,fontsz), fontsz, 
+                        cam_ctrl_str,
+                        vars->selected == i ? GREEN : LIGHT_BLUE, 
+                        BLACK, 
+                        SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE+i,
+                        SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+                } else {
+                    sdl_render_printf(
+                        pane, COL2X(0,fontsz), ROW2Y(2+i,fontsz), fontsz, 
+                        WHITE, BLACK, "%s", cam_ctrl_str);
+                }
+            }
+
+            // if a READ_WRITE ctrl is selected then register MOUSE_WHEEL
+            if (vars->selected != -1 && 
+                cam_ctrls->cam_ctrl[vars->selected].type == CAM_CTRL_TYPE_READ_WRITE)
+            {
+                rect_t loc = {0,0,pane->w,pane->h};
+                sdl_register_event(pane, &loc, SDL_EVENT_TELE_CAM_INFO_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+            }
+
+            // register evevent to RESET_DEFAULT_VALUES
+            sdl_render_text_and_register_event(
+                pane, COL2X(0,fontsz), pane->h - ROW2Y(1,fontsz), fontsz, 
+                "RESET_DEFAULT_VALUES",
+                LIGHT_BLUE, BLACK, 
+                SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES, 
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+
+            // clear selected if it is for a button event and has been set for 1 second
+            if (vars->selected != -1 && 
+                cam_ctrls->cam_ctrl[vars->selected].type == CAM_CTRL_TYPE_BUTTON &&
+                microsec_timer() - vars->selected_time_us > 1000000)
+            {
+                vars->selected = -1;
+            }
+        } else {
+            sdlpr_col = 12; sdlpr_row = 4; SDLPR("NOT AVAILABLE");
+        }
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -1228,9 +1278,49 @@ int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, s
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
-        case SDL_EVENT_TELE_INFO_DISPLAY_CHOICE:
-            vars->display_choice = (vars->display_choice + 1) % MAX_DISPLAY_CHOICE;
+        case SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE+0 ... SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE+100:
+            INFO("GOT EVENT %d\n", event->event_id-SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE);
+
+            vars->selected = event->event_id - SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE;
+            vars->selected_time_us = microsec_timer();
+
+            struct cam_ctrl_s *x = &cam_ctrls->cam_ctrl[vars->selected];
+            if (x->type == CAM_CTRL_TYPE_BUTTON) {
+                // XXX call routine to set the button
+            }
             break;
+        case SDL_EVENT_TELE_CAM_INFO_CLEAR_SELECTED:
+            vars->selected = -1;
+            vars->selected_time_us = 0;
+            break;
+        case SDL_EVENT_TELE_CAM_INFO_MOUSE_WHEEL: {
+            int dy, cid;
+            char msg_buffer[100];
+            msg_t * msg = (msg_t*)msg_buffer;
+            msg_cam_ctrls_incr_decr_t * msg_cam_ctrls_incr_decr = (void*)msg->data;
+
+            dy = event->mouse_wheel.delta_y;
+            if (dy == 0) {
+                break;
+            }
+
+            if (vars->selected == -1) {  // XXX or if selected is not in cam_ctlrs
+                break;
+            }
+
+            cid = cam_ctrls->cam_ctrl[vars->selected].cid;
+            INFO("selected=%d  cid=0x%x  dy=%d\n",  vars->selected, cid, dy);
+
+            msg->id = MSGID_CAM_CTRLS_INCR_DECR;
+            msg->data_len = sizeof(msg_cam_ctrls_incr_decr_t);
+            msg_cam_ctrls_incr_decr->cid = cid;
+            msg_cam_ctrls_incr_decr->incr_flag = (dy > 0);
+            comm_send_msg(msg);
+            break; }
+        case SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES: {
+            msg_t msg = { MSGID_CAM_CTRLS_RESET, 0 };
+            comm_send_msg(&msg);
+            break; }
         }
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -1249,3 +1339,102 @@ int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, s
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
+// -----------------  TELE MOTOR INFO PANE HNDLR  -------------------------
+
+int tele_motor_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
+{
+    struct {
+        int none;
+    } * vars = pane_cx->vars;
+    rect_t * pane = &pane_cx->pane;
+
+    // ----------------------------
+    // -------- INITIALIZE --------
+    // ----------------------------
+
+    if (request == PANE_HANDLER_REQ_INITIALIZE) {
+        vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        DEBUG("PANE x,y,w,h  %d %d %d %d\n",
+            pane->x, pane->y, pane->w, pane->h);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ------------------------
+    // -------- RENDER --------
+    // ------------------------
+
+    if (request == PANE_HANDLER_REQ_RENDER) {
+        int fontsz, sdlpr_row, sdlpr_col;
+        struct motor_status_s * m0 = &ctlr_motor_status.motor[0];
+        struct motor_status_s * m1 = &ctlr_motor_status.motor[1];
+        char   error_status_str0[100], error_status_str1[100];
+        char  *saveptr0, *saveptr1, *errsts0, *errsts1;
+        int    errsts_cnt=0;
+
+        fontsz = 20;  // tele motor info pane
+
+        // display motor variables...
+
+        // title
+        sdlpr_col = 12; sdlpr_row = 0; SDLPR("MOTOR INFO");
+
+        // if motor vars available then
+        //   display the motor variables
+        // else
+        //   display 'UNAVAILABLE'
+        // endif
+        if (CTLR_MOTOR_STATUS_VALID) {
+            sdlpr_col = 0; sdlpr_row = 2;
+            SDLPR("OPENED   %9d %9d", m0->opened, m1->opened);
+            SDLPR("ENERG    %9d %9d", m0->energized, m1->energized);
+            SDLPR("VOLTAGE  %9d %9d", m0->vin_voltage_mv, m1->vin_voltage_mv);
+            SDLPR("CURR_POS %9d %9d", m0->curr_pos_mstep, m1->curr_pos_mstep);
+            SDLPR("TGT_POS  %9d %9d", m0->tgt_pos_mstep, m1->tgt_pos_mstep);
+            SDLPR("CURR_VEL %9.1f %9.1f", m0->curr_vel_mstep_per_sec, m1->curr_vel_mstep_per_sec);
+            SDLPR("OP_STATE %9s %9s",     m0->operation_state_str, m1->operation_state_str);
+            while (true) {
+                if (errsts_cnt == 0) {
+                    strcpy(error_status_str0, m0->error_status_str);
+                    strcpy(error_status_str1, m1->error_status_str);
+                    errsts0 = strtok_r(error_status_str0, " ", &saveptr0);
+                    errsts1 = strtok_r(error_status_str1, " ", &saveptr1);
+                }
+
+                if (errsts0 == NULL) errsts0 = " ";
+                if (errsts1 == NULL) errsts1 = " ";
+                SDLPR("%8s %9s %9s", errsts_cnt == 0 ? "ERR_STAT" : "", errsts0, errsts1);
+
+                errsts0 = strtok_r(NULL, " ", &saveptr0);
+                errsts1 = strtok_r(NULL, " ", &saveptr1);
+                if ((errsts0 == NULL && errsts1 == NULL) || ++errsts_cnt == 5) {
+                    break;
+                }
+            }
+        } else {
+            sdlpr_col = 12; sdlpr_row = 4; SDLPR("NOT AVAILABLE");
+        }
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // -----------------------
+    // -------- EVENT --------
+    // -----------------------
+
+    if (request == PANE_HANDLER_REQ_EVENT) {
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // ---------------------------
+    // -------- TERMINATE --------
+    // ---------------------------
+
+    if (request == PANE_HANDLER_REQ_TERMINATE) {
+        free(vars);
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    // not reached
+    assert(0);
+    return PANE_HANDLER_RET_NO_ACTION;
+}

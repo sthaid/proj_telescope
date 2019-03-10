@@ -432,6 +432,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
+// XXX comment what these are doing
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION: 
         case SDL_EVENT_KEY_UP_ARROW: 

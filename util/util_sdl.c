@@ -313,8 +313,9 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
     #define FG_PANE_CX (TAILQ_LAST(&pane_list_head,pane_list_head_s))
 
     #define SDL_EVENT_PANE_SELECT            0xffffff01
-    #define SDL_EVENT_PANE_MOVE              0xffffff02
-    #define SDL_EVENT_PANE_TERMINATE         0xffffff03
+    #define SDL_EVENT_PANE_BACKGROUND        0xffffff02
+    #define SDL_EVENT_PANE_MOVE              0xffffff03
+    #define SDL_EVENT_PANE_TERMINATE         0xffffff04
 
     va_list ap; 
     pane_cx_t *pane_cx, *pane_cx_next;
@@ -375,6 +376,7 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
                                           &loc_full_pane, &loc_bar_move, &loc_bar_terminate);
 
             sdl_register_event(&pane_cx->pane, &loc_full_pane, SDL_EVENT_PANE_SELECT, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+            sdl_register_event(&pane_cx->pane, &loc_full_pane, SDL_EVENT_PANE_BACKGROUND, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
             sdl_register_event(&pane_cx->pane, &loc_bar_move, SDL_EVENT_PANE_MOVE, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
             sdl_register_event(&pane_cx->pane, &loc_bar_terminate, SDL_EVENT_PANE_TERMINATE, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
@@ -449,6 +451,35 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
                     redraw = true;
                 }
                 if (event->event_id == SDL_EVENT_PANE_SELECT) {
+                    redraw = true;
+                } else if (event->event_id == SDL_EVENT_PANE_BACKGROUND) {
+                    pane_cx_t *pane_cx = (pane_cx_t*)event->event_cx;
+                    int32_t mouse_x = event->mouse_click.x + pane_cx->x_disp;
+                    int32_t mouse_y = event->mouse_click.y + pane_cx->y_disp;
+                    pane_cx_t *x;
+
+                    // remove this pane (the FG_PANE_CX) from the tail and put it on head;
+                    // so now pane will be furthest in background
+                    TAILQ_REMOVE(&pane_list_head, pane_cx, entries);
+                    TAILQ_INSERT_HEAD(&pane_list_head, pane_cx, entries);
+
+                    // try to find another pane to put in the foreground by searching
+                    // the pane list starting from the tail (foreground), looking
+                    // for a pane that contains the mouse click coordinates; 
+                    // if found then put that pane in foreground
+                    DEBUG("MOUSE %d %d\n", mouse_x,mouse_y);
+                    TAILQ_FOREACH_REVERSE(x, &pane_list_head, pane_list_head_s, entries) {
+                        DEBUG("%d %d %d %d\n", x->x_disp, x->y_disp, x->w_total, x->h_total);
+                        if ((mouse_x >= x->x_disp && mouse_x < x->x_disp + x->w_total) &&
+                            (mouse_y >= x->y_disp && mouse_y < x->y_disp + x->h_total))
+                        {
+                            TAILQ_REMOVE(&pane_list_head, x, entries);
+                            TAILQ_INSERT_TAIL(&pane_list_head, x, entries);
+                            break;
+                        }
+                    }
+
+                    // need to redraw
                     redraw = true;
                 } else if (event->event_id == SDL_EVENT_PANE_MOVE) {
                     FG_PANE_CX->x_disp += event->mouse_motion.delta_x;

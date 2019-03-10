@@ -334,22 +334,33 @@ static int comm_process_recvd_msg(msg_t * msg)
     case MSGID_HEARTBEAT:
         CHECK_DATALEN(0);
         break;
-#if 0
-    // XXX new cam messages
-    case MSGID_CAM_CTRLS_SET_ALL_TO_DEFAULT:
-        CHECK_DATALEN(0);
+    case MSGID_CAM_CTRLS_INCR_DECR: {
+        msg_cam_ctrls_incr_decr_t * d = (void*)msg->data;
+        char msg_reply_buff[100];
+        msg_t *msg_reply = (void*)msg_reply_buff;
+        msg_cam_ctrls_get_t *msg_reply_data = (void*)msg_reply->data;
+        int cid = d->cid, value;
+
+        // perform the requested incr or decr
+        CHECK_DATALEN(sizeof(msg_cam_ctrls_incr_decr_t));
+        if (cam_ctrls_incr_decr(d->cid, d->incr_flag) != 0) {
+            break;
+        }
+
+        // get the updated value, and send it to tcx
+        cam_ctrls_get(cid, &value);
+        msg_reply->id         = MSGID_CAM_CTRLS_GET;
+        msg_reply->data_len   = sizeof(msg_cam_ctrls_get_t);
+        msg_reply_data->cid   = cid;
+        msg_reply_data->value = value;
+        comm_send_msg(msg_reply);
+        break; }
+    case MSGID_CAM_CTRLS_RESET:
+        cam_ctrls_set_all_to_default();
         break;
-    case MSGID_CAM_CTRLS_SET_ONE:
-        CHECK_DATALEN(sizeof(xxx));
-        cam_ctrls_set_one(cid, cid_value);
-        XXX get value back and send reply
+    case MSGID_CAM_CTRLS_SET_BUTTON:
+        // XXX tbd
         break;
-    case MSGID_CAM_CTRLS_GET_ONE:
-        CHECK_DATALEN(sizoef(xxx));
-        rc = cam_ctrls_get_one(cid, &cid_value);
-        XXX xxx get the value into the struct and set it
-        break;
-#endif
     default:
         ERROR("invalid msgid %d\n", msg->id);
         return -1;
@@ -1378,11 +1389,6 @@ static int cam_init(void)
     pthread_create(&thread, NULL, cam_thread, NULL);
     atexit(cam_exit);
 
-#if 0 // XXX
-    INFO("PAUSING\n");
-    while (1) pause();
-#endif
-
     return 0;
 }
 
@@ -1486,10 +1492,9 @@ re_init:
         time_now_us = microsec_timer();
         if (time_now_us - time_last_cam_ctrlrs_get_all > 900000) {
             time_last_cam_ctrlrs_get_all = time_now_us;
-            if (cam_ctrls_get_all((query_ctrl_t*)msg->data, &msg->data_len) != 0) {
+            if (cam_ctrls_get_all((cam_query_ctrls_t*)msg->data, &msg->data_len) != 0) {
                 ERROR("cam_ctrls_get_all failed\n");
             }
-            INFO("XXX GOT LEN %d\n", msg->data_len);
             msg->id = MSGID_CAM_CTRLS_GET_ALL;
             comm_send_msg(msg);
         }

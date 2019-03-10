@@ -187,6 +187,7 @@ static void display_handler(void)
     tele_pane_w = tele_pane_h * (640. / 480.);
     INFO("tele_pane x,y,w,h = %d %d %d %d\n", tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h);
 
+    // for tele_motor_info and tele_cam_info panes, which are at the same location
     tele_info_pane_x = tele_pane_x + tele_pane_w;
     tele_info_pane_y = tele_pane_y;
     tele_info_pane_h = tele_pane_h;
@@ -198,10 +199,11 @@ static void display_handler(void)
         NULL,           // called prior to pane handlers
         NULL,           // called after pane handlers
         100000,         // 0=continuous, -1=never, else us 
-        4,              // number of pane handler varargs that follow
+        5,              // number of pane handler varargs that follow
         sky_pane_hndlr, NULL, sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h, PANE_BORDER_STYLE_MINIMAL,
         sky_view_pane_hndlr, NULL, sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h, PANE_BORDER_STYLE_MINIMAL,
         tele_pane_hndlr, NULL, tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        tele_info_pane_hndlr, NULL, tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h, PANE_BORDER_STYLE_MINIMAL
+        tele_motor_info_pane_hndlr, NULL, tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h, PANE_BORDER_STYLE_MINIMAL,
+        tele_cam_info_pane_hndlr, NULL, tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h, PANE_BORDER_STYLE_MINIMAL
                         );
 }

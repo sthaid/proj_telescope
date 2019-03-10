@@ -467,7 +467,7 @@ void cam_put_buff(uint8_t * buff)
 
 // variables
 static char query_ctrl_buff[10000];
-static query_ctrl_t * query_ctrl = (void*)query_ctrl_buff;
+static cam_query_ctrls_t * query_ctrl = (void*)query_ctrl_buff;
 static int32_t query_ctrl_len;
 static pthread_mutex_t cam_ctrls_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -540,9 +540,6 @@ static int32_t cam_ctrls_query(void)
         struct cam_ctrl_s *x = &query_ctrl->cam_ctrl[query_ctrl->max_cam_ctrl++];
         strncpy(x->name, (char*)queryctrl.name, sizeof(x->name));
         x->cid                 = queryctrl.id;
-        x->readable            = READABLE(queryctrl.flags);
-        x->writeable           = WRITEABLE(queryctrl.flags);
-        x->pad                 = 0;
         x->current_value       = NO_CAM_VALUE;
         x->minimum             = queryctrl.minimum;
         x->maximum             = queryctrl.maximum;
@@ -550,6 +547,20 @@ static int32_t cam_ctrls_query(void)
         x->default_value       = queryctrl.default_value;
         x->menu_strings_count  = 0;
         x->menu_strings_offset = 0;
+
+        x->type = CAM_CTRL_TYPE_OTHER;
+        if (queryctrl.type == V4L2_CTRL_TYPE_BUTTON) {
+            x->type = CAM_CTRL_TYPE_BUTTON;
+        } else if (queryctrl.type == V4L2_CTRL_TYPE_INTEGER ||
+                   queryctrl.type == V4L2_CTRL_TYPE_MENU ||
+                   queryctrl.type == V4L2_CTRL_TYPE_BOOLEAN)
+        {
+            if (READABLE(queryctrl.flags) && WRITEABLE(queryctrl.flags)) {
+                x->type = CAM_CTRL_TYPE_READ_WRITE;
+            } else if (READABLE(queryctrl.flags)) {
+                x->type = CAM_CTRL_TYPE_READ_ONLY;
+            }
+        }
 
         // if there are menu strings then query the strings and
         // add them to the 'strings' buffer
@@ -569,7 +580,7 @@ static int32_t cam_ctrls_query(void)
                 if (rc == 0) {
                     strcpy(name, (char*)querymenu.name);
                 } else {
-                    sprintf(name, "Invalid-%d", querymenu.index);
+                    sprintf(name, "Invalid");
                 }
                 DEBUG("%32s menu index=%d name=%s\n", "", querymenu.index, name);
 
@@ -592,7 +603,7 @@ static int32_t cam_ctrls_query(void)
            strings_offset);
 
     // set query_ctrl_len
-    query_ctrl_len = offsetof(query_ctrl_t, cam_ctrl[query_ctrl->max_cam_ctrl]) + strings_offset;
+    query_ctrl_len = offsetof(cam_query_ctrls_t, cam_ctrl[query_ctrl->max_cam_ctrl]) + strings_offset;
 
     // debug print query_ctrl
     debug_print_query_ctrl();
@@ -679,7 +690,7 @@ static char * type_str(int32_t type)
 static void debug_print_query_ctrl(void)
 {
     int32_t i, j;
-    char *strings, *s, *str_array[100];
+    char *strings, *s, *menu_strings[100];
 
     strings = (char*)&query_ctrl->cam_ctrl[query_ctrl->max_cam_ctrl];
 
@@ -690,22 +701,21 @@ static void debug_print_query_ctrl(void)
 
         s = strings + x->menu_strings_offset;
         for (j = 0; j < x->menu_strings_count; j++) {
-            str_array[j] = s;
+            menu_strings[j] = s;
             s += strlen(s) + 1;
         }
 
-        INFO("%32s %8x  %c%c mmsd=%d,%d,%d,%d strings=%d\n",
+        INFO("%32s cid=%8x type=%s mmsd=%d,%d,%d,%d strings=%d\n",
              x->name,
              x->cid,
-             x->readable ? 'R' : ' ',
-             x->writeable ? 'W' : ' ',
+             CAM_CTRL_TYPE_STR(x->type),
              x->minimum,
              x->maximum,
              x->step,
              x->default_value,
              x->menu_strings_count);
         for (j = 0; j < x->menu_strings_count; j++) {
-            INFO("%42s %s\n", "", str_array[j]);
+            INFO("%42s %s\n", "", menu_strings[j]);
         }
     }
 
@@ -715,7 +725,7 @@ static void debug_print_query_ctrl(void)
 // - - - - CAM CTRLS API - - - - 
 
 // note - qclen is in/out
-int32_t cam_ctrls_get_all(query_ctrl_t *qc, int32_t *qclen)
+int32_t cam_ctrls_get_all(cam_query_ctrls_t *qc, int32_t *qclen)
 {
     int32_t i, rc;
 
@@ -738,16 +748,17 @@ int32_t cam_ctrls_get_all(query_ctrl_t *qc, int32_t *qclen)
     // copy query_ctrl to caller's buffer
     memcpy(qc, query_ctrl, query_ctrl_len);
 
-    // get all readable values
+    // get all values that can be read
     for (i = 0; i < qc->max_cam_ctrl; i++) {
         struct cam_ctrl_s *x = &qc->cam_ctrl[i];
-        if (x->readable == false) {
-            continue;
-        }
-        rc = cam_ctrls_get(x->cid, &x->current_value);
-        if (rc != 0) {
-            UNLOCK;
-            return rc;
+        if (x->type == CAM_CTRL_TYPE_READ_WRITE ||
+            x->type == CAM_CTRL_TYPE_READ_ONLY)
+        {
+            rc = cam_ctrls_get(x->cid, &x->current_value);
+            if (rc != 0) {
+                UNLOCK;
+                return rc;
+            }
         }
     }
 
@@ -765,6 +776,8 @@ int32_t cam_ctrls_set_all_to_default(void)
 {
     int32_t i, rc;
 
+    INFO("resetting all ctrls to default values\n");
+
     // lock cam_ctrls mutex
     LOCK;
 
@@ -774,10 +787,10 @@ int32_t cam_ctrls_set_all_to_default(void)
         return -1;
     }
 
-    // loop over all writeable ctrls, and set to default
+    // loop over all controls and set those of READ_WRITE type to default_value
     for (i = 0; i < query_ctrl->max_cam_ctrl; i++) {
         struct cam_ctrl_s *x = &query_ctrl->cam_ctrl[i];
-        if (x->writeable == false) {
+        if (x->type != CAM_CTRL_TYPE_READ_WRITE) {
             continue;
         }
         rc = cam_ctrls_set(x->cid, x->default_value);
@@ -825,7 +838,7 @@ int32_t cam_ctrls_set(int32_t cid, int32_t cid_value)
     return 0;
 }
 
-int32_t cam_ctrls_incr(int32_t cid)
+int32_t cam_ctrls_incr_decr(int32_t cid, bool incr_flag)
 {
     struct cam_ctrl_s *x = NULL;
     int32_t cid_value, rc, i;
@@ -852,80 +865,61 @@ int32_t cam_ctrls_incr(int32_t cid)
         return -1;  
     }
 
-    // the cid must be both readable and writeable
-    if (!x->readable || !x->writeable) {
-        ERROR("cid 0x%x must be both readable and writeable\n", cid);
+    // the cid must be READ_WRITE
+    if (x->type != CAM_CTRL_TYPE_READ_WRITE) {
+        ERROR("cid 0x%x must be READ_WRITE\n", cid);
         UNLOCK;
         return -1;
     }
 
-    // get the cid_value, 
-    // increment it, and
-    // set the cid to the incremented value
+    // we need the menu strings
+    char *strings, *s, *menu_strings[100];
+    strings = (char*)&query_ctrl->cam_ctrl[query_ctrl->max_cam_ctrl];
+    s = strings + x->menu_strings_offset;
+    for (i = 0; i < x->menu_strings_count; i++) {
+        menu_strings[i] = s;
+        s += strlen(s) + 1;
+    }
+
+    // get the cid_value,
     rc = cam_ctrls_get(cid, &cid_value);
-    if (rc == 0) {
+    if (rc < 0) {
+        UNLOCK;
+        return -1;
+    }
+
+try_again:
+    // increment or decrement the cid_value, if new value is out of range then return
+    if (incr_flag) {
         cid_value += x->step;
-        if (cid_value <= x->maximum) {
-            rc = cam_ctrls_set(cid, cid_value);
-        }
-    }
-
-    // unlock cam_ctrls mutex
-    UNLOCK;
-
-    // return status
-    return rc;
-}
-
-int32_t cam_ctrls_decr(int32_t cid)
-{
-    struct cam_ctrl_s *x = NULL;
-    int32_t cid_value, rc, i;
-
-    // lock cam_ctrls mutex
-    LOCK;
-
-    // if query_ctrl is not valid then return error
-    if (query_ctrl->max_cam_ctrl == 0 || query_ctrl_len == 0) {
-        UNLOCK;
-        return -1;
-    }
-
-    // search the query_ctrl table for the cid
-    for (i = 0; i < query_ctrl->max_cam_ctrl; i++) {
-        x = &query_ctrl->cam_ctrl[i];
-        if (x->cid == cid) {
-            break;
-        }
-    }
-    if (i == query_ctrl->max_cam_ctrl) {
-        ERROR("cid 0x%x not found in query_ctrl\n", cid);
-        UNLOCK;
-        return -1;  
-    }
-
-    // the cid must be both readable and writeable
-    if (!x->readable || !x->writeable) {
-        ERROR("cid 0x%x must be both readable and writeable\n", cid);
-        UNLOCK;
-        return -1;
-    }
-
-    // get the cid_value, 
-    // decrement it, and
-    // set the cid to the decremented value
-    rc = cam_ctrls_get(cid, &cid_value);
-    if (rc == 0) {
+    } else {
         cid_value -= x->step;
-        if (cid_value >= x->minimum) {
-            rc = cam_ctrls_set(cid, cid_value);
-        }
+    }
+    if (cid_value < x->minimum || cid_value > x->maximum) {
+        UNLOCK;
+        return -1;
+    }
+
+    // check if new value is associated with an "Invalid" menu string;
+    // if so then try to incr/decr again
+    if (x->menu_strings_count > 0 &&
+        cid_value > 0 && cid_value < x->menu_strings_count &&
+        strcmp(menu_strings[cid_value], "Invalid") == 0) 
+    {
+        goto try_again;
+    }
+
+    // set the control
+    rc = cam_ctrls_set(cid, cid_value);
+    if (rc < 0) {
+        UNLOCK;
+        return -1;
     }
 
     // unlock cam_ctrls mutex
     UNLOCK;
 
-    // return status
-    return rc;
+    // return success
+    return 0;
 }
 

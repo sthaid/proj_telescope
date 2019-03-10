@@ -38,30 +38,38 @@
 
 #define MAX_MOTOR 2
 
-#define MSGID_CONNECTED           1
-#define MSGID_HEARTBEAT           2
-#define MSGID_OPEN_ALL            3
-#define MSGID_CLOSE_ALL           4
-#define MSGID_STOP_ALL            5
-#define MSGID_ADV_POS_SINGLE      6
-#define MSGID_SET_POS_ALL         7
-#define MSGID_STATUS              8
-#define MSGID_SHUTDN_CTLR         9
-#define MSGID_CAM_IMG             10
-#define MSGID_CAM_CTRLS_GET_ALL   11
+#define MSGID_CONNECTED             1
+#define MSGID_HEARTBEAT             2
+#define MSGID_OPEN_ALL              3
+#define MSGID_CLOSE_ALL             4
+#define MSGID_STOP_ALL              5
+#define MSGID_ADV_POS_SINGLE        6
+#define MSGID_SET_POS_ALL           7
+#define MSGID_STATUS                8
+#define MSGID_SHUTDN_CTLR           9
+#define MSGID_CAM_IMG               10
+#define MSGID_CAM_CTRLS_GET_ALL     11
+#define MSGID_CAM_CTRLS_INCR_DECR   12
+#define MSGID_CAM_CTRLS_GET         13
+#define MSGID_CAM_CTRLS_RESET       14
+#define MSGID_CAM_CTRLS_SET_BUTTON  15
 
 #define MSGID_STR(x) \
-   ((x) == MSGID_CONNECTED            ? "MSGID_CONNECTED"      : \
-    (x) == MSGID_HEARTBEAT            ? "MSGID_HEARTBEAT"      : \
-    (x) == MSGID_OPEN_ALL             ? "MSGID_OPEN_ALL"       : \
-    (x) == MSGID_CLOSE_ALL            ? "MSGID_CLOSE_ALL"      : \
-    (x) == MSGID_STOP_ALL             ? "MSGID_STOP_ALL"       : \
-    (x) == MSGID_ADV_POS_SINGLE       ? "MSGID_ADV_POS_SINGLE" : \
-    (x) == MSGID_SET_POS_ALL          ? "MSGID_SET_POS_ALL"    : \
-    (x) == MSGID_STATUS               ? "MSGID_STATUS"         : \
-    (x) == MSGID_SHUTDN_CTLR          ? "MSGID_SHUTDN_CTLR"    : \
-    (x) == MSGID_CAM_IMG              ? "MSGID_CAM_IMG"        : \
-    (x) == MSGID_CAM_CTRLS_GET_ALL    ? "MSGID_CAM_IMG"        : \
+   ((x) == MSGID_CONNECTED            ? "MSGID_CONNECTED"             : \
+    (x) == MSGID_HEARTBEAT            ? "MSGID_HEARTBEAT"             : \
+    (x) == MSGID_OPEN_ALL             ? "MSGID_OPEN_ALL"              : \
+    (x) == MSGID_CLOSE_ALL            ? "MSGID_CLOSE_ALL"             : \
+    (x) == MSGID_STOP_ALL             ? "MSGID_STOP_ALL"              : \
+    (x) == MSGID_ADV_POS_SINGLE       ? "MSGID_ADV_POS_SINGLE"        : \
+    (x) == MSGID_SET_POS_ALL          ? "MSGID_SET_POS_ALL"           : \
+    (x) == MSGID_STATUS               ? "MSGID_STATUS"                : \
+    (x) == MSGID_SHUTDN_CTLR          ? "MSGID_SHUTDN_CTLR"           : \
+    (x) == MSGID_CAM_IMG              ? "MSGID_CAM_IMG"               : \
+    (x) == MSGID_CAM_CTRLS_GET_ALL    ? "MSGID_CAM_CTRLS_GET_ALL"     : \
+    (x) == MSGID_CAM_CTRLS_INCR_DECR  ? "MSGID_CAM_CTRLS_INCR_DECR"   : \
+    (x) == MSGID_CAM_CTRLS_GET        ? "MSGID_CAM_CTRLS_GET"         : \
+    (x) == MSGID_CAM_CTRLS_RESET      ? "MSGID_CAM_CTRLS_RESET"       : \
+    (x) == MSGID_CAM_CTRLS_SET_BUTTON ? "MSGID_CAM_CTRLS_SET_BUTTON"  : \
                                         "????")
 
 #define COMPRESSION_NONE      1
@@ -114,8 +122,22 @@ typedef struct {
 } msg_cam_img_data_t;
 
 typedef struct {
-    query_ctrl_t qc;
+    cam_query_ctrls_t qc;
 } msg_cam_ctrls_get_all_t;
+
+typedef struct {
+    int cid;
+    bool incr_flag;
+} msg_cam_ctrls_incr_decr_t;
+
+typedef struct {
+    int cid;
+    int value;
+} msg_cam_ctrls_get_t;
+
+typedef struct {
+    int cid;
+} msg_cam_ctrls_set_button_t;
 
 //
 // environment variables
@@ -139,6 +161,7 @@ void sky_get_tgt_azel(double * tgt_az, double * tgt_el);
 
 int tele_init(void);
 int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
-int tele_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
+int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
+int tele_motor_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 
 #endif
