@@ -38,32 +38,30 @@ SOFTWARE.
 #define ELMSTEP_180_DEG        (ELMSTEP_360_DEG / 2)
 #define ELMSTEP_1_DEG          ((int)(ELMSTEP_360_DEG / 360. + .5))
 
-//XXX rename these  to SDL_EVENT_TELE_xxx
-#define SDL_EVENT_MOTORS_CLOSE   (SDL_EVENT_USER_DEFINED + 0)
-#define SDL_EVENT_MOTORS_OPEN    (SDL_EVENT_USER_DEFINED + 1)
-#define SDL_EVENT_UN_CALIBRATE   (SDL_EVENT_USER_DEFINED + 2)
-#define SDL_EVENT_CALIBRATE      (SDL_EVENT_USER_DEFINED + 3)
-#define SDL_EVENT_TRK_DISABLE    (SDL_EVENT_USER_DEFINED + 4)
-#define SDL_EVENT_TRK_ENABLE     (SDL_EVENT_USER_DEFINED + 5)
-#define SDL_EVENT_SHUTDN_CTLR    (SDL_EVENT_USER_DEFINED + 6)
-#define SDL_EVENT_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 7)
-#define SDL_EVENT_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 8)
+#define SDL_EVENT_TELE_MOTORS_CLOSE   (SDL_EVENT_USER_DEFINED + 0)
+#define SDL_EVENT_TELE_MOTORS_OPEN    (SDL_EVENT_USER_DEFINED + 1)
+#define SDL_EVENT_TELE_UN_CALIBRATE   (SDL_EVENT_USER_DEFINED + 2)
+#define SDL_EVENT_TELE_CALIBRATE      (SDL_EVENT_USER_DEFINED + 3)
+#define SDL_EVENT_TELE_TRK_DISABLE    (SDL_EVENT_USER_DEFINED + 4)
+#define SDL_EVENT_TELE_TRK_ENABLE     (SDL_EVENT_USER_DEFINED + 5)
+#define SDL_EVENT_TELE_SHUTDN_CTLR    (SDL_EVENT_USER_DEFINED + 6)
+#define SDL_EVENT_TELE_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 7)
+#define SDL_EVENT_TELE_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 8)
 
-// XXX do we need this vvv
 #define EVENT_ID_STR(x) \
-   ((x) == SDL_EVENT_MOTORS_CLOSE          ? "MOTORS_CLOSE"    : \
-    (x) == SDL_EVENT_MOTORS_OPEN           ? "MOTORS_OPEN"     : \
-    (x) == SDL_EVENT_UN_CALIBRATE          ? "UN_CALIBRATE"    : \
-    (x) == SDL_EVENT_CALIBRATE             ? "CALIBRATE"       : \
-    (x) == SDL_EVENT_TRK_DISABLE           ? "TRK_DISABLE"     : \
-    (x) == SDL_EVENT_TRK_ENABLE            ? "TRK_ENABLE"      : \
-    (x) == SDL_EVENT_SHUTDN_CTLR           ? "SHUTDN_CTLR"     : \
-    (x) == SDL_EVENT_MOUSE_MOTION          ? "MOUSE_MOTION"    : \
-    (x) == SDL_EVENT_MOUSE_WHEEL           ? "MOUSE_WHEEL"     : \
-    (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"  : \
-    (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW" : \
-    (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"    : \
-    (x) == SDL_EVENT_KEY_DOWN_ARROW        ? "KEY_DOWN_ARROW"  : \
+   ((x) == SDL_EVENT_TELE_MOTORS_CLOSE     ? "MOTORS_CLOSE"          : \
+    (x) == SDL_EVENT_TELE_MOTORS_OPEN      ? "MOTORS_OPEN"           : \
+    (x) == SDL_EVENT_TELE_UN_CALIBRATE     ? "UN_CALIBRATE"          : \
+    (x) == SDL_EVENT_TELE_CALIBRATE        ? "CALIBRATE"             : \
+    (x) == SDL_EVENT_TELE_TRK_DISABLE      ? "TRK_DISABLE"           : \
+    (x) == SDL_EVENT_TELE_TRK_ENABLE       ? "TRK_ENABLE"            : \
+    (x) == SDL_EVENT_TELE_SHUTDN_CTLR      ? "SHUTDN_CTLR"           : \
+    (x) == SDL_EVENT_TELE_MOUSE_MOTION     ? "MOUSE_MOTION"          : \
+    (x) == SDL_EVENT_TELE_MOUSE_WHEEL      ? "MOUSE_WHEEL"           : \
+    (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"        : \
+    (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW"       : \
+    (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"          : \
+    (x) == SDL_EVENT_KEY_DOWN_ARROW        ? "KEY_DOWN_ARROW"        : \
     (x) == SDL_EVENT_KEY_SHIFT_LEFT_ARROW  ? "KEY_SHIFT_LEFT_ARROW"  : \
     (x) == SDL_EVENT_KEY_SHIFT_RIGHT_ARROW ? "KEY_SHIFT_RIGHT_ARROW" : \
     (x) == SDL_EVENT_KEY_SHIFT_UP_ARROW    ? "KEY_SHIFT_UP_ARROW"    : \
@@ -143,6 +141,8 @@ static pthread_mutex_t cam_img_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char                cam_ctrls_buff[10000];
 static cam_query_ctrls_t * cam_ctrls = (void*)cam_ctrls_buff; 
 static int                 cam_ctrls_len;
+static uint64_t            cam_ctrls_time_us;
+static pthread_mutex_t     cam_ctrls_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 //
 // prototypes
@@ -380,11 +380,11 @@ static int comm_process_recvd_msg(msg_t * msg)
         CHECK_DATALEN(0);
         break;
     case MSGID_CAM_CTRLS_GET_ALL:
-        // XXX get lock and check the length
-        // XXX search for all users of cam_ctrls
+        pthread_mutex_lock(&cam_ctrls_mutex);
         memcpy(cam_ctrls, msg->data, msg->data_len);
         cam_ctrls_len = msg->data_len;
-        // XXX??will want to make a copu for the tele_cam_pane
+        cam_ctrls_time_us = microsec_timer();
+        pthread_mutex_unlock(&cam_ctrls_mutex);
         break;
     case MSGID_CAM_CTRLS_GET: {
         msg_cam_ctrls_get_t *d = (void*)msg->data;
@@ -598,7 +598,7 @@ static void tele_ctrl_process_cmd(int event_id)
     DEBUG("processing event_id %s (0x%x)\n", EVENT_ID_STR(event_id), event_id);
 
     switch (event_id) {
-    case SDL_EVENT_MOTORS_CLOSE:
+    case SDL_EVENT_TELE_MOTORS_CLOSE:
         if (connected && motors != MOTORS_CLOSED) {
             msg_t msg = { MSGID_CLOSE_ALL, 0 };
             comm_send_msg(&msg);
@@ -606,7 +606,7 @@ static void tele_ctrl_process_cmd(int event_id)
             tracking_enabled = false;
         }
         break;
-    case SDL_EVENT_MOTORS_OPEN:
+    case SDL_EVENT_TELE_MOTORS_OPEN:
         if (connected && motors == MOTORS_CLOSED) {
             msg_t msg = { MSGID_OPEN_ALL, 0 };
             comm_send_msg(&msg);
@@ -614,13 +614,13 @@ static void tele_ctrl_process_cmd(int event_id)
             tracking_enabled = false;
         }
         break;
-    case SDL_EVENT_UN_CALIBRATE:
+    case SDL_EVENT_TELE_UN_CALIBRATE:
         if (calibrated) {
             calibrated = false;
             tracking_enabled = false;
         }
         break;
-    case SDL_EVENT_CALIBRATE:
+    case SDL_EVENT_TELE_CALIBRATE:
         if (connected && motors == MOTORS_OPEN && !calibrated) {
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
             int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
@@ -633,17 +633,17 @@ static void tele_ctrl_process_cmd(int event_id)
             tracking_enabled = false;
         }
         break;
-    case SDL_EVENT_TRK_DISABLE:
+    case SDL_EVENT_TELE_TRK_DISABLE:
         if (calibrated) {
             tracking_enabled = false;
         }
         break;
-    case SDL_EVENT_TRK_ENABLE:
+    case SDL_EVENT_TELE_TRK_ENABLE:
         if (calibrated) {
             tracking_enabled = true;
         }
         break;
-    case SDL_EVENT_SHUTDN_CTLR:
+    case SDL_EVENT_TELE_SHUTDN_CTLR:
         if (connected && motors == MOTORS_CLOSED) {
             msg_t msg = { MSGID_SHUTDN_CTLR, 0 };
             comm_send_msg(&msg);
@@ -829,8 +829,8 @@ static bool tele_ctrl_is_azel_valid(double az, double el)
 //   to locate the top left of the image; used in call to 
 //   sdl_update_xxx_texture 
 // - image_x_ctr, image_y_ctr: these control the pan location, and are
-//   updated by SDL_EVENT_MOUSE_MOTION
-// - image_scale: controls the zoom, and is updated by SDL_EVENT_MOUSE_WHEEL
+//   updated by SDL_EVENT_TELE_MOUSE_MOTION
+// - image_scale: controls the zoom, and is updated by SDL_EVENT_TELE_MOUSE_WHEEL
 // - cam_width, cam_height: these are used to check for a change in the 
 //   actual camera width/height (found in cam_img), and if change is detected
 //   the image_scale, and image_x/y_ctr are reset
@@ -977,8 +977,8 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // register mouse motion and wheel events to support camera digital pan/zoom
         rect_t loc = {0,0,pane->w,pane->h};
-        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
-        sdl_register_event(pane, &loc, SDL_EVENT_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_TELE_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_TELE_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 
         // register control events 
         // - row 0
@@ -987,7 +987,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 pane, pane->w-COL2X(9,fontsz), ROW2Y(0,fontsz), fontsz, 
                 motors != MOTORS_CLOSED ? "MTR_CLOSE" : "MTR_OPEN",
                 LIGHT_BLUE, BLACK, 
-                motors != MOTORS_CLOSED ? SDL_EVENT_MOTORS_CLOSE : SDL_EVENT_MOTORS_OPEN,
+                motors != MOTORS_CLOSED ? SDL_EVENT_TELE_MOTORS_CLOSE : SDL_EVENT_TELE_MOTORS_OPEN,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
         // - row 1
@@ -996,7 +996,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 pane, pane->w-COL2X(9,fontsz), ROW2Y(1,fontsz), fontsz, 
                 calibrated ? "UN_CAL" : "CALIBRATE",
                 LIGHT_BLUE, BLACK, 
-                calibrated ? SDL_EVENT_UN_CALIBRATE : SDL_EVENT_CALIBRATE,
+                calibrated ? SDL_EVENT_TELE_UN_CALIBRATE : SDL_EVENT_TELE_CALIBRATE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
         // - row 2
@@ -1005,14 +1005,14 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 pane, pane->w-COL2X(9,fontsz), ROW2Y(2,fontsz), fontsz, 
                 tracking_enabled ? "TRACK_DIS" : "TRACK_ENA",
                 LIGHT_BLUE, BLACK, 
-                tracking_enabled ? SDL_EVENT_TRK_DISABLE : SDL_EVENT_TRK_ENABLE,
+                tracking_enabled ? SDL_EVENT_TELE_TRK_DISABLE : SDL_EVENT_TELE_TRK_ENABLE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         } else if (motors == MOTORS_CLOSED) {
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(9,fontsz), ROW2Y(2,fontsz), fontsz, 
                 "SHDN_CTLR",
                 LIGHT_BLUE, BLACK, 
-                SDL_EVENT_SHUTDN_CTLR,
+                SDL_EVENT_TELE_SHUTDN_CTLR,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
 
@@ -1028,12 +1028,12 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // some of the event_ids are handled here, and the majority
         // of the event_ids are handled by call to tele_ctrl_process_cmd
-        if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
+        if (event->event_id == SDL_EVENT_TELE_MOUSE_MOTION) {
             if (CAM_IMG_AVAIL) {
                 pz.image_x_ctr -= event->mouse_motion.delta_x;
                 pz.image_y_ctr -= event->mouse_motion.delta_y;
             }
-        } else if (event->event_id == SDL_EVENT_MOUSE_WHEEL) {
+        } else if (event->event_id == SDL_EVENT_TELE_MOUSE_WHEEL) {
             if (CAM_IMG_AVAIL) {
                 int dy = event->mouse_wheel.delta_y;
                 if (dy < 0 && pz.image_scale < 1) {
@@ -1132,23 +1132,24 @@ static void sanitize_pan_zoom(void)
 // -----------------  TELE CAM INFO PANE HNDLR  ---------------------------
 
 // XXX try other webcam, with buttons
-// XXX selected should clear self when cam data is invalid
-// XXX detect invalid cam data
-// XXX scroll arrows or mouse motion for moving the menu
-// XXX drop the display when no recent query_ctrl received
-// XXX locking
+// XXX scroll arrows or mouse motion for moving the menu if it has too many entries to fit in the pane
 
 int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
     struct {
-        int selected;
-        uint64_t selected_time_us;
+        int                 selected;
+        uint64_t            selected_time_us;
+        char                cam_ctrls_buff[10000];
+        cam_query_ctrls_t * cam_ctrls;
+        int                 cam_ctrls_len;
+        uint64_t            cam_ctrls_time_us;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
     #define SDL_EVENT_TELE_CAM_INFO_MOUSE_WHEEL          (SDL_EVENT_USER_DEFINED + 0)
-    #define SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES (SDL_EVENT_USER_DEFINED + 1)
-    #define SDL_EVENT_TELE_CAM_INFO_CLEAR_SELECTED       (SDL_EVENT_USER_DEFINED + 2)
+    #define SDL_EVENT_TELE_CAM_INFO_CAM_RESET_REQ        (SDL_EVENT_USER_DEFINED + 1)
+    #define SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES (SDL_EVENT_USER_DEFINED + 2)
+    #define SDL_EVENT_TELE_CAM_INFO_CLEAR_SELECTED       (SDL_EVENT_USER_DEFINED + 3)
     #define SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE           (SDL_EVENT_USER_DEFINED + 10)
 
     // ----------------------------
@@ -1158,6 +1159,7 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
         vars->selected = -1;
+        vars->cam_ctrls = (void*)vars->cam_ctrls_buff;
         DEBUG("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
@@ -1179,21 +1181,41 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
         // title
         sdlpr_col = 12; sdlpr_row = 0; SDLPR("CAMERA CTRLS");
 
+        // make a safe copy of cam_ctrls;
+        // the remainder of this routine should only refer to this copy
+        pthread_mutex_lock(&cam_ctrls_mutex);
+        memcpy(vars->cam_ctrls, cam_ctrls, cam_ctrls_len);
+        vars->cam_ctrls_len = cam_ctrls_len;
+        vars->cam_ctrls_time_us = cam_ctrls_time_us;
+        pthread_mutex_unlock(&cam_ctrls_mutex);
+
         // if camera controls are available then
         //   display the camera controls
         // else
         //   display 'UNAVAILABLE'
         // endif
-        if (cam_ctrls->max_cam_ctrl != 0 && cam_ctrls_len != 0) {  // XXX and time
+        if (vars->cam_ctrls->max_cam_ctrl != 0 && 
+            vars->cam_ctrls_len != 0 &&
+            microsec_timer() - vars->cam_ctrls_time_us < 3000000)
+        {
             int32_t i, j;
             char *strings, *s, *menu_strings[100], current_value_str[100];
             char cam_ctrl_str[100];
-            strings = (char*)&cam_ctrls->cam_ctrl[cam_ctrls->max_cam_ctrl];
 
-            for (i = 0; i < cam_ctrls->max_cam_ctrl; i++) {
-                struct cam_ctrl_s *x = &cam_ctrls->cam_ctrl[i];
+            // clear selected if it is for a button event and has been set for 1 second
+            if (vars->selected != -1 && 
+                vars->cam_ctrls->cam_ctrl[vars->selected].type == CAM_CTRL_TYPE_BUTTON &&
+                microsec_timer() - vars->selected_time_us > 1000000)
+            {
+                vars->selected = -1;
+            }
 
-                // build table of menu_strings
+            // loop over the cam ctrls
+            strings = (char*)&vars->cam_ctrls->cam_ctrl[vars->cam_ctrls->max_cam_ctrl];
+            for (i = 0; i < vars->cam_ctrls->max_cam_ctrl; i++) {
+                struct cam_ctrl_s *x = &vars->cam_ctrls->cam_ctrl[i];
+
+                // build table of menu_strings or this cam ctrl
                 s = strings + x->menu_strings_offset;
                 for (j = 0; j < x->menu_strings_count; j++) {
                     menu_strings[j] = s;
@@ -1220,7 +1242,7 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
                 } else if (x->type == CAM_CTRL_TYPE_READ_ONLY) {
                     sprintf(cam_ctrl_str, "RDONLY %s = %s", x->name, current_value_str);
                 } else {
-                    sprintf(cam_ctrl_str, "OTHER  %s = %s", x->name, current_value_str);
+                    sprintf(cam_ctrl_str, "OTHER  %s", x->name);
                 }
     
                 // if the cam_ctrl can be written then register an event,
@@ -1242,15 +1264,16 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
                 }
             }
 
-            // if a READ_WRITE ctrl is selected then register MOUSE_WHEEL
+            // if a READ_WRITE ctrl is selected then register MOUSE_WHEEL event, which
+            // will be used to update the selected cam ctrl value
             if (vars->selected != -1 && 
-                cam_ctrls->cam_ctrl[vars->selected].type == CAM_CTRL_TYPE_READ_WRITE)
+                vars->cam_ctrls->cam_ctrl[vars->selected].type == CAM_CTRL_TYPE_READ_WRITE)
             {
                 rect_t loc = {0,0,pane->w,pane->h};
                 sdl_register_event(pane, &loc, SDL_EVENT_TELE_CAM_INFO_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
             }
 
-            // register evevent to RESET_DEFAULT_VALUES
+            // register RESET_DEFAULT_VALUES event
             sdl_render_text_and_register_event(
                 pane, COL2X(0,fontsz), pane->h - ROW2Y(1,fontsz), fontsz, 
                 "RESET_DEFAULT_VALUES",
@@ -1258,15 +1281,18 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
                 SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES, 
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
-            // clear selected if it is for a button event and has been set for 1 second
-            if (vars->selected != -1 && 
-                cam_ctrls->cam_ctrl[vars->selected].type == CAM_CTRL_TYPE_BUTTON &&
-                microsec_timer() - vars->selected_time_us > 1000000)
-            {
-                vars->selected = -1;
-            }
+#if 0 // XXX couldn't get CAM_RESET_REQ to work
+            // register CAM_RESET_REQ event
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(5,fontsz), pane->h - ROW2Y(1,fontsz), fontsz, 
+                "RESET",
+                LIGHT_BLUE, BLACK, 
+                SDL_EVENT_TELE_CAM_INFO_CAM_RESET_REQ, 
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+#endif
         } else {
             sdlpr_col = 12; sdlpr_row = 4; SDLPR("NOT AVAILABLE");
+            vars->selected = -1;
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -1279,17 +1305,27 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
         case SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE+0 ... SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE+100:
-            INFO("GOT EVENT %d\n", event->event_id-SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE);
-
+            // keep track of which cam ctrl is selected
             vars->selected = event->event_id - SDL_EVENT_TELE_CAM_INFO_CTRLS_BASE;
             vars->selected_time_us = microsec_timer();
 
-            struct cam_ctrl_s *x = &cam_ctrls->cam_ctrl[vars->selected];
+            // if a BUTTON type control was selected then send msg 
+            // to process the button
+            struct cam_ctrl_s *x = &vars->cam_ctrls->cam_ctrl[vars->selected];
             if (x->type == CAM_CTRL_TYPE_BUTTON) {
-                // XXX call routine to set the button
+                char msg_buffer[100];
+                msg_t * msg = (msg_t*)msg_buffer;
+                msg_cam_ctrls_set_t * msg_cam_ctrls_set = (void*)msg->data;
+
+                msg->id = MSGID_CAM_CTRLS_SET;
+                msg->data_len = sizeof(msg_cam_ctrls_set_t);
+                msg_cam_ctrls_set->cid = vars->cam_ctrls->cam_ctrl[vars->selected].cid;
+                msg_cam_ctrls_set->value = 0;
+                comm_send_msg(msg);
             }
             break;
         case SDL_EVENT_TELE_CAM_INFO_CLEAR_SELECTED:
+            // clear selected
             vars->selected = -1;
             vars->selected_time_us = 0;
             break;
@@ -1299,18 +1335,26 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
             msg_t * msg = (msg_t*)msg_buffer;
             msg_cam_ctrls_incr_decr_t * msg_cam_ctrls_incr_decr = (void*)msg->data;
 
+            // this event should only occur when selected is set to a READ_WRITE value;
+            // start by making some sanity checks
             dy = event->mouse_wheel.delta_y;
             if (dy == 0) {
+                ERROR("dy shouldn't be 0\n");
+                break;
+            }
+            if (vars->selected == -1 || 
+                vars->selected >= vars->cam_ctrls->max_cam_ctrl ||
+                vars->cam_ctrls->cam_ctrl[vars->selected].type != CAM_CTRL_TYPE_READ_WRITE) 
+            {
+                ERROR("selected %d is invalid\n", vars->selected);
                 break;
             }
 
-            if (vars->selected == -1) {  // XXX or if selected is not in cam_ctlrs
-                break;
-            }
+            // get the selected control id (cid)
+            cid = vars->cam_ctrls->cam_ctrl[vars->selected].cid;
+            DEBUG("selected=%d  cid=0x%x  dy=%d\n",  vars->selected, cid, dy);
 
-            cid = cam_ctrls->cam_ctrl[vars->selected].cid;
-            INFO("selected=%d  cid=0x%x  dy=%d\n",  vars->selected, cid, dy);
-
+            // send message to increment or decrement the cid
             msg->id = MSGID_CAM_CTRLS_INCR_DECR;
             msg->data_len = sizeof(msg_cam_ctrls_incr_decr_t);
             msg_cam_ctrls_incr_decr->cid = cid;
@@ -1318,7 +1362,13 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
             comm_send_msg(msg);
             break; }
         case SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES: {
+            // send message to have the webcam reset to default values
             msg_t msg = { MSGID_CAM_CTRLS_RESET, 0 };
+            comm_send_msg(&msg);
+            break; }
+        case SDL_EVENT_TELE_CAM_INFO_CAM_RESET_REQ: {
+            // send message to have the webcam reset
+            msg_t msg = { MSGID_CAM_RESET_REQ, 0 };
             comm_send_msg(&msg);
             break; }
         }

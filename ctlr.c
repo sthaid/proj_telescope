@@ -109,6 +109,7 @@ static void motor_unit_test(void);
 
 // camera routines
 static int cam_init(void);
+static int cam_reset(void);
 
 // -----------------  MAIN  -----------------------------------------------
 
@@ -358,8 +359,12 @@ static int comm_process_recvd_msg(msg_t * msg)
     case MSGID_CAM_CTRLS_RESET:
         cam_ctrls_set_all_to_default();
         break;
-    case MSGID_CAM_CTRLS_SET_BUTTON:
-        // XXX tbd
+    case MSGID_CAM_CTRLS_SET: {
+        msg_cam_ctrls_set_t * d = (void*)msg->data;
+        cam_ctrls_set(d->cid, d->value);
+        break; }
+    case MSGID_CAM_RESET_REQ:
+        cam_reset();
         break;
     default:
         ERROR("invalid msgid %d\n", msg->id);
@@ -1378,6 +1383,7 @@ static void motor_unit_test(void)
 
 bool cam_thread_running;
 bool cam_thread_exit_req;
+bool cam_reset_req;
 
 static void cam_exit(void);
 static void * cam_thread(void * cx);
@@ -1388,7 +1394,6 @@ static int cam_init(void)
 
     pthread_create(&thread, NULL, cam_thread, NULL);
     atexit(cam_exit);
-
     return 0;
 }
 
@@ -1398,6 +1403,12 @@ static void cam_exit(void)
     while (cam_thread_running) {
         usleep(1000);
     }
+}
+
+static int cam_reset(void)
+{
+    cam_reset_req = true;
+    return 0;
 }
 
 static void * cam_thread(void * cx)
@@ -1425,6 +1436,7 @@ re_init:
 
         rc = cam_initialize(FMT_MJPG, 1280, 960, 0.2, &act_fmt, &act_width, &act_height, &act_tpf);
         if (rc == 0) {
+            cam_reset_req = false;
             break;
         }
         ERROR("cam_initialize failed, rc=%d\n", rc);
@@ -1436,6 +1448,11 @@ re_init:
         // check for time to exit
         if (cam_thread_exit_req) {
             goto done;
+        }
+
+        // check for request to reset the webcam
+        if (cam_reset_req) {
+            goto re_init;
         }
 
         // get cam buff:

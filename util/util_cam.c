@@ -121,6 +121,8 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     // if cam_fd is open then this is a re-initialize call,
     // so start by closing cam_fd
     if (cam_fd != -1) {
+        buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        ioctl(cam_fd, VIDIOC_STREAMOFF, &buf_type);
         close(cam_fd);
         cam_fd = -1;
     }

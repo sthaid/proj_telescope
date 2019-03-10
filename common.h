@@ -48,11 +48,12 @@
 #define MSGID_STATUS                8
 #define MSGID_SHUTDN_CTLR           9
 #define MSGID_CAM_IMG               10
-#define MSGID_CAM_CTRLS_GET_ALL     11
-#define MSGID_CAM_CTRLS_INCR_DECR   12
-#define MSGID_CAM_CTRLS_GET         13
-#define MSGID_CAM_CTRLS_RESET       14
-#define MSGID_CAM_CTRLS_SET_BUTTON  15
+#define MSGID_CAM_RESET_REQ         11
+#define MSGID_CAM_CTRLS_GET_ALL     12
+#define MSGID_CAM_CTRLS_INCR_DECR   13
+#define MSGID_CAM_CTRLS_GET         14
+#define MSGID_CAM_CTRLS_RESET       15
+#define MSGID_CAM_CTRLS_SET         16
 
 #define MSGID_STR(x) \
    ((x) == MSGID_CONNECTED            ? "MSGID_CONNECTED"             : \
@@ -65,11 +66,12 @@
     (x) == MSGID_STATUS               ? "MSGID_STATUS"                : \
     (x) == MSGID_SHUTDN_CTLR          ? "MSGID_SHUTDN_CTLR"           : \
     (x) == MSGID_CAM_IMG              ? "MSGID_CAM_IMG"               : \
+    (x) == MSGID_CAM_RESET_REQ        ? "MSGID_CAM_RESET_REQ"         : \
     (x) == MSGID_CAM_CTRLS_GET_ALL    ? "MSGID_CAM_CTRLS_GET_ALL"     : \
     (x) == MSGID_CAM_CTRLS_INCR_DECR  ? "MSGID_CAM_CTRLS_INCR_DECR"   : \
     (x) == MSGID_CAM_CTRLS_GET        ? "MSGID_CAM_CTRLS_GET"         : \
     (x) == MSGID_CAM_CTRLS_RESET      ? "MSGID_CAM_CTRLS_RESET"       : \
-    (x) == MSGID_CAM_CTRLS_SET_BUTTON ? "MSGID_CAM_CTRLS_SET_BUTTON"  : \
+    (x) == MSGID_CAM_CTRLS_SET        ? "MSGID_CAM_CTRLS_SET"         : \
                                         "????")
 
 #define COMPRESSION_NONE      1
@@ -137,7 +139,8 @@ typedef struct {
 
 typedef struct {
     int cid;
-} msg_cam_ctrls_set_button_t;
+    int value;
+} msg_cam_ctrls_set_t;
 
 //
 // environment variables
