@@ -1281,7 +1281,6 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
                 SDL_EVENT_TELE_CAM_INFO_RESET_DEFAULT_VALUES, 
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
-#if 0 // XXX couldn't get CAM_RESET_REQ to work
             // register CAM_RESET_REQ event
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(5,fontsz), pane->h - ROW2Y(1,fontsz), fontsz, 
@@ -1289,7 +1288,6 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
                 LIGHT_BLUE, BLACK, 
                 SDL_EVENT_TELE_CAM_INFO_CAM_RESET_REQ, 
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
-#endif
         } else {
             sdlpr_col = 12; sdlpr_row = 4; SDLPR("NOT AVAILABLE");
             vars->selected = -1;

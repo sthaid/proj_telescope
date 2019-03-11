@@ -120,9 +120,21 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
 
     // if cam_fd is open then this is a re-initialize call,
     // so start by closing cam_fd
+    // - disable video capture streaming
+    // - unmap the buffers
+    // - close cam_fd
     if (cam_fd != -1) {
         buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        ioctl(cam_fd, VIDIOC_STREAMOFF, &buf_type);
+        if (ioctl(cam_fd, VIDIOC_STREAMOFF, &buf_type) < 0) {
+            WARN("ioctl VIDIOC_STREAMOFF %s\n", strerror(errno));
+        }
+
+        for (i = 0; i < MAX_BUFMAP; ++i) {
+            if (munmap(bufmap[i].addr, bufmap[i].length) < 0) {
+                WARN("munmap(%p,%d), %s\n", bufmap[i].addr, bufmap[i].length, strerror(errno));
+            }
+        }
+
         close(cam_fd);
         cam_fd = -1;
     }
@@ -665,7 +677,7 @@ static char * flags_str(int32_t flags)
     CHECK_FLAG(VOLATILE);
     CHECK_FLAG(HAS_PAYLOAD);
     CHECK_FLAG(EXECUTE_ON_WRITE);
-    CHECK_FLAG(MODIFY_LAYOUT);
+    //CHECK_FLAG(MODIFY_LAYOUT);
 
     return str;
 }
