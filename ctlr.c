@@ -120,13 +120,11 @@ int main(int argc, char **argv)
     // this performs sanity checks for minilzo
     compress_init();
 
-#if 0  // XXX temp comment out motor_init
     // motor initialize
     rc = motor_init();
     if (rc < 0) {
-        FATAL("motor_init failed\n");
+        ERROR("motor_init failed\n"); // XXX should be FATAL
     }
-#endif
 
     // camera initialize
     rc = cam_init();
@@ -514,7 +512,7 @@ static int motor_init(void)
     //   verify both AZ and EL motors are present, and
     //   swap them if needed so that h=0 is AZ and H=1 is EL
     // endif
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
+#ifdef TEST_WITH_ONLY_AZ_MOTOR  // XXX delete
     if (max_motor_devices != 1) {
         ERROR("TEST_WITH_ONLY_AZ_MOTOR max_motor_devices=%zd must be 1\n", max_motor_devices);
         return -1;
@@ -1509,11 +1507,11 @@ re_init:
         time_now_us = microsec_timer();
         if (time_now_us - time_last_cam_ctrlrs_get_all > 900000) {
             time_last_cam_ctrlrs_get_all = time_now_us;
-            if (cam_ctrls_get_all((cam_query_ctrls_t*)msg->data, &msg->data_len) != 0) {
-                ERROR("cam_ctrls_get_all failed\n");
+            msg->data_len = sizeof(msg_buffer) - sizeof(msg_t);
+            if (cam_ctrls_get_all((cam_query_ctrls_t*)msg->data, &msg->data_len) == 0) {
+                msg->id = MSGID_CAM_CTRLS_GET_ALL;
+                comm_send_msg(msg);
             }
-            msg->id = MSGID_CAM_CTRLS_GET_ALL;
-            comm_send_msg(msg);
         }
     }
 

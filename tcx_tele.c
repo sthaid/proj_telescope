@@ -1225,8 +1225,10 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
                 // construct the current_value_str, if menu_strings are available
                 // then use the appropriate menu_string, otherwise convert 
                 // current_value to number
-                if (x->menu_strings_count > 0 &&
-                    x->current_value >= 0 && x->current_value < x->menu_strings_count)
+                if (x->current_value == NO_CAM_VALUE) {
+                    sprintf(current_value_str, "NO_CAM_VALUE");
+                } else if (x->menu_strings_count > 0 &&
+                           x->current_value >= 0 && x->current_value < x->menu_strings_count)
                 {
                     sprintf(current_value_str, "%s", menu_strings[x->current_value]);
                 } else {

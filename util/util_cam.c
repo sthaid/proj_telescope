@@ -538,7 +538,7 @@ static int32_t cam_ctrls_query(void)
         }
 
         // debug print the ctrl
-        DEBUG("%32s (0x%x) %s mmsd=(%d %d %d %d) (%s%s) %s\n", 
+        DEBUG("%32s (0x%x) %s mmsd=(%d %d %d %d) (%s%s) FLAGS='%s'\n", 
              queryctrl.name,
              queryctrl.id,
              type_str(queryctrl.type),
@@ -741,13 +741,23 @@ static void debug_print_query_ctrl(void)
 // note - qclen is in/out
 int32_t cam_ctrls_get_all(cam_query_ctrls_t *qc, int32_t *qclen)
 {
-    int32_t i, rc;
+    int32_t i;
+
+    // caller's buffer must be at least 4 bytes
+    if (*qclen < offsetof(cam_query_ctrls_t, cam_ctrl[0])) {
+        ERROR("caller's buffer size is less than absolute minimum of %zd\n", 
+              offsetof(cam_query_ctrls_t, cam_ctrl[0]));
+        return -1;
+    }
 
     // lock cam_ctrls mutex
     LOCK;
 
-    // if query_ctrl is not valid then return error
+    // if query_ctrl is not available then return error
     if (query_ctrl->max_cam_ctrl == 0 || query_ctrl_len == 0) {
+        ERROR("query_ctrl is not available\n");
+        qc->max_cam_ctrl = 0;
+        *qclen = offsetof(cam_query_ctrls_t, cam_ctrl[0]);
         UNLOCK;
         return -1;
     }
@@ -755,6 +765,8 @@ int32_t cam_ctrls_get_all(cam_query_ctrls_t *qc, int32_t *qclen)
     // if caller's buffer is not big enough return error
     if (*qclen < query_ctrl_len) {
         ERROR("caller's bufflen %d too small, required=%d\n", *qclen, query_ctrl_len);
+        qc->max_cam_ctrl = 0;
+        *qclen = offsetof(cam_query_ctrls_t, cam_ctrl[0]);
         UNLOCK;
         return -1;
     }
@@ -768,11 +780,7 @@ int32_t cam_ctrls_get_all(cam_query_ctrls_t *qc, int32_t *qclen)
         if (x->type == CAM_CTRL_TYPE_READ_WRITE ||
             x->type == CAM_CTRL_TYPE_READ_ONLY)
         {
-            rc = cam_ctrls_get(x->cid, &x->current_value);
-            if (rc != 0) {
-                UNLOCK;
-                return rc;
-            }
+            cam_ctrls_get(x->cid, &x->current_value);
         }
     }
 
@@ -828,8 +836,8 @@ int32_t cam_ctrls_get(int32_t cid, int32_t *cid_value)
     memset(&control, 0, sizeof(control));
     control.id = cid;
     if (ioctl(cam_fd, VIDIOC_G_CTRL, &control) != 0) {
-        *cid_value = NO_CAM_VALUE;
         ERROR("failed get of cid 0x%x, %s\n", cid, strerror(errno));
+        *cid_value = NO_CAM_VALUE;
         return -1;
     }
 

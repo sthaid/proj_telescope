@@ -157,43 +157,50 @@ int main(int argc, char ** argv)
 
 static void display_handler(void)
 {
-    int win_width  = DEFAULT_WIN_WIDTH;
-    int win_height = DEFAULT_WIN_HEIGHT;
+    int win_width, win_height;
     int sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h;
-    int sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h;
     int tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h;
-    int tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h;
+    int multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h;
 
+    // init sdl, and get actual window width and height
+    win_width  = DEFAULT_WIN_WIDTH;
+    win_height = DEFAULT_WIN_HEIGHT;
+    INFO("REQUESTED win_width=%d win_height=%d\n", win_width, win_height);
     if (sdl_init(&win_width, &win_height, true) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
     }
-    INFO("win_width=%d win_height=%d\n", win_width, win_height);
+    INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
 
+    // sky_pane coordinates
     sky_pane_x     = 0;
     sky_pane_y     = 0;
     sky_pane_w     = win_width;
-    sky_pane_h     = win_height / 2;
+    if (win_height < 900) {
+        sky_pane_h = win_height - 480;
+    } else {
+        sky_pane_h = win_height - 640;
+    }
     INFO("sky_pane x,y,w,h = %d %d %d %d\n", sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h);
 
-    sky_view_pane_x = 0;
-    sky_view_pane_y = sky_pane_h;  
-    sky_view_pane_w = win_height - sky_pane_h;
-    sky_view_pane_h = win_height - sky_pane_h;
-    INFO("sky_view_pane x,y,w,h = %d %d %d %d\n", sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h);
-
-    tele_pane_x = sky_view_pane_w;
+    // tele_pane coordinates
+    tele_pane_x = 0;
     tele_pane_y = sky_pane_h;  
     tele_pane_h = win_height - sky_pane_h;
     tele_pane_w = tele_pane_h * (640. / 480.);
     INFO("tele_pane x,y,w,h = %d %d %d %d\n", tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h);
 
-    // for tele_motor_info and tele_cam_info panes, which are at the same location
-    tele_info_pane_x = tele_pane_x + tele_pane_w;
-    tele_info_pane_y = tele_pane_y;
-    tele_info_pane_h = tele_pane_h;
-    tele_info_pane_w = win_width - tele_info_pane_x;
-    INFO("tele_info_pane x,y,w,h = %d %d %d %d\n", tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h);
+    // the multi_pane coordinates are used for all of the following panes:
+    // - sky_view_pane
+    // - tele_motor_info_pane
+    // - tele_cam_info_pane
+    multi_pane_x = tele_pane_x + tele_pane_w;
+    multi_pane_y = tele_pane_y;
+    multi_pane_h = tele_pane_h;
+    multi_pane_w = multi_pane_h;
+    INFO("multi_pane x,y,w,h = %d %d %d %d\n", multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h);
 
+    // call the pane manger; 
+    // this will not return except when it is time to terminate the program
     sdl_pane_manager(
         NULL,           // context
         NULL,           // called prior to pane handlers
@@ -201,9 +208,9 @@ static void display_handler(void)
         100000,         // 0=continuous, -1=never, else us 
         5,              // number of pane handler varargs that follow
         sky_pane_hndlr, NULL, sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        sky_view_pane_hndlr, NULL, sky_view_pane_x, sky_view_pane_y, sky_view_pane_w, sky_view_pane_h, PANE_BORDER_STYLE_MINIMAL,
         tele_pane_hndlr, NULL, tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        tele_motor_info_pane_hndlr, NULL, tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        tele_cam_info_pane_hndlr, NULL, tele_info_pane_x, tele_info_pane_y, tele_info_pane_w, tele_info_pane_h, PANE_BORDER_STYLE_MINIMAL
+        sky_view_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL,
+        tele_motor_info_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL,
+        tele_cam_info_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL
                         );
 }
