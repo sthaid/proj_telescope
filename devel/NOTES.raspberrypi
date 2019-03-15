@@ -177,20 +177,25 @@ BACKUP
     sudo apt-get install fonts-freefont-ttf
     also need to install the 3 sdl packages, or build SDL from source
 
-
 --------------------------------
------------ LATER --------------
+-------  WIFI PWR MGMT  --------
 --------------------------------
 
-- XXX tbd start ctlr automatically
+References
+- https://www.raspberrypi.org/forums/viewtopic.php?t=194619
 
-- XXX 
+New Procedure:
+- add to /etc/rc.local:
+    iwconfig wlan0 power off
+- reboot and run iwconfig to check
+
+Old Procedure:
 - Turn Off wlan0 Power Management, this will keep the wireless ethernet adapter
   powered on at all times and improve network performance
-    - add the indicated line to /etc/network/interfaces
-          allow-hotplug wlan0
-          iface wlan0 inet manual
-          wireless-power off       <== add this line
-          wpa-roam /etc/wpa_supplicant/wpa_supplicant.conf
-    - following the reboot, run 'iwconfig' to verify Power Management is Off
+  - add the indicated line to /etc/network/interfaces
+        allow-hotplug wlan0
+        iface wlan0 inet manual
+        wireless-power off       <== add this line
+        wpa-roam /etc/wpa_supplicant/wpa_supplicant.conf
+  - following the reboot, run 'iwconfig' to verify Power Management is Off
 
