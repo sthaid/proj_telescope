@@ -78,9 +78,9 @@ SOFTWARE.
     (x) == MOTORS_ERROR  ? "ERROR"  : \
                            "????")
 
-#define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 1000000)
+#define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 5000000)
 
-#define CAM_IMG_AVAIL (microsec_timer() - cam_img.time_us < 1000000)
+#define CAM_IMG_AVAIL (microsec_timer() - cam_img.time_us < 5000000)
 
 #define SDLPR(fmt, args...) \
     do { \
@@ -237,7 +237,7 @@ reconnect:
     comm_send_msg(msg);
 
     // on new connection should first recv MSGID_CONNECTED
-    len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
+    len = do_recv(sfd, msg, sizeof(msg_t));
     if (len != sizeof(msg_t)) {
         ERROR("recvd initial msg with invalid len %d, %s\n", len, strerror(errno));
         goto lost_connection;
@@ -253,12 +253,12 @@ reconnect:
     // process them
     while (true) {
         // recv msg
-        len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
+        len = do_recv(sfd, msg, sizeof(msg_t));
         if (len != sizeof(msg_t)) {
             ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
-        len = recv(sfd, msg->data, msg->data_len, MSG_WAITALL);
+        len = do_recv(sfd, msg->data, msg->data_len);
         if (len != msg->data_len) {
             ERROR("recvd msg data with invalid len %d, %s\n", len, strerror(errno));
             break;
@@ -467,21 +467,55 @@ static void * tele_ctrl_thread(void * cx)
 
         // determine motor status from ctlr_motor_status
         if (!connected) {
+            if (motors != MOTORS_ERROR) {
+                INFO("setting MOTORS_ERROR because not connected\n");
+            }
             motors = MOTORS_ERROR;
         } else if (!CTLR_MOTOR_STATUS_VALID) {
+            if (motors != MOTORS_ERROR) {
+                INFO("setting MOTORS_ERROR because because not CTLR_MOTOR_STATUS_VALID\n");
+            }
             motors = MOTORS_ERROR;
         } else if (ctlr_motor_status.motor[0].opened == 0 && ctlr_motor_status.motor[1].opened == 0) {
+            if (motors != MOTORS_CLOSED) {
+                INFO("setting MOTORS_CLOSED because because one or both motors are not open (%d %d)\n",
+                    ctlr_motor_status.motor[0].opened , ctlr_motor_status.motor[1].opened);
+            }
             motors = MOTORS_CLOSED;
-        } else if (ctlr_motor_status.motor[0].opened == 1 &&
-                   strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0 &&
-                   ctlr_motor_status.motor[1].opened == 1 &&
-                   strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
-                   strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0)
+        } else if (!(ctlr_motor_status.motor[0].opened == 1 &&
+                     strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
+                     strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0 &&
+                     ctlr_motor_status.motor[1].opened == 1 &&
+                     strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
+                     strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0))
         {
-            motors = MOTORS_OPEN;
-        } else {
+            // XXX may need to lock with update to ctlr_motor_status
+            if (motors != MOTORS_ERROR) {
+                INFO("setting MOTORS_ERROR because motor0=%d,%s,%s motor1=%d,%s,%s\n",
+                     ctlr_motor_status.motor[0].opened,
+                     ctlr_motor_status.motor[0].operation_state_str,
+                     ctlr_motor_status.motor[0].error_status_str,
+                     ctlr_motor_status.motor[1].opened,
+                     ctlr_motor_status.motor[1].operation_state_str,
+                     ctlr_motor_status.motor[1].error_status_str);
+            }
             motors = MOTORS_ERROR;
+        } else {
+            if (motors != MOTORS_OPEN) {
+                INFO("setting MOTORS_OPEN because all is well\n");
+            }
+            motors = MOTORS_OPEN;
+        }
+
+        // XXX temp debug code
+        if (connected) {
+            uint64_t motor_status_age_us, ms_us;
+            ms_us = ctlr_motor_status_us;
+            __sync_synchronize();
+            motor_status_age_us = microsec_timer() - ms_us;
+            if (motor_status_age_us > 1000000) {
+                WARN("XXX motor_status_age_us = %ld\n", motor_status_age_us);
+            }
         }
 
         // if telescope is not fully ready then ensure the 
