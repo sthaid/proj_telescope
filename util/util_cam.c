@@ -105,10 +105,6 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     enum   v4l2_buf_type       buf_type;
     int32_t                    i;
 
-    // print args
-    INFO("req_fmt='%c%c%c%c' req_width=%d req_height=%d req_tpf=%f\n",
-         PIXEL_FMT_CHARS(req_fmt), req_width, req_height, req_tpf);
-
     // preset returns to invalid
     *act_fmt = 0;
     *act_width = 0;
@@ -140,7 +136,7 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     }
 
     // open webcam, try devices /dev/video0,1,...
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 4; i++) {
         char devpath[100];
         sprintf(devpath, "%s%d", WC_VIDEO, i);
         cam_fd = open(devpath, O_RDWR|O_NONBLOCK);
@@ -295,6 +291,8 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     *act_height = format.fmt.pix.height;
     *act_tpf    = (double)streamparm.parm.capture.timeperframe.numerator / 
                   streamparm.parm.capture.timeperframe.denominator;
+    INFO("req_fmt='%c%c%c%c' req_width=%d req_height=%d req_tpf=%f\n",
+         PIXEL_FMT_CHARS(req_fmt), req_width, req_height, req_tpf);
     INFO("act_fmt='%c%c%c%c' act_width=%d act_height=%d act_tpf=%f\n",
          PIXEL_FMT_CHARS(*act_fmt), *act_width, *act_height, *act_tpf);
 
@@ -332,16 +330,16 @@ static void cam_exit_handler(void)
 int32_t cam_get_buff(uint8_t **buff, uint32_t *len)
 {
     int64_t duration = 0;
+    int32_t i;
+    int32_t max_buffer_avail = 0;
+    struct v4l2_buffer buffer_avail[MAX_BUFMAP];
 
-    static int32_t max_buffer_avail;
-    static struct v4l2_buffer buffer_avail[MAX_BUFMAP];
-
+try_again:
     // if not initialized then return error
     if (cam_fd == -1) {
         return -1;
     }
  
-try_again:
     // dequeue buffers until no more available
     while (true) {
         struct v4l2_buffer buffer;
@@ -359,8 +357,6 @@ try_again:
                 return -1;
             }
         }
-
-        // debug print
         DEBUG("GET: index=%d addr=%p length=%d flags=0x%x\n", 
               buffer.index, bufmap[buffer.index].addr, bufmap[buffer.index].length,  buffer.flags);
 
@@ -373,16 +369,22 @@ try_again:
             break;
         }
 
-        // save buffer at end of buffer_avail array
+        // this should not happen, but if buffer_avail array is full then
+        // put back the buffer we just got and break out of this loop;
+        // following code will discard buffers and return the most recent
         if (max_buffer_avail >= MAX_BUFMAP) {
             ERROR("max_buffer_avail = %d\n", max_buffer_avail);
-            return -1;
+            cam_put_buff(bufmap[buffer.index].addr);
+            break;
         }
+
+        // save buffer at end of buffer_avail array
         buffer_avail[max_buffer_avail++] = buffer;
     }
 
     // if no buffers are available then 
     //   if it has been more than 2 seconds then 
+    //     XXX this is 10 sec -instead get the first buffer in cam_initialize
     //     return error
     //   else
     //     delay and try again
@@ -399,15 +401,12 @@ try_again:
         }
     }
   
-    // if this routine is now holding more than 3 then
-    // discard all but the newest
-    if (max_buffer_avail > 3) {
-        int32_t i;
-        WARN("discarding buffs because holding=%d is greater than 3\n", max_buffer_avail);
+    // if more than 1 buffer is available then discard all but the newest
+    if (max_buffer_avail > 1) {
+        WARN("discarding %d buffers\n", max_buffer_avail-1);
         for (i = 0; i < max_buffer_avail-1; i++) {
             cam_put_buff(bufmap[buffer_avail[i].index].addr);
         }
-
         buffer_avail[0] = buffer_avail[max_buffer_avail-1];
         max_buffer_avail = 1;
     }
@@ -415,10 +414,6 @@ try_again:
     // return the oldest in buffer_avail
     *buff = (uint8_t*)bufmap[buffer_avail[0].index].addr;
     *len =  buffer_avail[0].bytesused;
-
-    // shift the remaining, slot 0 needs to be the oldest
-    max_buffer_avail--;
-    memmove(&buffer_avail[0], &buffer_avail[1], max_buffer_avail*sizeof(struct v4l2_buffer));
 
     // return success
     return 0;
@@ -496,6 +491,10 @@ static void debug_print_query_ctrl(void);
 // a subsequent call to cam_ctrls_query will be needed to re-init the query_ctrl var
 static void cam_ctrls_reset(void) 
 {
+    if (query_ctrl_len == 0) {
+        return;
+    }
+
     LOCK;
     memset(query_ctrl_buff,0,sizeof(query_ctrl_buff));
     query_ctrl_len = 0;
