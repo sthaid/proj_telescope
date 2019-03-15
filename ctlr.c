@@ -29,6 +29,9 @@ if [ -x /home/haid/proj_telescope/ctlr ]
 then
   su haid -c "cd /home/haid/proj_telescope; LD_LIBRARY_PATH=/usr/local/lib ./ctlr </dev/null &>>ctlr.log &"
 fi  
+
+# disable wifi power mgmt
+iwconfig wlan0 power off
 #endif
 
 // This program should work on either 32 or 64 bit linux. Raspbian is 32 bit.
@@ -237,7 +240,7 @@ reconnect:
     comm_send_msg(msg);
 
     // on new connection should first recv MSGID_CONNECTED
-    len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
+    len = do_recv(sfd, msg, sizeof(msg_t));
     if (len != sizeof(msg_t)) {
         ERROR("recvd initial msg with invalid len %d, %s\n", len, strerror(errno));
         goto lost_connection;
@@ -252,12 +255,12 @@ reconnect:
     // process them
     while (true) {
         // recv msg  
-        len = recv(sfd, msg, sizeof(msg_t), MSG_WAITALL);
+        len = do_recv(sfd, msg, sizeof(msg_t));
         if (len != sizeof(msg_t)) {
             ERROR("recvd msg with invalid len %d, %s\n", len, strerror(errno));
             break;
         }
-        len = recv(sfd, msg->data, msg->data_len, MSG_WAITALL);
+        len = do_recv(sfd, msg->data, msg->data_len);
         if (len != msg->data_len) {
             ERROR("recvd msg data with invalid len %d, %s\n", len, strerror(errno));
             break;
@@ -1437,7 +1440,6 @@ re_init:
             cam_reset_req = false;
             break;
         }
-        ERROR("cam_initialize failed, rc=%d\n", rc);
 
         sleep(1);
     }
