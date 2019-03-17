@@ -154,9 +154,18 @@ Install Procedure:
     KERNEL=="video*", MODE="0666"
   - NOTES on using udev ...
     # to reload rules without rebooting
-    sudo udevadm control --reload-rules && udevadm trigge
+    sudo udevadm control --reload-rules && udevadm trigger
     # to get udev info
     sudo udevadm info  -n video0
+
+- /etc/sysctl.conf
+  - add the following
+       net.core.wmem_max = 2000000
+       net.core.rmem_max = 2000000
+  - apply 'sysctl -p'
+  - verify
+      cat /proc/sys/net/core/wmem_max
+      cat /proc/sys/net/core/rmem_max
 
 - build proj_telescope
     cd ~/proj_telescope

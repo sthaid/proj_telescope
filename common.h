@@ -17,6 +17,8 @@
 #include <math.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 // help ensure portability to Raspbian, use int64_t instead of long
 #define long DONT_USE_LONG
@@ -48,12 +50,13 @@
 #define MSGID_STATUS                8
 #define MSGID_SHUTDN_CTLR           9
 #define MSGID_CAM_IMG               10
-#define MSGID_CAM_RESET_REQ         11
-#define MSGID_CAM_CTRLS_GET_ALL     12
-#define MSGID_CAM_CTRLS_INCR_DECR   13
-#define MSGID_CAM_CTRLS_GET         14
-#define MSGID_CAM_CTRLS_RESET       15
-#define MSGID_CAM_CTRLS_SET         16
+#define MSGID_CAM_IMG_ACK_RECEIPT   11
+#define MSGID_CAM_RESET_REQ         12
+#define MSGID_CAM_CTRLS_GET_ALL     13
+#define MSGID_CAM_CTRLS_INCR_DECR   14
+#define MSGID_CAM_CTRLS_GET         15
+#define MSGID_CAM_CTRLS_RESET       16
+#define MSGID_CAM_CTRLS_SET         17
 
 #define MSGID_STR(x) \
    ((x) == MSGID_CONNECTED            ? "MSGID_CONNECTED"             : \
@@ -66,6 +69,7 @@
     (x) == MSGID_STATUS               ? "MSGID_STATUS"                : \
     (x) == MSGID_SHUTDN_CTLR          ? "MSGID_SHUTDN_CTLR"           : \
     (x) == MSGID_CAM_IMG              ? "MSGID_CAM_IMG"               : \
+    (x) == MSGID_CAM_IMG_ACK_RECEIPT  ? "MSGID_CAM_IMG_ACK_RECEIPT"   : \
     (x) == MSGID_CAM_RESET_REQ        ? "MSGID_CAM_RESET_REQ"         : \
     (x) == MSGID_CAM_CTRLS_GET_ALL    ? "MSGID_CAM_CTRLS_GET_ALL"     : \
     (x) == MSGID_CAM_CTRLS_INCR_DECR  ? "MSGID_CAM_CTRLS_INCR_DECR"   : \
@@ -91,6 +95,7 @@ typedef struct {
     unsigned char data[0];
 } msg_t;
 
+// XXX rename MSGID
 typedef struct {
     struct motor_status_s {
         int    opened;
@@ -120,8 +125,13 @@ typedef struct {
     int compression;
     int width;
     int height;
+    int img_id;
     unsigned char data[0];
 } msg_cam_img_data_t;
+
+typedef struct {
+    int img_id;
+} msg_cam_img_ack_receipt_t;
 
 typedef struct {
     cam_query_ctrls_t qc;

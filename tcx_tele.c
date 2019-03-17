@@ -79,14 +79,16 @@ SOFTWARE.
                            "????")
 
 #define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 5000000)
-
-#define CAM_IMG_AVAIL (microsec_timer() - cam_img.time_us < 5000000)
+#define CAM_IMG_VALID           (microsec_timer() - cam_img.recv_time_us[0] < 5000000)
+#define CAM_CTRLS_VALID         (microsec_timer() - vars->cam_ctrls_time_us < 5000000)
 
 #define SDLPR(fmt, args...) \
     do { \
         sdl_render_printf(pane, COL2X(sdlpr_col,fontsz), ROW2Y(sdlpr_row,fontsz), fontsz, WHITE, BLACK, fmt, ## args); \
         sdlpr_row++; \
     } while (0)
+
+#define MAX_CAM_IMG_RECV_TIME_US 10
 
 //
 // typedefs
@@ -97,7 +99,7 @@ typedef struct {
     int width;
     int height;
     int pixel_fmt;
-    uint64_t time_us;
+    uint64_t recv_time_us[MAX_CAM_IMG_RECV_TIME_US];
 } cam_img_t;
 
 //
@@ -152,6 +154,8 @@ static void * comm_thread(void * cx);
 static void * comm_heartbeat_thread(void * cx);
 static int comm_process_recvd_msg(msg_t * msg);
 static void comm_send_msg(msg_t * msg);
+static void comm_set_sock_opts(void);
+static void comm_verify_sock_opts(void);
 
 static void * tele_ctrl_thread(void * cx);
 static void tele_ctrl_process_cmd(int event_id);
@@ -209,7 +213,6 @@ static void * comm_thread(void * cx)
 
     int rc, sfd_temp, len;
     struct sockaddr_in addr;
-    struct timeval rcvto = {1, 0};  // sec, usec
     msg_t * msg = (msg_t*)msg_buffer;
 
 reconnect:
@@ -226,10 +229,9 @@ reconnect:
         }
     } while (rc == -1);
 
-    // set 1 second timeout for recv
-    if (setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto)) == -1) {
-        FATAL("setsockopt SO_RCVTIMEO, %s", strerror(errno));
-    }
+    // set and verify socket options
+    comm_set_sock_opts();
+    comm_verify_sock_opts();
 
     // send connected msg
     memset(msg,0,sizeof(msg_t));
@@ -307,9 +309,18 @@ static int comm_process_recvd_msg(msg_t * msg)
         int                  data_len = msg->data_len - sizeof(msg_cam_img_data_t);
         unsigned char      * pixels = NULL;
         size_t               pixels_len = 0;
+        int                  expected_pixels_len;
+        bool                 error;
 
-        int expected_pixels_len;
-        bool error;
+        char msg_cam_img_ack_buffer[100];
+        msg_t *msg_cam_img_ack = (void*)msg_cam_img_ack_buffer;
+        msg_cam_img_ack_receipt_t * msg_cam_img_ack_receipt = (void*)msg_cam_img_ack->data;
+
+        // send message back to ctlr acknowleging receipt of the cam img
+        msg_cam_img_ack->id = MSGID_CAM_IMG_ACK_RECEIPT;
+        msg_cam_img_ack->data_len = sizeof(msg_cam_img_ack_receipt_t);
+        msg_cam_img_ack_receipt->img_id = msg_data->img_id;
+        comm_send_msg(msg_cam_img_ack);
 
         // get pixels based on type of compression
         switch (msg_data->compression) {
@@ -373,7 +384,8 @@ static int comm_process_recvd_msg(msg_t * msg)
         cam_img.width     = msg_data->width;
         cam_img.height    = msg_data->height;
         cam_img.pixel_fmt = msg_data->pixel_fmt;
-        cam_img.time_us   = microsec_timer();
+        memmove(&cam_img.recv_time_us[1], &cam_img.recv_time_us[0], (MAX_CAM_IMG_RECV_TIME_US-1)*sizeof(uint64_t));
+        cam_img.recv_time_us[0] = microsec_timer();
         pthread_mutex_unlock(&cam_img_mutex);
         break; }
     case MSGID_HEARTBEAT:
@@ -445,6 +457,85 @@ static void * comm_heartbeat_thread(void * cx)
     return NULL;
 }
 
+static void comm_set_sock_opts(void)
+{
+    int rc, optval;
+
+    if (sfd == -1) {
+        FATAL("BUG: sfd is -1\n");
+    }
+
+    // set send-buffer size 
+    optval = MB;
+    rc = setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &optval, sizeof(optval));
+    if (rc == -1) {
+        FATAL("setsockopt SO_SNDBUF, %s", strerror(errno));
+    }
+
+    // set rcv-buffer size
+    optval = MB;
+    rc = setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &optval, sizeof(optval));
+    if (rc == -1) {
+        FATAL("setsockopt SO_RCVBUF, %s", strerror(errno));
+    }
+
+    // enable TCP_NODELAY
+    optval = 1;
+    rc = setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval));
+    if (rc == -1) {
+        FATAL("setsockopt TCP_NODELAY, %s", strerror(errno));
+    }
+}
+
+static void comm_verify_sock_opts(void)
+{
+    int rc, optval;
+    socklen_t optlen;
+
+    if (sfd == -1) {
+        FATAL("BUG: sfd is -1\n");
+    }
+
+    // verify send-buffer size
+    optval = 0;
+    optlen = sizeof(optval);
+    rc = getsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &optval, &optlen);       
+    if (rc == -1) {
+        FATAL("getsockopt SO_SNDBUF, %s", strerror(errno));
+    }
+    if (optval != 2*MB) {
+        INFO("add to /etc/sysctl.conf:\n");
+        INFO("   net.core.wmem_max = 2000000\n");
+        INFO("   net.core.rmem_max = 2000000\n");
+        FATAL("getsockopt SO_SNDBUF, optval=%d\n", optval);
+    }
+
+    // verify recv-buffer size
+    optval = 0;
+    optlen = sizeof(optval);
+    rc = getsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &optval, &optlen);       
+    if (rc == -1) {
+        FATAL("getsockopt SO_RCVBUF, %s", strerror(errno));
+    }
+    if (optval != 2*MB) {
+        INFO("add to /etc/sysctl.conf:\n");
+        INFO("   net.core.wmem_max = 2000000\n");
+        INFO("   net.core.rmem_max = 2000000\n");
+        FATAL("getsockopt SO_RCVBUF, optval=%d\n", optval);
+    }
+
+    // verify TCP_NODELAY
+    optval = 0;
+    optlen = sizeof(optval);
+    rc = getsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &optval, &optlen);       
+    if (rc == -1) {
+        FATAL("getsockopt TCP_NODELAY, %s", strerror(errno));
+    }
+    if (optval != 1) {
+        FATAL("getsockopt TCP_NODELAY, optval=%d\n", optval);
+    }
+}
+
 // -----------------  TELE CONTROL  ---------------------------------------
 
 static void * tele_ctrl_thread(void * cx)
@@ -507,14 +598,14 @@ static void * tele_ctrl_thread(void * cx)
             motors = MOTORS_OPEN;
         }
 
-        // XXX temp debug code
-        if (connected) {
+        // debug print if the receipt of motor_status is delayed 
+        if (connected && ctlr_motor_status_us) {
             uint64_t motor_status_age_us, ms_us;
             ms_us = ctlr_motor_status_us;
             __sync_synchronize();
             motor_status_age_us = microsec_timer() - ms_us;
             if (motor_status_age_us > 1000000) {
-                WARN("XXX motor_status_age_us = %ld\n", motor_status_age_us);
+                WARN("motor_status delayed receipt, age = %ld us\n", motor_status_age_us);
             }
         }
 
@@ -526,6 +617,11 @@ static void * tele_ctrl_thread(void * cx)
             tracking_enabled = false;
             adj_az_mstep = adj_el_mstep = 0;
         }
+
+        // XXX if connected and motorsopen and !calibrated and 
+        //             recently rcvd  tele_cal msg avail
+        //     then accept the tele_cal and clear it
+        // XXX LATER
 
         // get tgt_az/el by calling sky routine, and
         // determine if the target azel is valid (can the telescope mechanism point there)
@@ -930,7 +1026,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         pthread_mutex_lock(&cam_img_mutex);
 
         // if image avail
-        if (CAM_IMG_AVAIL) {
+        if (CAM_IMG_VALID) {
             // sanitize the pan/zoom control info
             sanitize_pan_zoom();
 
@@ -1063,12 +1159,12 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // some of the event_ids are handled here, and the majority
         // of the event_ids are handled by call to tele_ctrl_process_cmd
         if (event->event_id == SDL_EVENT_TELE_MOUSE_MOTION) {
-            if (CAM_IMG_AVAIL) {
+            if (CAM_IMG_VALID) {
                 pz.image_x_ctr -= event->mouse_motion.delta_x;
                 pz.image_y_ctr -= event->mouse_motion.delta_y;
             }
         } else if (event->event_id == SDL_EVENT_TELE_MOUSE_WHEEL) {
-            if (CAM_IMG_AVAIL) {
+            if (CAM_IMG_VALID) {
                 int dy = event->mouse_wheel.delta_y;
                 if (dy < 0 && pz.image_scale < 1) {
                     pz.image_scale *= 1.1;
@@ -1165,7 +1261,6 @@ static void sanitize_pan_zoom(void)
 
 // -----------------  TELE CAM INFO PANE HNDLR  ---------------------------
 
-// XXX try other webcam, with buttons
 // XXX scroll arrows or mouse motion for moving the menu if it has too many entries to fit in the pane
 
 int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
@@ -1230,7 +1325,7 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
         // endif
         if (vars->cam_ctrls->max_cam_ctrl != 0 && 
             vars->cam_ctrls_len != 0 &&
-            microsec_timer() - vars->cam_ctrls_time_us < 3000000)
+            CAM_CTRLS_VALID)
         {
             int32_t i, j;
             char *strings, *s, *menu_strings[100], current_value_str[100];

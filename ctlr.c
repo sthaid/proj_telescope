@@ -21,17 +21,28 @@ SOFTWARE.
 */
 
 #if 0  
-// On Raspberry Pi, add the following to /etc/rc.local to automatically
-// start the ctlr program when the Raspberry Pi boots.
+On Raspberry Pi, add the following to /etc/rc.local to automatically
+start the ctlr program when the Raspberry Pi boots.
+    # Start telescope ctlr
+    if [ -x /home/haid/proj_telescope/ctlr ]
+    then
+      su haid -c "cd /home/haid/proj_telescope; LD_LIBRARY_PATH=/usr/local/lib ./ctlr </dev/null &>>ctlr.log &"
+    fi  
+    # disable wifi power mgmt
+    iwconfig wlan0 power off
 
-# Start telescope ctlr
-if [ -x /home/haid/proj_telescope/ctlr ]
-then
-  su haid -c "cd /home/haid/proj_telescope; LD_LIBRARY_PATH=/usr/local/lib ./ctlr </dev/null &>>ctlr.log &"
-fi  
+Add the following to /etc/sysctl.conf, and apply using 'sysctl -p'
+    net.core.wmem_max = 2000000
+    net.core.rmem_max = 2000000
 
-# disable wifi power mgmt
-iwconfig wlan0 power off
+Create the following udev rules. And apply the udev rules by rebooting or 
+run 'sudo udevadm control --reload-rules && udevadm trigger'.
+    /etc/udev/rules.d/99-pololu.rules
+       SUBSYSTEM=="usb", ATTRS{idVendor}=="1ffb", MODE="0666"
+    /etc/udev/rules.d/10-local.rules
+       KERNEL=="video*", MODE="0666"
+
+For more info refer to devel/NOTES.raspberrypi.
 #endif
 
 // This program should work on either 32 or 64 bit linux. Raspbian is 32 bit.
@@ -63,7 +74,6 @@ iwconfig wlan0 power off
 //
 
 //#define MOTOR_UNIT_TEST
-//#define TEST_WITH_ONLY_AZ_MOTOR
 
 #define SWAP_VALUES(x,y) do { typeof(x) SWAP = (x); (x) = (y); (y) = SWAP; } while (0)
 
@@ -85,6 +95,9 @@ iwconfig wlan0 power off
 // variables
 //
 
+static int cam_img_receipt_id;
+static int cam_img_lastsnd_id;
+
 //
 // prototypes
 //
@@ -92,6 +105,8 @@ iwconfig wlan0 power off
 // message routines
 static int comm_init(void);
 static void comm_send_msg(msg_t * msg);
+static void comm_set_sock_opts(void);
+static void comm_verify_sock_opts(void);
 
 // motor routines
 static int motor_init(void);
@@ -189,7 +204,6 @@ static void * comm_thread(void * cx)
     socklen_t addrlen;
     char str[100];
     int reuseaddr = 1;
-    struct timeval rcvto = {1, 0};  // sec, usec
     char msg_buffer[1000];
     msg_t * msg = (msg_t*)msg_buffer; 
 
@@ -229,10 +243,9 @@ reconnect:
          sock_addr_to_str(str, sizeof(str), (struct sockaddr*)&addr));
     connected = true;
 
-    // set 1 second timeout for recv 
-    if (setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto)) == -1) {
-        FATAL("setsockopt SO_RCVTIMEO, %s", strerror(errno));
-    }
+    // set and verify socket options
+    comm_set_sock_opts();
+    comm_verify_sock_opts();
 
     // send connected msg
     memset(msg,0,sizeof(msg_t));
@@ -367,6 +380,12 @@ static int comm_process_recvd_msg(msg_t * msg)
     case MSGID_CAM_RESET_REQ:
         cam_reset();
         break;
+    case MSGID_CAM_IMG_ACK_RECEIPT: {
+        msg_cam_img_ack_receipt_t * d = (void*)msg->data;
+        CHECK_DATALEN(sizeof(msg_cam_img_ack_receipt_t));
+        INFO("got receipt id %d\n", d->img_id);
+        cam_img_receipt_id = d->img_id;
+        break; }
     default:
         ERROR("invalid msgid %d\n", msg->id);
         return -1;
@@ -410,6 +429,85 @@ static void * comm_heartbeat_thread(void * cx)
     }
 
     return NULL;
+}
+
+static void comm_set_sock_opts(void)
+{
+    int rc, optval;
+
+    if (sfd == -1) {
+        FATAL("BUG: sfd is -1\n");
+    }
+
+    // set send-buffer size 
+    optval = MB;
+    rc = setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &optval, sizeof(optval));
+    if (rc == -1) {
+        FATAL("setsockopt SO_SNDBUF, %s", strerror(errno));
+    }
+
+    // set rcv-buffer size
+    optval = MB;
+    rc = setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &optval, sizeof(optval));
+    if (rc == -1) {
+        FATAL("setsockopt SO_RCVBUF, %s", strerror(errno));
+    }
+
+    // enable TCP_NODELAY
+    optval = 1;
+    rc = setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval));
+    if (rc == -1) {
+        FATAL("setsockopt TCP_NODELAY, %s", strerror(errno));
+    }
+}
+
+static void comm_verify_sock_opts(void)
+{
+    int rc, optval;
+    socklen_t optlen;
+
+    if (sfd == -1) {
+        FATAL("BUG: sfd is -1\n");
+    }
+
+    // verify send-buffer size
+    optval = 0;
+    optlen = sizeof(optval);
+    rc = getsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &optval, &optlen);       
+    if (rc == -1) {
+        FATAL("getsockopt SO_SNDBUF, %s", strerror(errno));
+    }
+    if (optval != 2*MB) {
+        INFO("add to /etc/sysctl.conf:\n");
+        INFO("   net.core.wmem_max = 2000000\n");
+        INFO("   net.core.rmem_max = 2000000\n");
+        FATAL("getsockopt SO_SNDBUF, optval=%d\n", optval);
+    }
+
+    // verify recv-buffer size
+    optval = 0;
+    optlen = sizeof(optval);
+    rc = getsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &optval, &optlen);       
+    if (rc == -1) {
+        FATAL("getsockopt SO_RCVBUF, %s", strerror(errno));
+    }
+    if (optval != 2*MB) {
+        INFO("add to /etc/sysctl.conf:\n");
+        INFO("   net.core.wmem_max = 2000000\n");
+        INFO("   net.core.rmem_max = 2000000\n");
+        FATAL("getsockopt SO_RCVBUF, optval=%d\n", optval);
+    }
+
+    // verify TCP_NODELAY
+    optval = 0;
+    optlen = sizeof(optval);
+    rc = getsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &optval, &optlen);       
+    if (rc == -1) {
+        FATAL("getsockopt TCP_NODELAY, %s", strerror(errno));
+    }
+    if (optval != 1) {
+        FATAL("getsockopt TCP_NODELAY, optval=%d\n", optval);
+    }
 }
 
 // -----------------  MOTOR  ----------------------------------------------
@@ -509,23 +607,8 @@ static int motor_init(void)
         return -1;
     }
 
-    // if TEST_WITH_ONLY_AZ_MOTOR then 
-    //   verify just the AZ motor is present
-    // else 
-    //   verify both AZ and EL motors are present, and
-    //   swap them if needed so that h=0 is AZ and H=1 is EL
-    // endif
-#ifdef TEST_WITH_ONLY_AZ_MOTOR  // XXX delete
-    if (max_motor_devices != 1) {
-        ERROR("TEST_WITH_ONLY_AZ_MOTOR max_motor_devices=%zd must be 1\n", max_motor_devices);
-        return -1;
-    }
-    const char * sn0 = tic_device_get_serial_number(motor_devices[0]);
-    if (strcmp(sn0, AZ_MOTOR_SN) != 0) {
-        ERROR("TEST_WITH_ONLY_AZ_MOTOR sn0='%s' is not AZ_MOTOR_SN\n", sn0);
-        return -1;
-    }
-#else
+    // verify both AZ and EL motors are present, and
+    // swap them if needed so that h=0 is AZ and H=1 is EL
     if (max_motor_devices != 2) {
         ERROR("max_motor_devices=%zd must be 2\n", max_motor_devices);
         return -1;
@@ -543,7 +626,6 @@ static int motor_init(void)
     if (strcmp(sn0, AZ_MOTOR_SN) != 0) {
         SWAP_VALUES(motor_devices[0], motor_devices[1]);
     }
-#endif
 
     // print list of connected devices
     INFO("number of devices found = %zd\n", max_motor_devices);
@@ -740,10 +822,6 @@ static void motor_close(int h)
 static int motor_set_pos(int h, int mstep)
 {
     tic_error * err;
-
-#ifdef TEST_WITH_ONLY_AZ_MOTOR
-    if (h == 1) return 0;
-#endif
 
     // check that motor[h] has been opened
     if (h >= MAX_MOTOR || motor[h].tic_handle == NULL) {
@@ -1462,6 +1540,29 @@ re_init:
             goto re_init;
         }
 
+        // if not connected then 
+        //   zero cam_img_receipt_id and cam_img_lastsnd_id
+        //   return the cam buff to the driver
+        //   continue
+        // endif
+        if (!connected) {
+            cam_img_receipt_id = 0;
+            cam_img_lastsnd_id = 0;
+            cam_put_buff(ptr);
+            continue;
+        }
+
+        // if we haven't received acknowledgement that the last cam_img sent 
+        // has been received then discard this cam_img; the reason is to not 
+        // flood a slow network connection with more than it can take
+        if (cam_img_receipt_id != cam_img_lastsnd_id) {
+            WARN("discarding cam_img, receipt_id=%d lastsnd_id=%d\n", // XXX change to debug lvl
+                 cam_img_receipt_id, cam_img_lastsnd_id);
+            cam_put_buff(ptr);
+            continue;
+        }
+        cam_img_lastsnd_id++;
+
         // prepare the msg
         switch (act_fmt) {
         case FMT_MJPG:
@@ -1471,6 +1572,7 @@ re_init:
             msg_data->compression = COMPRESSION_JPEG_YUY2;
             msg_data->width       = act_width;
             msg_data->height      = act_height;
+            msg_data->img_id      = cam_img_lastsnd_id;;
             memcpy(msg_data->data, ptr, len);
             break;
         case FMT_YU12:
@@ -1482,6 +1584,7 @@ re_init:
             msg_data->compression = COMPRESSION_NONE;
             msg_data->width       = act_width;
             msg_data->height      = act_height;
+            msg_data->img_id      = cam_img_lastsnd_id;
             memcpy(msg_data->data, ptr, len);
 #else
             // lzo compressed
@@ -1493,6 +1596,7 @@ re_init:
             msg_data->compression = COMPRESSION_LZO;
             msg_data->width       = act_width;
             msg_data->height      = act_height;
+            msg_data->img_id      = cam_img_lastsnd_id;
 #endif
             break;
         default:

@@ -271,11 +271,6 @@ int do_recv(int sockfd, void * recv_buff, size_t len)
     while (len_remaining) {
         ret = recv(sockfd, recv_buff, len_remaining, MSG_WAITALL);
         if (ret <= 0) {
-            if (ret == -1 && errno == EAGAIN) {
-                WARN("XXX GOT EAGAIN\n");
-                usleep(1000);
-                continue;
-            }
             if (ret == 0) {
                 errno = ENODATA;
             }
@@ -297,11 +292,6 @@ int do_send(int sockfd, void * send_buff, size_t len)
     while (len_remaining) {
         ret = send(sockfd, send_buff, len_remaining, MSG_NOSIGNAL);
         if (ret <= 0) {
-            if (ret == -1 && errno == EAGAIN) {
-                WARN("XXX GOT EAGAIN\n");
-                usleep(1000);
-                continue;
-            }
             if (ret == 0) {
                 errno = ENODATA;
             }
