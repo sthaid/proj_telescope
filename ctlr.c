@@ -1554,7 +1554,9 @@ re_init:
         // if we haven't received acknowledgement that the last cam_img sent 
         // has been received then discard this cam_img; the reason is to not 
         // flood a slow network connection with more than it can take
-        if (cam_img_receipt_id != cam_img_lastsnd_id) {
+        if (cam_img_receipt_id != cam_img_lastsnd_id &&
+            cam_img_receipt_id != cam_img_lastsnd_id - 1)
+        {
             WARN("discarding cam_img, receipt_id=%d lastsnd_id=%d\n", // XXX change to debug lvl
                  cam_img_receipt_id, cam_img_lastsnd_id);
             cam_put_buff(ptr);

@@ -95,7 +95,6 @@ typedef struct {
     unsigned char data[0];
 } msg_t;
 
-// XXX rename MSGID
 typedef struct {
     struct motor_status_s {
         int    opened;

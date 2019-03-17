@@ -78,9 +78,15 @@ SOFTWARE.
     (x) == MOTORS_ERROR  ? "ERROR"  : \
                            "????")
 
-#define CTLR_MOTOR_STATUS_VALID (microsec_timer() - ctlr_motor_status_us <= 5000000)
-#define CAM_IMG_VALID           (microsec_timer() - cam_img.recv_time_us[0] < 5000000)
-#define CAM_CTRLS_VALID         (microsec_timer() - vars->cam_ctrls_time_us < 5000000)
+#define CTLR_MOTOR_STATUS_VALID ({uint64_t x = ctlr_motor_status_us; \
+                                  __sync_synchronize(); \
+                                  microsec_timer() - x <= 5000000;})
+#define CAM_IMG_VALID           ({uint64_t x = cam_img.recv_time_us[0]; \
+                                  __sync_synchronize(); \
+                                  microsec_timer() - x <= 5000000;})
+#define CAM_CTRLS_VALID         ({uint64_t x = vars->cam_ctrls_time_us; \
+                                  __sync_synchronize(); \
+                                  microsec_timer() - x <= 5000000;})
 
 #define SDLPR(fmt, args...) \
     do { \
