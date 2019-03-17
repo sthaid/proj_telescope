@@ -383,7 +383,6 @@ static int comm_process_recvd_msg(msg_t * msg)
     case MSGID_CAM_IMG_ACK_RECEIPT: {
         msg_cam_img_ack_receipt_t * d = (void*)msg->data;
         CHECK_DATALEN(sizeof(msg_cam_img_ack_receipt_t));
-        INFO("got receipt id %d\n", d->img_id);
         cam_img_receipt_id = d->img_id;
         break; }
     default:
@@ -986,9 +985,9 @@ static void * motor_getstatus_thread(void * cx)
 {
     int h;
     tic_variables * variables[MAX_MOTOR];
-    char msg_status_buff[1000];
-    msg_t * msg_status = (void*)msg_status_buff;
-    msg_status_data_t * msg_status_data = (msg_status_data_t*)msg_status->data;
+    char msg_motor_status_buff[1000];
+    msg_t * msg_motor_status = (void*)msg_motor_status_buff;
+    msg_motor_status_data_t * msg_motor_status_data = (msg_motor_status_data_t*)msg_motor_status->data;
 
     // init
     memset(variables, 0, sizeof(variables));
@@ -1060,9 +1059,9 @@ static void * motor_getstatus_thread(void * cx)
 #endif
 
         // fill in the status msg, and send it
-        msg_status->id = MSGID_STATUS;
-        msg_status->data_len = sizeof(msg_status_data_t);
-        memset(msg_status_data, 0, sizeof(msg_status_data_t));
+        msg_motor_status->id = MSGID_MOTOR_STATUS;
+        msg_motor_status->data_len = sizeof(msg_motor_status_data_t);
+        memset(msg_motor_status_data, 0, sizeof(msg_motor_status_data_t));
         for (h = 0; h < MAX_MOTOR; h++) {
             tic_variables *v = variables[h];
 
@@ -1070,21 +1069,21 @@ static void * motor_getstatus_thread(void * cx)
                 continue;
             }
 
-            msg_status_data->motor[h].opened                 = 1;
-            msg_status_data->motor[h].energized              = ENERGIZED(v);
-            msg_status_data->motor[h].vin_voltage_mv         = VIN_VOLTAGE(v);
-            msg_status_data->motor[h].curr_pos_mstep         = CURRENT_POSITION(v);
-            msg_status_data->motor[h].tgt_pos_mstep          = TARGET_POSITION(v);
-            msg_status_data->motor[h].curr_vel_mstep_per_sec = CURRENT_VELOCITY(v) / 10000.0;
-            msg_status_data->motor[h].spare1                 = 0;
-            strncpy(msg_status_data->motor[h].operation_state_str, 
+            msg_motor_status_data->motor[h].opened                 = 1;
+            msg_motor_status_data->motor[h].energized              = ENERGIZED(v);
+            msg_motor_status_data->motor[h].vin_voltage_mv         = VIN_VOLTAGE(v);
+            msg_motor_status_data->motor[h].curr_pos_mstep         = CURRENT_POSITION(v);
+            msg_motor_status_data->motor[h].tgt_pos_mstep          = TARGET_POSITION(v);
+            msg_motor_status_data->motor[h].curr_vel_mstep_per_sec = CURRENT_VELOCITY(v) / 10000.0;
+            msg_motor_status_data->motor[h].spare1                 = 0;
+            strncpy(msg_motor_status_data->motor[h].operation_state_str, 
                     motor_operation_state_str(OPERATION_STATE(v)),
-                    sizeof(msg_status_data->motor[h].operation_state_str)-1);
-            strncpy(msg_status_data->motor[h].error_status_str,
+                    sizeof(msg_motor_status_data->motor[h].operation_state_str)-1);
+            strncpy(msg_motor_status_data->motor[h].error_status_str,
                     motor_error_status_str(ERROR_STATUS(v)),
-                    sizeof(msg_status_data->motor[h].error_status_str)-1);
+                    sizeof(msg_motor_status_data->motor[h].error_status_str)-1);
         }
-        comm_send_msg(msg_status);
+        comm_send_msg(msg_motor_status);
             
         // free variables
         for (h = 0; h < MAX_MOTOR; h++) {

@@ -88,7 +88,7 @@ SOFTWARE.
         sdlpr_row++; \
     } while (0)
 
-#define MAX_CAM_IMG_RECV_TIME_US 10
+#define MAX_CAM_IMG_RECV_TIME_US 20
 
 //
 // typedefs
@@ -100,6 +100,7 @@ typedef struct {
     int height;
     int pixel_fmt;
     uint64_t recv_time_us[MAX_CAM_IMG_RECV_TIME_US];
+    int recv_count;
 } cam_img_t;
 
 //
@@ -107,11 +108,12 @@ typedef struct {
 //
 
 // comm to tele ctlr vars
-static int   sfd = -1;
-static bool  connected;
+static int      sfd = -1;
+static bool     connected;
+static uint64_t connection_established_time_us;
 
 // telescope motor status vars
-static msg_status_data_t ctlr_motor_status;
+static msg_motor_status_data_t ctlr_motor_status;
 static uint64_t          ctlr_motor_status_us;
 
 // telsecope control vars
@@ -159,7 +161,7 @@ static void comm_verify_sock_opts(void);
 
 static void * tele_ctrl_thread(void * cx);
 static void tele_ctrl_process_cmd(int event_id);
-static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4);
+static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4, char *str5, char *str6);
 static bool tele_ctrl_is_azel_valid(double az, double el);
 
 static void sanitize_pan_zoom(void);
@@ -250,6 +252,7 @@ reconnect:
     }
     INFO("established connection to telescope\n");
     connected = true;
+    connection_established_time_us = microsec_timer();
 
     // receive msgs from ctlr_ip, and
     // process them
@@ -276,6 +279,7 @@ reconnect:
 lost_connection:
     // lost connection; reconnect
     connected = false;
+    connection_established_time_us = 0;
     sfd_temp = sfd;
     sfd = -1;
     close(sfd_temp);
@@ -298,9 +302,9 @@ static int comm_process_recvd_msg(msg_t * msg)
     DEBUG("received %s data_len %d\n", MSGID_STR(msg->id), msg->data_len);
 
     switch (msg->id) {
-    case MSGID_STATUS: {
-        CHECK_DATALEN(sizeof(msg_status_data_t));
-        ctlr_motor_status = *(msg_status_data_t *)msg->data;
+    case MSGID_MOTOR_STATUS: {
+        CHECK_DATALEN(sizeof(msg_motor_status_data_t));
+        ctlr_motor_status = *(msg_motor_status_data_t *)msg->data;
         ctlr_motor_status_us = microsec_timer();
         break; }
     case MSGID_CAM_IMG: {
@@ -386,6 +390,7 @@ static int comm_process_recvd_msg(msg_t * msg)
         cam_img.pixel_fmt = msg_data->pixel_fmt;
         memmove(&cam_img.recv_time_us[1], &cam_img.recv_time_us[0], (MAX_CAM_IMG_RECV_TIME_US-1)*sizeof(uint64_t));
         cam_img.recv_time_us[0] = microsec_timer();
+        cam_img.recv_count++;
         pthread_mutex_unlock(&cam_img_mutex);
         break; }
     case MSGID_HEARTBEAT:
@@ -839,7 +844,7 @@ static void tele_ctrl_process_cmd(int event_id)
     pthread_mutex_unlock(&tele_ctrl_mutex);
 }
 
-static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
+static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4, char *str5, char *str6)
 {
     double tgt_az2, act_az2;
     bool acquired = false;
@@ -849,6 +854,8 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
     str2[0] = '\0';
     str3[0] = '\0';
     str4[0] = '\0';
+    str5[0] = '\0';
+    str6[0] = '\0';
 
     // lock mutex
     pthread_mutex_lock(&tele_ctrl_mutex);
@@ -925,7 +932,21 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4)
     }
 
     // STATUS LINE 4 - lower left
-    sprintf(str4, "ADJ %.2f %.2f", MSTEP_TO_AZDEG(adj_az_mstep), MSTEP_TO_ELDEG(adj_el_mstep));
+    str4[0] = '\0';
+
+    // STATUS LINE 5 - lower left
+    //    ADJ adj_az adj_el
+    sprintf(str5, "ADJ %.2f %.2f", MSTEP_TO_AZDEG(adj_az_mstep), MSTEP_TO_ELDEG(adj_el_mstep));
+
+    // STATUS LINE 6 - lower left
+    //    CONNECTED mmm:ss
+    if (connection_established_time_us != 0) {
+        int minutes, secs;
+        secs = (microsec_timer() - connection_established_time_us) / 1000000;
+        minutes = secs / 60;
+        secs -= minutes * 60;
+        sprintf(str6, "CONNECTED %d:%2.2d", minutes, secs);
+    }
 
     // unlock mutex
     pthread_mutex_unlock(&tele_ctrl_mutex);
@@ -999,14 +1020,17 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int fontsz, sdlpr_row, sdlpr_col;
+        int fontsz, sdlpr_row, sdlpr_col, i;
         int required_cam_texture_signature;
-        char str1[100], str2[100], str3[100], str4[100];
+        char str1[100], str2[100], str3[100], str4[100], str5[100], str6[100];
+        double frames_per_sec;
+        uint64_t time_now_us;
 
         static texture_t cam_texture = NULL;
         static int cam_texture_signature = 0;
 
         fontsz = 20;  // tele pane
+        frames_per_sec = 0;
 
         // display camera image ...
 
@@ -1081,6 +1105,18 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 FATAL("BUG: cam_img.pixel_fmt = %d\n", cam_img.pixel_fmt);
             }
 
+            // determine the frame receive rate
+            frames_per_sec = 0;
+            time_now_us = microsec_timer();
+            for (i = 0; i < MAX_CAM_IMG_RECV_TIME_US; i++) {
+                if (time_now_us - cam_img.recv_time_us[i] < 3000000) {
+                    frames_per_sec++;
+                } else {
+                    break;
+                }
+            }
+            frames_per_sec /= 3;
+
             // unlock cam_img struct
             pthread_mutex_unlock(&cam_img_mutex);
 
@@ -1098,12 +1134,20 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
             SDLPR("NO CAMERA IMAGE");
         }
 
-        // display status lines
-        tele_ctrl_get_status(str1, str2, str3, str4);
+        // display status lines that are supplied by tele_ctlr_get_status
+        // - str1,2,3 at upper left
+        // - str4,5,6 at lower left
+        tele_ctrl_get_status(str1, str2, str3, str4, str5, str6);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(0,fontsz), fontsz, WHITE, BLACK, "%s", str1);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str2);
         sdl_render_printf(pane, COL2X(0,fontsz), ROW2Y(2,fontsz), fontsz, WHITE, BLACK, "%s", str3);
-        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str4);
+        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(3,fontsz), fontsz, WHITE, BLACK, "%s", str4);
+        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(2,fontsz), fontsz, WHITE, BLACK, "%s", str5);
+        sdl_render_printf(pane, COL2X(0,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, "%s", str6);
+
+        // display received frames per second rate str, lower right
+        sdl_render_printf(pane, pane->w-COL2X(8,fontsz), pane->h-ROW2Y(1,fontsz), fontsz, WHITE, BLACK, 
+            "%0.1g FPS %c ", frames_per_sec, "\\|/-"[cam_img.recv_count%4]);
 
         // register mouse motion and wheel events to support camera digital pan/zoom
         rect_t loc = {0,0,pane->w,pane->h};

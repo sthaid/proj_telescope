@@ -47,7 +47,7 @@
 #define MSGID_STOP_ALL              5
 #define MSGID_ADV_POS_SINGLE        6
 #define MSGID_SET_POS_ALL           7
-#define MSGID_STATUS                8
+#define MSGID_MOTOR_STATUS          8
 #define MSGID_SHUTDN_CTLR           9
 #define MSGID_CAM_IMG               10
 #define MSGID_CAM_IMG_ACK_RECEIPT   11
@@ -66,7 +66,7 @@
     (x) == MSGID_STOP_ALL             ? "MSGID_STOP_ALL"              : \
     (x) == MSGID_ADV_POS_SINGLE       ? "MSGID_ADV_POS_SINGLE"        : \
     (x) == MSGID_SET_POS_ALL          ? "MSGID_SET_POS_ALL"           : \
-    (x) == MSGID_STATUS               ? "MSGID_STATUS"                : \
+    (x) == MSGID_MOTOR_STATUS         ? "MSGID_MOTOR_STATUS"          : \
     (x) == MSGID_SHUTDN_CTLR          ? "MSGID_SHUTDN_CTLR"           : \
     (x) == MSGID_CAM_IMG              ? "MSGID_CAM_IMG"               : \
     (x) == MSGID_CAM_IMG_ACK_RECEIPT  ? "MSGID_CAM_IMG_ACK_RECEIPT"   : \
@@ -108,7 +108,7 @@ typedef struct {
         char   operation_state_str[32];
         char   error_status_str[32];
     } motor[MAX_MOTOR];
-} msg_status_data_t;
+} msg_motor_status_data_t;
 
 typedef struct {
     int h;
