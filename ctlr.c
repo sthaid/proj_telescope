@@ -32,8 +32,8 @@ start the ctlr program when the Raspberry Pi boots.
     iwconfig wlan0 power off
 
 Add the following to /etc/sysctl.conf, and apply using 'sysctl -p'
-    net.core.wmem_max = 2000000
-    net.core.rmem_max = 2000000
+    net.core.wmem_max = 8000000
+    net.core.rmem_max = 8000000
 
 Create the following udev rules. And apply the udev rules by rebooting or 
 run 'sudo udevadm control --reload-rules && udevadm trigger'.
@@ -439,14 +439,14 @@ static void comm_set_sock_opts(void)
     }
 
     // set send-buffer size 
-    optval = MB;
+    optval = SOCK_BUFF_SIZE;
     rc = setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &optval, sizeof(optval));
     if (rc == -1) {
         FATAL("setsockopt SO_SNDBUF, %s", strerror(errno));
     }
 
     // set rcv-buffer size
-    optval = MB;
+    optval = SOCK_BUFF_SIZE;
     rc = setsockopt(sfd, SOL_SOCKET, SO_RCVBUF, &optval, sizeof(optval));
     if (rc == -1) {
         FATAL("setsockopt SO_RCVBUF, %s", strerror(errno));
@@ -476,10 +476,10 @@ static void comm_verify_sock_opts(void)
     if (rc == -1) {
         FATAL("getsockopt SO_SNDBUF, %s", strerror(errno));
     }
-    if (optval != 2*MB) {
+    if (optval != 2*SOCK_BUFF_SIZE) {
         INFO("add to /etc/sysctl.conf:\n");
-        INFO("   net.core.wmem_max = 2000000\n");
-        INFO("   net.core.rmem_max = 2000000\n");
+        INFO("   net.core.wmem_max = 8000000\n");
+        INFO("   net.core.rmem_max = 8000000\n");
         FATAL("getsockopt SO_SNDBUF, optval=%d\n", optval);
     }
 
@@ -490,10 +490,10 @@ static void comm_verify_sock_opts(void)
     if (rc == -1) {
         FATAL("getsockopt SO_RCVBUF, %s", strerror(errno));
     }
-    if (optval != 2*MB) {
+    if (optval != 2*SOCK_BUFF_SIZE) {
         INFO("add to /etc/sysctl.conf:\n");
-        INFO("   net.core.wmem_max = 2000000\n");
-        INFO("   net.core.rmem_max = 2000000\n");
+        INFO("   net.core.wmem_max = 8000000\n");
+        INFO("   net.core.rmem_max = 8000000\n");
         FATAL("getsockopt SO_RCVBUF, optval=%d\n", optval);
     }
 

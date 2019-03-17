@@ -37,6 +37,7 @@
 #define MB 0x100000
 
 #define TELE_CTLR_PORT 9000
+#define SOCK_BUFF_SIZE (2*MB)
 
 #define MAX_MOTOR 2
 

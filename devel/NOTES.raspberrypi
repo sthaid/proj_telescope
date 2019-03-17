@@ -160,8 +160,8 @@ Install Procedure:
 
 - /etc/sysctl.conf
   - add the following
-       net.core.wmem_max = 2000000
-       net.core.rmem_max = 2000000
+       net.core.wmem_max = 8000000
+       net.core.rmem_max = 8000000
   - apply 'sysctl -p'
   - verify
       cat /proc/sys/net/core/wmem_max
