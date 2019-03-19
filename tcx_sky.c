@@ -432,7 +432,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
-// XXX comment what these are doing
+        // XXX comment what these are doing
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION: 
         case SDL_EVENT_KEY_UP_ARROW: 
@@ -585,6 +585,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
 
         case SDL_EVENT_KEY_HOME:
+            // XXX generalize this to use names for azel locations
             az_ctr = az_cal_pos;
             el_ctr = el_cal_pos;
             tracking = TRACKING_OFF;

@@ -98,6 +98,8 @@ For more info refer to devel/NOTES.raspberrypi.
 static int cam_img_receipt_id;
 static int cam_img_lastsnd_id;
 
+static msg_calibration_values_data_t tcx_cal_values;
+
 //
 // prototypes
 //
@@ -264,6 +266,15 @@ reconnect:
     }
     connected = true;
 
+    // if we have calibration data then send it
+    if (tcx_cal_values.cal_valid) {
+        INFO("sending calibration values\n");
+        msg->id = MSGID_CALIBRATION_VALUES;
+        msg->data_len = sizeof(msg_calibration_values_data_t);
+        memcpy(msg->data, &tcx_cal_values, sizeof(msg_calibration_values_data_t));
+        comm_send_msg(msg);
+    }
+
     // receive msgs from tele_ctlr, and
     // process them
     while (true) {
@@ -384,6 +395,12 @@ static int comm_process_recvd_msg(msg_t * msg)
         msg_cam_img_ack_receipt_t * d = (void*)msg->data;
         CHECK_DATALEN(sizeof(msg_cam_img_ack_receipt_t));
         cam_img_receipt_id = d->img_id;
+        break; }
+    case MSGID_CALIBRATION_VALUES: {
+        msg_calibration_values_data_t * d = (void*)msg->data;
+        CHECK_DATALEN(sizeof(msg_calibration_values_data_t));
+        INFO("received calibration values, valid=%d\n", d->cal_valid);
+        tcx_cal_values = *d;
         break; }
     default:
         ERROR("invalid msgid %d\n", msg->id);
@@ -1005,6 +1022,7 @@ static void * motor_getstatus_thread(void * cx)
 
             // get the variables
             tic_get_variables(motor[h].tic_handle, &variables[h], true);
+            // XXX this can this fail 
 
             // also check for need to energize the motor because the voltage is now okay
             tic_variables *v = variables[h];
@@ -1084,6 +1102,15 @@ static void * motor_getstatus_thread(void * cx)
                     sizeof(msg_motor_status_data->motor[h].error_status_str)-1);
         }
         comm_send_msg(msg_motor_status);
+
+        // if the motor status is not okay, for example this could be due to 
+        // low motor voltage, then clear the saved tcx calibration
+        if (!MOTOR_STATUS_OKAY(msg_motor_status_data->motor)) {
+            if (tcx_cal_values.cal_valid) {
+                INFO("clearing tcx_cal_values.cal_valid because !MOTOR_STATUS_OKAY\n");
+            }
+            tcx_cal_values.cal_valid = 0;
+        }
             
         // free variables
         for (h = 0; h < MAX_MOTOR; h++) {
@@ -1558,7 +1585,7 @@ re_init:
             cam_img_receipt_id != cam_img_lastsnd_id - 1)
         {
             WARN("discarding cam_img, receipt_id=%d lastsnd_id=%d\n", // XXX change to debug lvl
-                 cam_img_receipt_id, cam_img_lastsnd_id);
+                 cam_img_receipt_id, cam_img_lastsnd_id);             //     or print every 100 discards
             cam_put_buff(ptr);
             continue;
         }

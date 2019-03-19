@@ -49,15 +49,16 @@
 #define MSGID_ADV_POS_SINGLE        6
 #define MSGID_SET_POS_ALL           7
 #define MSGID_MOTOR_STATUS          8
-#define MSGID_SHUTDN_CTLR           9
-#define MSGID_CAM_IMG               10
-#define MSGID_CAM_IMG_ACK_RECEIPT   11
-#define MSGID_CAM_RESET_REQ         12
-#define MSGID_CAM_CTRLS_GET_ALL     13
-#define MSGID_CAM_CTRLS_INCR_DECR   14
-#define MSGID_CAM_CTRLS_GET         15
-#define MSGID_CAM_CTRLS_RESET       16
-#define MSGID_CAM_CTRLS_SET         17
+#define MSGID_CALIBRATION_VALUES    9
+#define MSGID_SHUTDN_CTLR           10
+#define MSGID_CAM_IMG               11
+#define MSGID_CAM_IMG_ACK_RECEIPT   12
+#define MSGID_CAM_RESET_REQ         13
+#define MSGID_CAM_CTRLS_GET_ALL     14
+#define MSGID_CAM_CTRLS_INCR_DECR   15
+#define MSGID_CAM_CTRLS_GET         16
+#define MSGID_CAM_CTRLS_RESET       17
+#define MSGID_CAM_CTRLS_SET         18
 
 #define MSGID_STR(x) \
    ((x) == MSGID_CONNECTED            ? "MSGID_CONNECTED"             : \
@@ -68,6 +69,7 @@
     (x) == MSGID_ADV_POS_SINGLE       ? "MSGID_ADV_POS_SINGLE"        : \
     (x) == MSGID_SET_POS_ALL          ? "MSGID_SET_POS_ALL"           : \
     (x) == MSGID_MOTOR_STATUS         ? "MSGID_MOTOR_STATUS"          : \
+    (x) == MSGID_CALIBRATION_VALUES   ? "MSGID_CALIBRATION_VALUES"    : \
     (x) == MSGID_SHUTDN_CTLR          ? "MSGID_SHUTDN_CTLR"           : \
     (x) == MSGID_CAM_IMG              ? "MSGID_CAM_IMG"               : \
     (x) == MSGID_CAM_IMG_ACK_RECEIPT  ? "MSGID_CAM_IMG_ACK_RECEIPT"   : \
@@ -85,6 +87,14 @@
 
 #define PIXEL_FMT_YUY2 1
 #define PIXEL_FMT_IYUV 2
+
+#define MOTOR_STATUS_OKAY(ms) \
+        ((ms)[0].opened == 1 && \
+         strcmp((ms)[0].operation_state_str, "NORMAL") == 0 && \
+         strcmp((ms)[0].error_status_str, "NO_ERR") == 0 && \
+         (ms)[1].opened == 1 && \
+         strcmp((ms)[1].operation_state_str, "NORMAL") == 0 && \
+         strcmp((ms)[1].error_status_str, "NO_ERR") == 0)
 
 //
 // typedefs
@@ -109,6 +119,12 @@ typedef struct {
         char   error_status_str[32];
     } motor[MAX_MOTOR];
 } msg_motor_status_data_t;
+
+typedef struct {
+    int cal_valid;
+    int cal_az0_mstep;
+    int cal_el0_mstep;
+} msg_calibration_values_data_t;
 
 typedef struct {
     int h;

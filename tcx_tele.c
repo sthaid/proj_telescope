@@ -20,6 +20,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+// XXX delete heartbeat thread
+
 #include "common.h"
 
 //
@@ -78,6 +80,7 @@ SOFTWARE.
     (x) == MOTORS_ERROR  ? "ERROR"  : \
                            "????")
 
+// XXX change VALID to RECENT
 #define CTLR_MOTOR_STATUS_VALID ({uint64_t x = ctlr_motor_status_us; \
                                   __sync_synchronize(); \
                                   microsec_timer() - x <= 5000000;})
@@ -120,7 +123,11 @@ static uint64_t connection_established_time_us;
 
 // telescope motor status vars
 static msg_motor_status_data_t ctlr_motor_status;
-static uint64_t          ctlr_motor_status_us;
+static uint64_t                ctlr_motor_status_us;
+
+// telescope calibration values sent by ctlr to tcx
+msg_calibration_values_data_t ctlr_cal_values;
+uint64_t                      ctlr_cal_values_recv_time_us;
 
 // telsecope control vars
 static int    motors;
@@ -310,8 +317,19 @@ static int comm_process_recvd_msg(msg_t * msg)
     switch (msg->id) {
     case MSGID_MOTOR_STATUS: {
         CHECK_DATALEN(sizeof(msg_motor_status_data_t));
+        pthread_mutex_lock(&tele_ctrl_mutex);
         ctlr_motor_status = *(msg_motor_status_data_t *)msg->data;
         ctlr_motor_status_us = microsec_timer();
+        pthread_mutex_unlock(&tele_ctrl_mutex);
+        break; }
+    case MSGID_CALIBRATION_VALUES: {
+        CHECK_DATALEN(sizeof(msg_calibration_values_data_t));
+        INFO("received calibration values, valid=%d\n", 
+             ((msg_calibration_values_data_t*)msg->data)->cal_valid);
+        pthread_mutex_lock(&tele_ctrl_mutex);
+        ctlr_cal_values = *(msg_calibration_values_data_t*)msg->data;
+        ctlr_cal_values_recv_time_us = microsec_timer();
+        pthread_mutex_unlock(&tele_ctrl_mutex);
         break; }
     case MSGID_CAM_IMG: {
         msg_cam_img_data_t * msg_data = (void*)msg->data;
@@ -584,14 +602,7 @@ static void * tele_ctrl_thread(void * cx)
                     ctlr_motor_status.motor[0].opened , ctlr_motor_status.motor[1].opened);
             }
             motors = MOTORS_CLOSED;
-        } else if (!(ctlr_motor_status.motor[0].opened == 1 &&
-                     strcmp(ctlr_motor_status.motor[0].operation_state_str, "NORMAL") == 0 &&
-                     strcmp(ctlr_motor_status.motor[0].error_status_str, "NO_ERR") == 0 &&
-                     ctlr_motor_status.motor[1].opened == 1 &&
-                     strcmp(ctlr_motor_status.motor[1].operation_state_str, "NORMAL") == 0 &&
-                     strcmp(ctlr_motor_status.motor[1].error_status_str, "NO_ERR") == 0))
-        {
-            // XXX may need to lock with update to ctlr_motor_status
+        } else if (!MOTOR_STATUS_OKAY(ctlr_motor_status.motor)) {
             if (motors != MOTORS_ERROR) {
                 INFO("setting MOTORS_ERROR because motor0=%d,%s,%s motor1=%d,%s,%s\n",
                      ctlr_motor_status.motor[0].opened,
@@ -629,10 +640,30 @@ static void * tele_ctrl_thread(void * cx)
             adj_az_mstep = adj_el_mstep = 0;
         }
 
-        // XXX if connected and motorsopen and !calibrated and 
-        //             recently rcvd  tele_cal msg avail
-        //     then accept the tele_cal and clear it
-        // XXX LATER
+        // if connected and MOTORS_OPEN and !calibrated and 
+        //    ctlr_cal_values are valid (that is valid flag is set and recently rcvd)
+        // then
+        //   accept the ctlr_cal_values;
+        //   note: this is usefule when tcx needs to be restarted; 
+        //         to avoid the need to recalibrate a copy of the 
+        //         calibration vales is kept in ctlr; when the connection
+        //         from ctlr to tcx is established the ctlr will send these
+        //         values to tcx (if the values are valid)
+        // endif
+        if (connected && motors == MOTORS_OPEN && !calibrated &&
+            ctlr_cal_values.cal_valid == 1 &&
+            ({uint64_t x = ctlr_cal_values_recv_time_us; 
+              __sync_synchronize(); 
+              microsec_timer() - x < 5000000;}))
+        {
+            INFO("accepted ctlr_cal_values\n");
+            cal_az0_mstep = ctlr_cal_values.cal_az0_mstep;
+            cal_el0_mstep = ctlr_cal_values.cal_el0_mstep;
+            calibrated = true;
+
+            ctlr_cal_values.cal_valid = false;
+            ctlr_cal_values_recv_time_us = 0;
+        }
 
         // get tgt_az/el by calling sky routine, and
         // determine if the target azel is valid (can the telescope mechanism point there)
@@ -759,12 +790,24 @@ static void tele_ctrl_process_cmd(int event_id)
         if (calibrated) {
             calibrated = false;
             tracking_enabled = false;
+
+            INFO("sending UN_CALIBRATE\n");
+            char msg_buffer[100];
+            msg_t * msg = (msg_t*)msg_buffer;
+            msg_calibration_values_data_t * msg_calibration_values_data = (void*)msg->data;
+            msg->id = MSGID_CALIBRATION_VALUES;
+            msg->data_len = sizeof(msg_calibration_values_data_t);
+            msg_calibration_values_data->cal_valid     = 0;
+            msg_calibration_values_data->cal_az0_mstep = cal_az0_mstep;
+            msg_calibration_values_data->cal_el0_mstep = cal_el0_mstep;
+            comm_send_msg(msg);
         }
         break;
     case SDL_EVENT_TELE_CALIBRATE:
         if (connected && motors == MOTORS_OPEN && !calibrated) {
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
             int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
+
             cal_az0_mstep = curr_az_mstep - AZDEG_TO_MSTEP(tgt_az);
             cal_el0_mstep = curr_el_mstep - ELDEG_TO_MSTEP(tgt_el);
             INFO("calibrated:    cal_mstep curr_mstep target\n");
@@ -772,6 +815,17 @@ static void tele_ctrl_process_cmd(int event_id)
             INFO("calibrated: EL %9d %10d %6.2f\n", cal_el0_mstep, curr_el_mstep, tgt_el);
             calibrated = true;
             tracking_enabled = false;
+
+            INFO("sending CALIBRATE\n");
+            char msg_buffer[100];
+            msg_t * msg = (msg_t*)msg_buffer;
+            msg_calibration_values_data_t * msg_calibration_values_data = (void*)msg->data;
+            msg->id = MSGID_CALIBRATION_VALUES;
+            msg->data_len = sizeof(msg_calibration_values_data_t);
+            msg_calibration_values_data->cal_valid     = 1;
+            msg_calibration_values_data->cal_az0_mstep = cal_az0_mstep;
+            msg_calibration_values_data->cal_el0_mstep = cal_el0_mstep;
+            comm_send_msg(msg);
         }
         break;
     case SDL_EVENT_TELE_TRK_DISABLE:
