@@ -20,8 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-// XXX delete heartbeat thread
-
 #include "common.h"
 
 //
@@ -166,7 +164,6 @@ static pthread_mutex_t     cam_ctrls_mutex = PTHREAD_MUTEX_INITIALIZER;
 //
 
 static void * comm_thread(void * cx);
-static void * comm_heartbeat_thread(void * cx);
 static int comm_process_recvd_msg(msg_t * msg);
 static void comm_send_msg(msg_t * msg);
 static void comm_set_sock_opts(void);
@@ -213,7 +210,6 @@ int tele_init(void)
 
     // create threads
     pthread_create(&thread_id, NULL, comm_thread, NULL);
-    pthread_create(&thread_id, NULL, comm_heartbeat_thread, NULL);
     pthread_create(&thread_id, NULL, tele_ctrl_thread, NULL);
 
     // return success
@@ -417,9 +413,6 @@ static int comm_process_recvd_msg(msg_t * msg)
         cam_img.recv_count++;
         pthread_mutex_unlock(&cam_img_mutex);
         break; }
-    case MSGID_HEARTBEAT:
-        CHECK_DATALEN(0);
-        break;
     case MSGID_CAM_CTRLS_GET_ALL:
         pthread_mutex_lock(&cam_ctrls_mutex);
         memcpy(cam_ctrls, msg->data, msg->data_len);
@@ -467,23 +460,6 @@ static void comm_send_msg(msg_t * msg)
     if (len != sizeof(msg_t)+msg->data_len) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
-}
-
-static void * comm_heartbeat_thread(void * cx)
-{
-    msg_t msg;
-
-    memset(&msg,0,sizeof(msg_t));
-    msg.id = MSGID_HEARTBEAT;
-
-    while (true) {
-        if (connected) {
-            comm_send_msg(&msg);
-        }
-        usleep(200000);
-    }
-
-    return NULL;
 }
 
 static void comm_set_sock_opts(void)

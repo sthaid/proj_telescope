@@ -182,7 +182,6 @@ static bool connected;
 //
 
 static void * comm_thread(void * cx);
-static void * comm_heartbeat_thread(void * cx);
 static int comm_process_recvd_msg(msg_t * msg);
 
 //
@@ -194,7 +193,6 @@ static int comm_init(void)
     pthread_t thread_id;
 
     pthread_create(&thread_id, NULL, comm_thread, NULL);
-    pthread_create(&thread_id, NULL, comm_heartbeat_thread, NULL);
 
     return 0;
 }
@@ -357,9 +355,6 @@ static int comm_process_recvd_msg(msg_t * msg)
         system("sudo shutdown -P now");        
         exit(0);
         break; }
-    case MSGID_HEARTBEAT:
-        CHECK_DATALEN(0);
-        break;
     case MSGID_CAM_CTRLS_INCR_DECR: {
         msg_cam_ctrls_incr_decr_t * d = (void*)msg->data;
         char msg_reply_buff[100];
@@ -428,23 +423,6 @@ static void comm_send_msg(msg_t * msg)
     if (len != sizeof(msg_t) + msg->data_len) {
         ERROR("send failed, len=%d, %s\n", len, strerror(errno));
     }
-}
-
-static void * comm_heartbeat_thread(void * cx)
-{
-    msg_t msg;
-
-    memset(&msg,0,sizeof(msg_t));
-    msg.id = MSGID_HEARTBEAT;
-
-    while (true) {
-        if (connected) {
-            comm_send_msg(&msg);
-        }
-        usleep(200000);
-    }
-
-    return NULL;
 }
 
 static void comm_set_sock_opts(void)

@@ -42,7 +42,6 @@
 #define MAX_MOTOR 2
 
 #define MSGID_CONNECTED             1
-#define MSGID_HEARTBEAT             2
 #define MSGID_OPEN_ALL              3
 #define MSGID_CLOSE_ALL             4
 #define MSGID_STOP_ALL              5
@@ -62,7 +61,6 @@
 
 #define MSGID_STR(x) \
    ((x) == MSGID_CONNECTED            ? "MSGID_CONNECTED"             : \
-    (x) == MSGID_HEARTBEAT            ? "MSGID_HEARTBEAT"             : \
     (x) == MSGID_OPEN_ALL             ? "MSGID_OPEN_ALL"              : \
     (x) == MSGID_CLOSE_ALL            ? "MSGID_CLOSE_ALL"             : \
     (x) == MSGID_STOP_ALL             ? "MSGID_STOP_ALL"              : \
