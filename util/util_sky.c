@@ -350,7 +350,7 @@ static int read_stellar_data(char * filename)
         }
 
         // add this entry to obj table
-        strncpy(obj[max_obj].name, proper_str, MAX_OBJ_NAME);
+        strncpy(obj[max_obj].name, proper_str, MAX_OBJ_NAME-1);
         obj[max_obj].type   = OBJTYPE_STELLAR;
         obj[max_obj].ra     = ra * 15.;
         obj[max_obj].dec    = dec;
@@ -445,7 +445,7 @@ static int read_solar_sys_data(char *filename)
 
             // init obj fields
             x = &obj[max_obj];
-            strncpy(x->name, name, MAX_OBJ_NAME);
+            strncpy(x->name, name, MAX_OBJ_NAME-1);
             x->type = OBJTYPE_SOLAR;
             x->ra       = NO_VALUE;
             x->dec      = NO_VALUE;
@@ -597,7 +597,12 @@ static int read_place_marks(char *filename)
         }
 
         // add the placemark to the obj table
-        strncpy(obj[max_obj].name, name, MAX_OBJ_NAME);
+        // XXX fix this stringop-truncation some better way
+#if 0
+        strncpy(obj[max_obj].name, name, MAX_OBJ_NAME-1);
+#else
+        memcpy(obj[max_obj].name, name, MAX_OBJ_NAME-1);
+#endif
         obj[max_obj].type   = OBJTYPE_PLACE_MARK;;
         obj[max_obj].ra     = ra;
         obj[max_obj].dec    = dec;

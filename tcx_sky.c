@@ -769,7 +769,7 @@ static char * sky_pane_cmd(char * cmd_line)
 
 static char * trk_str(void)
 {
-    static char str[200];
+    static char str[300];
 
     switch (tracking) {
     case TRACKING_OFF:
@@ -810,7 +810,7 @@ static char * trk_str(void)
 
 static char * ident_str(void)
 {
-    static char str[200];
+    static char str[300];
 
     switch (ident) {
     case IDENT_OFF:

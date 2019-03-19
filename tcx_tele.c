@@ -1409,7 +1409,7 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
         {
             int32_t i, j;
             char *strings, *s, *menu_strings[100], current_value_str[100];
-            char cam_ctrl_str[100];
+            char cam_ctrl_str[200];
 
             // clear selected if it is for a button event and has been set for 1 second
             if (vars->selected != -1 && 
