@@ -49,7 +49,6 @@ int main(int argc, char ** argv)
 {
     int ret;
     char *lat_str, *long_str;
-    char *az_cal_pos_str, *el_cal_pos_str;
     char *az_tele_leg_1_str, *min_tele_angle_relative_leg_1_str, *max_tele_angle_relative_leg_1_str;
     char *incl_obj_str = NULL;
 
@@ -77,21 +76,6 @@ int main(int argc, char ** argv)
         FATAL("invalid TCX_LONG '%s' \n", long_str);
     }
     INFO("latitude = %0.6lf  longitude = %0.6lf\n", latitude, longitude);
-
-    // get azimuth / elevation position of fixed calibration point,
-    az_cal_pos_str = getenv("TCX_AZ_CAL_POS");
-    el_cal_pos_str = getenv("TCX_EL_CAL_POS");
-    if (az_cal_pos_str == NULL || el_cal_pos_str == NULL) {
-        FATAL("az_cal_pos and el_cal_pos must be supplied in environment variables TCX_AZ_CAL_POS and TCX_EL_CAL_POS\n");
-    }
-    if (sscanf(az_cal_pos_str, "%lf", &az_cal_pos) != 1 || az_cal_pos < 0 || az_cal_pos >= 360) {
-        FATAL("invalid TCX_AZ_CAL_POS '%s' \n", az_cal_pos_str);
-    }
-    if (sscanf(el_cal_pos_str, "%lf", &el_cal_pos) != 1 || el_cal_pos < 0 || el_cal_pos >= 90) {
-        FATAL("invalid TCX_EL_CAL_POS '%s' \n", el_cal_pos_str);
-    }
-    INFO("az_cal_pos = %0.2lf  el_cal_pos = %0.2lf\n", az_cal_pos, el_cal_pos);
-    if (az_cal_pos >= 180) az_cal_pos -= 360;
 
     // get ctlr_ip env variable
     ctlr_ip = getenv("TCX_CTLR_IP");
@@ -209,8 +193,8 @@ static void display_handler(void)
         5,              // number of pane handler varargs that follow
         sky_pane_hndlr, NULL, sky_pane_x, sky_pane_y, sky_pane_w, sky_pane_h, PANE_BORDER_STYLE_MINIMAL,
         tele_pane_hndlr, NULL, tele_pane_x, tele_pane_y, tele_pane_w, tele_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        sky_view_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL,
         tele_motor_info_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL,
-        tele_cam_info_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL
+        tele_cam_info_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL,
+        sky_view_pane_hndlr, NULL, multi_pane_x, multi_pane_y, multi_pane_w, multi_pane_h, PANE_BORDER_STYLE_MINIMAL
                         );
 }

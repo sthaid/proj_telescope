@@ -209,9 +209,12 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         // az/el of the tracking object
         if (tracking >= 0) {
             obj_t x;
-            get_obj(tracking, sky_time, lst, &x.name, &x.type, &x.ra, &x.dec, &x.mag, &x.az, &x.el);
-            radec2azel(&az_ctr, &el_ctr, x.ra, x.dec, lst, latitude);
-            if (az_ctr > 180) az_ctr -= 360;
+            if (get_obj(tracking, sky_time, lst, &x.name, &x.type, &x.ra, &x.dec, &x.mag, &x.az, &x.el) == 0) {
+                radec2azel(&az_ctr, &el_ctr, x.ra, x.dec, lst, latitude);
+                if (az_ctr > 180) az_ctr -= 360;
+            } else {
+                tracking = TRACKING_OFF;
+            }
         } else if (tracking == TRACKING_RADEC) {
             radec2azel(&az_ctr, &el_ctr, tracking_ra, tracking_dec, lst, latitude);
             if (az_ctr > 180) az_ctr -= 360;
@@ -230,6 +233,19 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
         for (i = 0; i < max_obj; i++) {
             obj_t *x = &obj[i];
 
+            // preset obj[i] to invalid
+            x->name  = "";
+            x->type  = OBJTYPE_NONE;
+            x->ra    = NO_VALUE;
+            x->dec   = NO_VALUE;
+            x->mag   = NO_VALUE;
+            x->az    = NO_VALUE;
+            x->el    = NO_VALUE;
+            x->x     = NO_VALUE;
+            x->y     = NO_VALUE;
+            x->xvp   = NO_VALUE;
+            x->yvp   = NO_VALUE;
+
             // get info for object 'i', and
             // reset other obj_t fields to NO_VALUE
             // note: get_obj can fail if the sky_time is out of range for a solar-sys object
@@ -237,10 +253,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             if (ret != 0) {
                 continue;
             }
-            x->x   = NO_VALUE;
-            x->y   = NO_VALUE;
-            x->xvp = NO_VALUE;
-            x->yvp = NO_VALUE;
 
             // if obj type is not valid then fail
             if (x->type == OBJTYPE_NONE) {
@@ -267,7 +279,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             }
 
             // determine display point size from object's apparent magnitude
-            ptsz = (x->mag != NO_VALUE ? 5 - x->mag : 3);
+            ptsz = (x->mag != NO_VALUE ? 5 - x->mag : 5);
             if (ptsz < 0) ptsz = 0;
             if (ptsz > 9) ptsz = 9;
 
@@ -291,6 +303,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                      x->type == OBJTYPE_STELLAR    ? WHITE  :
                      x->type == OBJTYPE_SOLAR      ? YELLOW :
                      x->type == OBJTYPE_PLACE_MARK ? PURPLE :
+                     x->type == OBJTYPE_CAL_LOC    ? GREEN  :
                                                      BLACK);
             if (color == BLACK) {
                 FATAL("BUG: obj %d '%s' invalid type %d\n", i, x->name, x->type);
@@ -332,7 +345,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             {
                 ycoord = ROW2Y(1,fontsz)/2;
             }
-            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, BLUE, BLACK, "%g", el);
+            sdl_render_printf(pane, 0, ycoord-ROW2Y(1,fontsz)/2, fontsz, WHITE, BLACK, "%g", el);
         }
 
         // draw cross hair
@@ -349,7 +362,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             obj_t * x = &obj[i];
             if (x->name[0] != '\0' && 
                 x->x != NO_VALUE &&
-                (x->type == OBJTYPE_SOLAR || az_span < 100))
+                (x->type == OBJTYPE_SOLAR || x->type == OBJTYPE_CAL_LOC || x->type == OBJTYPE_PLACE_MARK || az_span < 100))
             {
                 sdl_render_printf(pane, 
                                 x->x+6, x->y-ROW2Y(1,fontsz)/2,
@@ -582,14 +595,6 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGDN:
             reset(true);
-            return PANE_HANDLER_RET_DISPLAY_REDRAW;
-
-        case SDL_EVENT_KEY_HOME:
-            // XXX generalize this to use names for azel locations
-            az_ctr = az_cal_pos;
-            el_ctr = el_cal_pos;
-            tracking = TRACKING_OFF;
-            ident = IDENT_OFF;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         }
 
@@ -918,7 +923,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             }
 
             // determine display point size from object's apparent magnitude
-            ptsz = (x->mag != NO_VALUE ? 5 - x->mag : 3);
+            ptsz = (x->mag != NO_VALUE ? 5 - x->mag : 5);
             if (ptsz < 0) ptsz = 0;
             if (ptsz > 9) ptsz = 9;
 
@@ -940,6 +945,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                      x->type == OBJTYPE_STELLAR    ? WHITE  :
                      x->type == OBJTYPE_SOLAR      ? YELLOW :
                      x->type == OBJTYPE_PLACE_MARK ? PURPLE :
+                     x->type == OBJTYPE_CAL_LOC    ? GREEN  :
                                                      BLACK);
             if (color == BLACK) {
                 FATAL("BUG: obj %d '%s' invalid type %d\n", i, x->name, x->type);
@@ -961,7 +967,7 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
             obj_t * x = &obj[i];
             if (x->name[0] != '\0' && 
                 x->xvp != NO_VALUE &&
-                (x->type == OBJTYPE_SOLAR || sky_view_scale_tbl[sky_view_scale_tbl_idx] <= 10))
+                (x->type == OBJTYPE_SOLAR || x->type == OBJTYPE_CAL_LOC || x->type == OBJTYPE_PLACE_MARK || sky_view_scale_tbl[sky_view_scale_tbl_idx] <= 10))
             {
                 sdl_render_printf(pane,
                                 x->xvp+6, x->yvp-ROW2Y(1,fontsz)/2,

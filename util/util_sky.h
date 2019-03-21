@@ -9,6 +9,7 @@
 #define OBJTYPE_STELLAR    1
 #define OBJTYPE_SOLAR      2
 #define OBJTYPE_PLACE_MARK 3
+#define OBJTYPE_CAL_LOC    4
 
 #define NO_VALUE     9999
 #define NO_VALUE_STR "9999"

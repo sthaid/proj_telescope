@@ -125,7 +125,8 @@ static char *incl_obj[1000];
 static bool  incl_all_stars;
 static bool  incl_all_named_stars;
 static bool  incl_all_planets;
-static bool  incl_all_placemarks;
+static bool  incl_all_place_marks;
+static bool  incl_all_cal_locs;
 
 static bool enable_info_prints;
 
@@ -136,6 +137,7 @@ static bool enable_info_prints;
 static int read_stellar_data(char * filename);
 static int read_solar_sys_data(char * filename);
 static int read_place_marks(char * filename);
+static int read_cal_locs(char * filename);
 static int obj_sanity_checks(void);
 static int compute_ss_obj_ra_dec_mag(obj_t *x, time_t t);
 static void util_sky_unit_test(void);
@@ -147,12 +149,10 @@ static bool is_close(double act, double exp, double allowed_deviation, double * 
 
 int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_prints_arg)
 {
-    int ret;
+    int ret, i;
     char str[100];
     bool first = true;
     double lst = ct2lst(longitude, jdconv2(time(NULL)));
-
-    enable_info_prints = enable_info_prints_arg;
 
     INFO2("UTC now    = %s\n", gmtime_str(time(NULL),str));
     INFO2("LCL now    = %s\n", localtime_str(time(NULL),str));
@@ -161,13 +161,29 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_print
     INFO2("LST        = %s\n", hr_str(lst,str));
     INFO2("sizeof obj = %ld MB\n", sizeof(obj)/0x100000);
 
+    enable_info_prints = enable_info_prints_arg;
+
+    for (i = 0; i < MAX_OBJ; i++) {
+        obj_t * x = &obj[i];
+        x->name[0] = '\0';
+        x->type    = OBJTYPE_NONE;
+        x->ra      = NO_VALUE;
+        x->dec     = NO_VALUE;
+        x->mag     = NO_VALUE;
+        x->az      = NO_VALUE;
+        x->el      = NO_VALUE;
+        x->t       = 0;
+        x->ssinfo  = NULL;
+    }
+
     // parse incl_obj_str, which is a comma seperated list of 
     // objects to be included; if the list is not supplied
     // then all objects will be included; special case strings:
     // - "stars"       - include all stars
     // - "named_stars" - include all named stars
     // - "planets"     - include all planets
-    // - "placemarks"  - include all placemarks
+    // - "place_marks" - include all place_marks
+    // - "cal_locs"    - include all cal_locs    
     if (incl_obj_str) {
         int max_incl_obj=0;
         incl_filtering_enabled = true;
@@ -183,8 +199,10 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_print
                 incl_all_named_stars = true;
             } else if (strcasecmp(name, "planets") == 0) {
                 incl_all_planets = true;
-            } else if (strcasecmp(name, "placemarks") == 0) {
-                incl_all_placemarks = true;
+            } else if (strcasecmp(name, "place_marks") == 0) {
+                incl_all_place_marks = true;
+            } else if (strcasecmp(name, "cal_locs") == 0) {
+                incl_all_cal_locs = true;
             } else {
                 incl_obj[max_incl_obj++] = name;
             }
@@ -205,6 +223,12 @@ int util_sky_init(char *incl_obj_str, bool run_unit_test, bool enable_info_print
 
     // read additional place markers from place_marks.dat
     ret = read_place_marks("sky_data/place_marks.dat");
+    if (ret < 0) {
+        return ret;
+    }
+
+    // read additional calibration locations from cal_locs.dat
+    ret = read_cal_locs("sky_data/cal_locs.dat");
     if (ret < 0) {
         return ret;
     }
@@ -446,11 +470,8 @@ static int read_solar_sys_data(char *filename)
             // init obj fields
             x = &obj[max_obj];
             strncpy(x->name, name, MAX_OBJ_NAME-1);
-            x->type = OBJTYPE_SOLAR;
-            x->ra       = NO_VALUE;
-            x->dec      = NO_VALUE;
-            x->mag      = NO_VALUE;
-            x->ssinfo   = ssinfo;
+            x->type   = OBJTYPE_SOLAR;
+            x->ssinfo = ssinfo;
 
             // update counters
             max_obj++;
@@ -578,7 +599,7 @@ static int read_place_marks(char *filename)
         // determine if this object is to be included;
         // if not then continue
         if (incl_filtering_enabled) {
-            if (incl_all_placemarks) {
+            if (incl_all_place_marks) {
                 include = true;
             } else {
                 include = false;
@@ -597,16 +618,10 @@ static int read_place_marks(char *filename)
         }
 
         // add the placemark to the obj table
-        // XXX fix this stringop-truncation some better way
-#if 0
         strncpy(obj[max_obj].name, name, MAX_OBJ_NAME-1);
-#else
-        memcpy(obj[max_obj].name, name, MAX_OBJ_NAME-1);
-#endif
         obj[max_obj].type   = OBJTYPE_PLACE_MARK;;
         obj[max_obj].ra     = ra;
         obj[max_obj].dec    = dec;
-        obj[max_obj].mag    = NO_VALUE;
         obj[max_obj].ssinfo = NULL;
         max_obj++;
         num_added++;
@@ -617,6 +632,76 @@ static int read_place_marks(char *filename)
 
     // success
     INFO2("added %d place_mark_objects from %s\n", num_added, filename);
+    return 0;
+}
+
+static int read_cal_locs(char *filename)
+{
+    FILE * fp;
+    int line=0, num_added=0, cnt, i;
+    char str[1000], name[100];
+    double az, el;   
+    bool include;
+
+    // open
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        ERROR("failed to open %s\n", filename);
+        return -1;
+    }
+
+    // read and parse all lines
+    while (fgets(str, sizeof(str), fp) != NULL) {
+        line++;
+
+        // skip comment lines
+        if (str[0] == '#') {
+            continue;
+        }
+
+        // scan the line for cal_loc name, ra, and dec
+        cnt = sscanf(str, "%s %lf %lf\n", name, &az, &el);
+        if (cnt != 3) {
+            ERROR("filename=%s line=%d invalid, scan cnt %d\n", filename, line, cnt);
+            return -1;
+        }
+        DEBUG("CAL_LOC '%s' %f %f\n", name, az, el);
+
+        // determine if this object is to be included;
+        // if not then continue
+        if (incl_filtering_enabled) {
+            if (incl_all_cal_locs) {
+                include = true;
+            } else {
+                include = false;
+                for (i = 0; incl_obj[i]; i++) {
+                    if (strcasecmp(name, incl_obj[i]) == 0) {
+                        include = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            include = true;
+        }
+        if (!include) {
+            continue;
+        }
+
+        // add the cal_loc to the obj table XXX fix this stringop-truncation 
+        strncpy(obj[max_obj].name, name, MAX_OBJ_NAME-1);
+        obj[max_obj].type = OBJTYPE_CAL_LOC;
+        obj[max_obj].az   = az;
+        obj[max_obj].el   = el;
+        max_obj++;
+        num_added++;
+    }
+
+    // close
+    fclose(fp);
+
+    // success
+    INFO2("added %d cal_locs from %s\n", num_added, filename);
     return 0;
 }
 
@@ -668,14 +753,21 @@ int get_obj(int i, time_t t, double lst, char **name, int *type, double *ra, dou
     // if processing solar-sys object then compute its current ra, dec, and mag
     if (x->type == OBJTYPE_SOLAR) {
         if (compute_ss_obj_ra_dec_mag(x, t) != 0) {
-            // XXX limit number of prints, or don't print more than once per 10 secs
             ERROR("time out of range for solar-sys-obj %s\n", x->name);
             return -1;   // ERROR_INTERVAL ?
         }
     }
 
-    // get az/el from ra/dec
-    radec2azel(&x->az, &x->el, x->ra, x->dec, lst, latitude);
+    // if the objtype is not CAL_LOC then
+    //   get az/el from ra/dec
+    // else 
+    //   get ra/dec from azel
+    // endif
+    if (x->type != OBJTYPE_CAL_LOC) {
+        radec2azel(&x->az, &x->el, x->ra, x->dec, lst, latitude);
+    } else {
+        azel2radec(&x->ra, &x->dec, x->az, x->el, lst, latitude);
+    }
 
     // save time called
     x->t = t;

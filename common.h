@@ -170,8 +170,6 @@ typedef struct {
 // environment variables
 //
 
-double az_cal_pos;
-double el_cal_pos;
 char *ctlr_ip;
 double az_tele_leg_1;
 double min_tele_angle_relative_leg_1;
