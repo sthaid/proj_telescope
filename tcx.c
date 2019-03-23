@@ -49,7 +49,7 @@ int main(int argc, char ** argv)
 {
     int ret;
     char *lat_str, *long_str;
-    char *az_tele_leg_1_str, *min_tele_angle_relative_leg_1_str, *max_tele_angle_relative_leg_1_str;
+    char *az_tele_leg_1_str;
     char *incl_obj_str = NULL;
 
     // get latitude and longitude from env variables TCX_LAT and TCX_LONG;
@@ -60,10 +60,6 @@ int main(int argc, char ** argv)
     //   be in error by as much as 2 degrees
     // - Horizons Observer Site Code seems to include observatory codes, refer to
     //   https://en.wikipedia.org/wiki/List_of_observatory_codes
-    // - my location is specified as follows in .bash_profile
-    //     # from https://www.latlong.net for Bolton Mass USA
-    //     export TCX_LAT=42.422986
-    //     export TCX_LONG=-71.623798
     lat_str = getenv("TCX_LAT");
     long_str = getenv("TCX_LONG");
     if (lat_str == NULL || long_str == NULL) {
@@ -84,28 +80,15 @@ int main(int argc, char ** argv)
     }
     INFO("ctlr_ip = %s\n", ctlr_ip);
 
-    // get:
-    // az_tele_leg_1: the azimuth of telescoe leg 1
-    // min/man tele_angle_relatve_leg_1_str: the angular range that the telescope can
-    //  mechanically support, relative to leg-1; where the min to max range is clockwise
+    // get az_tele_leg_1: the azimuth of telescoe leg 1
     az_tele_leg_1_str = getenv("TCX_AZ_TELE_LEG_1");
-    min_tele_angle_relative_leg_1_str = getenv("TCX_MIN_TELE_ANGLE_RELATIVE_LEG_1");
-    max_tele_angle_relative_leg_1_str = getenv("TCX_MAX_TELE_ANGLE_RELATIVE_LEG_1");
-    if (az_tele_leg_1_str == NULL || min_tele_angle_relative_leg_1_str == NULL || max_tele_angle_relative_leg_1_str == NULL) {
-        FATAL("TCX_AZ_TELE_LEG_1 and TCX_MIN_TELE_ANGLE_RELATIVE_LEG_1 and TCX_MAX_TELE_ANGLE_RELATIVE_LEG_1 "
-              "must be supplied in environment variables\n");
+    if (az_tele_leg_1_str == NULL) {
+        FATAL("TCX_AZ_TELE_LEG_1 must be supplied in environment variables\n");
     }
     if (sscanf(az_tele_leg_1_str, "%lf", &az_tele_leg_1) != 1) {
         FATAL("invalid TCX_AZ_TELE_LEG_1 '%s'\n", az_tele_leg_1_str);
     }
-    if (sscanf(min_tele_angle_relative_leg_1_str, "%lf", &min_tele_angle_relative_leg_1) != 1) {
-        FATAL("invalid TCX_MIN_TELE_ANGLE_RELATIVE_LEG_1 '%s'\n", min_tele_angle_relative_leg_1_str);
-    }
-    if (sscanf(max_tele_angle_relative_leg_1_str, "%lf", &max_tele_angle_relative_leg_1) != 1) {
-        FATAL("invalid TCX_MAX_TELE_ANGLE_RELATIVE_LEG_1 '%s'\n", max_tele_angle_relative_leg_1_str);
-    }
-    INFO("az_tele_leg_1 = %0.2lf  min/max_tele_angle_relative_leg_1 = %0.2lf %0.2lf\n",
-         az_tele_leg_1, min_tele_angle_relative_leg_1, max_tele_angle_relative_leg_1);
+    INFO("az_tele_leg_1 = %0.2lf\n", az_tele_leg_1);
 
     // get and process options
     while (true) {

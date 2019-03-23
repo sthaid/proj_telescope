@@ -94,6 +94,8 @@
          strcmp((ms)[1].operation_state_str, "NORMAL") == 0 && \
          strcmp((ms)[1].error_status_str, "NO_ERR") == 0)
 
+#define SWAP_VALUES(x,y) do { typeof(x) SWAP = (x); (x) = (y); (y) = SWAP; } while (0)
+
 //
 // typedefs
 //
@@ -168,12 +170,11 @@ typedef struct {
 
 //
 // environment variables
+// - note the latitiude and longitude env vars are declared in util/util_sky.h
 //
 
 char *ctlr_ip;
 double az_tele_leg_1;
-double min_tele_angle_relative_leg_1;
-double max_tele_angle_relative_leg_1;
 
 //
 // prototypes

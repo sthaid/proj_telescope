@@ -144,8 +144,6 @@ static bool   act_azel_valid;
 
 static int    adj_az_mstep, adj_el_mstep;
 
-static double min_valid_az, max_valid_az;  // az range -180 to +180
-
 static pthread_mutex_t tele_ctrl_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // webcam image vars
@@ -172,7 +170,8 @@ static void comm_verify_sock_opts(void);
 static void * tele_ctrl_thread(void * cx);
 static void tele_ctrl_process_cmd(int event_id);
 static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4, char *str5, char *str6);
-static bool tele_ctrl_is_azel_valid(double az, double el);
+static bool tele_ctrl_is_azel_valid(double az, double el, char *caller_str);
+static double tele_ctrl_get_max_el(double az, char *caller_str);
 
 static void sanitize_pan_zoom(void);
 
@@ -180,15 +179,18 @@ static void sanitize_pan_zoom(void);
 // inline procedures
 //
 
-// returns az in range -180 to 179.99999
-static inline double sanitize_az(double az) 
+// returns az in range:  min <= az < (min+360)
+static inline double sanitize_az(double az, double min) 
 {
-    if (az >= 180) {
-        while (az >= 180) az -= 360;
+    if (az >= min && az < min+360) {
+        return az;
+    } else if (az < min) {
+        while (az < min) az += 360;
+        return az;
     } else {
-        while (az < -180) az += 360;
+        while (az >= min+360) az -= 360;
+        return az;
     }
-    return az;
 }
 
 // -----------------  TELE INIT  ------------------------------------------
@@ -199,14 +201,6 @@ int tele_init(void)
 
     // this performs sanity checks for minilzo
     compress_init();
-
-    // determine min_valid_az and max_valid_az, 
-    // used by tele_ctrl_is_azel_valid()
-    min_valid_az = az_tele_leg_1 + min_tele_angle_relative_leg_1;
-    max_valid_az = az_tele_leg_1 + max_tele_angle_relative_leg_1;
-    min_valid_az = sanitize_az(min_valid_az);
-    max_valid_az = sanitize_az(max_valid_az);
-    INFO("min_valid_az %0.2lf   max_valid_az %0.2lf\n", min_valid_az, max_valid_az);
 
     // create threads
     pthread_create(&thread_id, NULL, comm_thread, NULL);
@@ -642,20 +636,26 @@ static void * tele_ctrl_thread(void * cx)
         }
 
         // get tgt_az/el by calling sky routine, and
-        // determine if the target azel is valid (can the telescope mechanism point there)
+        // sanitize_az will put tgt_az in range: az_tele_leg_1 to az_tele_leg_1+360
+        //
+        // note that by constraining tgt_az to this range is intended to prevent 
+        //  telescope azimuth motion through the leg_1 azimuth; moving in azimuth
+        //  from one side of leg1 to the other side of leg1 should go all of the
+        //  way around
         sky_get_tgt_azel(&tgt_az, &tgt_el);
-        tgt_az = sanitize_az(tgt_az);
-        tgt_azel_valid = tele_ctrl_is_azel_valid(tgt_az, tgt_el);
+        tgt_az = sanitize_az(tgt_az, az_tele_leg_1);
+
+        // determine if the target azel is valid (can the telescope mechanism point there)
+        tgt_azel_valid = tele_ctrl_is_azel_valid(tgt_az, tgt_el, "TARGET");
 
         // determine act_az/el from ctrl_motor_status shaft position
         if (calibrated) {
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
             int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
             act_az = MSTEP_TO_AZDEG(curr_az_mstep - cal_az0_mstep - adj_az_mstep);
-            act_az = sanitize_az(act_az);
             act_el = MSTEP_TO_ELDEG(curr_el_mstep - cal_el0_mstep - adj_el_mstep);
             act_azel_available = true;
-            act_azel_valid = tele_ctrl_is_azel_valid(act_az, act_el);
+            act_azel_valid = tele_ctrl_is_azel_valid(act_az, act_el-.1, "ACTUAL");
         } else {
             act_azel_available = false;
             act_azel_valid = false;
@@ -670,17 +670,64 @@ static void * tele_ctrl_thread(void * cx)
         // do this once per second
         if (tracking_enabled &&
             (time_us = microsec_timer()) >= time_last_set_pos_us + 1000000)
-        {
+        do {
+            // note - above code ensures that act and tgt az/el are valid
+
+            // determine the minimum of max_el over the azimuth range
+            int start_az, end_az, az;
+            double max_el, min_of_max_el=90;
+
+            start_az = lrint(act_az);
+            end_az = lrint(tgt_az);
+            if (start_az > end_az) {
+                SWAP_VALUES(start_az, end_az);
+            }
+            for (az = start_az; az <= end_az; az++) {
+                max_el = tele_ctrl_get_max_el(az, "AZ_SCAN");
+                if (max_el == -1) {
+                    ERROR("tele_ctrl_get_max_el failed, az=%d start_az=%d end_az=%d\n", az, start_az, end_az);
+                    tracking_enabled = false;
+                    break;
+                }
+                if (max_el < min_of_max_el) {
+                    min_of_max_el = max_el;
+                }
+            }
+            if (tracking_enabled == false) {
+                break;
+            }
+            DEBUG("min_of_max_el = %0.2f   (%d ... %d)\n", min_of_max_el, start_az, end_az);
+
+            // if act_el is greater than min_of_max_el
+            //   keep azimuth the same and bring telescope elevation down to min_of_max_el
+            // else if tgt_el is greater than min_of_max_al
+            //   since act_el is okay over the range we can move the telescope in azimuth;
+            //   and we can start bringing the telescope's elevation up towards tgt_el, 
+            //   but only up to min_of_max_el
+            // else
+            //   finally tgt_el is less than or equal to min_of_max_el, so the 
+            //   telescope's elevation can be adjusted to the tgt_el
+            // endif
+            int az_mstep, el_mstep;
+            int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
+            int curr_el_mstep = ctlr_motor_status.motor[1].curr_pos_mstep;
+
+            if (act_el > min_of_max_el) {
+                az_mstep = curr_az_mstep;
+                el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(min_of_max_el) + adj_el_mstep;
+            } else if (tgt_el > min_of_max_el) {
+                az_mstep = cal_az0_mstep + AZDEG_TO_MSTEP(tgt_az) + adj_az_mstep;
+                el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(min_of_max_el) + adj_el_mstep;
+            } else {
+                az_mstep = cal_az0_mstep + AZDEG_TO_MSTEP(tgt_az) + adj_az_mstep;
+                el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(tgt_el) + adj_el_mstep;
+            }
+
+            // format and send MSGID_SET_POS_ALL to the telescope ctrlr
             char msg_buffer[sizeof(msg_t)+sizeof(msg_set_pos_all_data_t)];
             msg_t *msg = (void*)msg_buffer;
             msg_set_pos_all_data_t *msg_set_pos_all_data = (void*)(msg+1);
-            int az_mstep, el_mstep;
 
-            // determine az/el microstep motor positions based on caliabration
-            az_mstep = cal_az0_mstep + AZDEG_TO_MSTEP(tgt_az) + adj_az_mstep;
-            el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(tgt_el) + adj_el_mstep;
-
-            // format and send MSGID_SET_POS_ALL to the telescope ctrlr
             msg->id = MSGID_SET_POS_ALL;
             msg->data_len = sizeof(msg_set_pos_all_data_t);
             msg_set_pos_all_data->mstep[0] = az_mstep;
@@ -690,7 +737,7 @@ static void * tele_ctrl_thread(void * cx)
             // keep track of time MSGID_SET_POS_ALL was sent so that 
             // we limit sending this message to once per sec
             time_last_set_pos_us = time_us;
-        }
+        } while (0);
 
         // if tracking has just been disabled or 
         //    target azel has just become invalid 
@@ -898,8 +945,8 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4,
 
     // the target and actual azimuth values returned in the strings 
     // are adjusted to range 0-360
-    tgt_az2 = (tgt_az >= 0 ? tgt_az : tgt_az+360);
-    act_az2 = (act_az >= 0 ? act_az : act_az+360);
+    tgt_az2 = sanitize_az(tgt_az, 0);
+    act_az2 = sanitize_az(act_az, 0);
 
     // STATUS LINE 1 - upper left
     //   DISCONNECTED
@@ -989,23 +1036,78 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4,
 }
 
 // return true if the telescope mechanism can be positioned to az/el
-static bool tele_ctrl_is_azel_valid(double az, double el)
+static bool tele_ctrl_is_azel_valid(double az, double el, char *caller_str)
 {
-    if (el < 0 || el > 90) {
+    double max_el;
+
+    max_el = tele_ctrl_get_max_el(az, caller_str);
+    if (max_el == -1) {
+        ERROR("%s az=%0.2f el=%0.2f - tele_ctrl_get_max_el return error\n", caller_str, az, el);
         return false;
     }
 
-    if (max_valid_az >= min_valid_az) {
-        if (az < min_valid_az || az > max_valid_az) {
-            return false;
-        }
-    } else {
-        if (az < min_valid_az && az > max_valid_az) {
-            return false;
-        }
+    if (el < -3 || el > max_el) {
+        ERROR("%s az=%0.2f el=%0.2f max_el=%0.2f - el is invalid\n", caller_str, az, el, max_el);
+        return false;
     }
-    
+
     return true;
+}
+
+// return -1 on error
+static double tele_ctrl_get_max_el(double az, char *caller_str)
+{
+    static double max_el_tbl[360] = {
+        90,90,90,90,90,90,90,90,90,90,    //   0 - 0
+        15,15,15,15,15,15,15,15,15,15,    //  10 - 19
+        15,15,15,15,15,15,15,15,15,15,    //  20
+        15,15,15,15,15,15,15,15,15,15,    //  30
+        15,15,15,15,15,15,15,15,15,15,    //  40
+        15,15,15,15,15,15,15,15,15,15,    //  50
+        15,15,15,15,15,15,15,15,15,15,    //  60
+        15,15,15,15,15,15,15,15,15,15,    //  70
+        15,15,15,15,15,15,15,15,15,15,    //  80
+        15,15,15,15,15,15,15,15,15,15,    //  90
+        15,15,15,15,15,15,15,15,15,15,    // 100
+        15,15,15,15,15,15,15,15,15,15,    // 110
+        15,15,15,15,15,15,15,15,15,15,    // 120
+        15,15,15,15,15,15,15,15,15,15,    // 130
+        15,15,15,15,15,15,15,15,15,15,    // 140
+        15,15,15,15,15,15,15,15,15,15,    // 150
+        15,15,15,15,15,15,15,15,15,15,    // 160
+        15,15,15,15,15,15,15,15,15,15,    // 170
+        15,15,15,15,15,15,15,15,15,15,    // 180
+        90,90,90,90,90,90,90,90,90,90,    // 190
+        90,90,90,90,90,90,90,90,90,90,    // 200
+        90,90,90,90,90,90,90,90,90,90,    // 210
+        90,90,90,90,90,90,90,90,90,90,    // 220
+        90,90,90,90,90,90,90,90,90,90,    // 230
+        90,90,90,90,90,90,90,90,90,90,    // 240
+        90,90,90,90,90,90,90,90,90,90,    // 250
+        90,90,90,90,90,90,90,90,90,90,    // 260
+        90,90,90,90,90,90,90,90,90,90,    // 270
+        90,90,90,90,90,90,90,90,90,90,    // 280
+        90,90,90,90,90,90,90,90,90,90,    // 290
+        90,90,90,90,90,90,90,90,90,90,    // 300
+        90,90,90,90,90,90,90,90,90,90,    // 310
+        90,90,90,90,90,90,90,90,90,90,    // 320
+        90,90,90,90,90,90,90,90,90,90,    // 330
+        90,90,90,90,90,90,90,90,90,90,    // 340
+        90,90,90,90,90,90,90,90,90,90,    // 350
+            };
+
+    int idx;
+
+    idx = lrint(az - az_tele_leg_1);
+    if (idx == 360) idx = 0;
+    if (idx == -1) idx = 359;
+
+    if (idx < 0 || idx > 359) {
+        ERROR("%s az=%0.2f is invalid, idx=%d\n", caller_str, az, idx);
+        return -1;    
+    }
+
+    return max_el_tbl[idx];
 }
 
 // -----------------  TELE PANE HNDLR  ------------------------------------

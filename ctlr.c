@@ -75,8 +75,6 @@ For more info refer to devel/NOTES.raspberrypi.
 
 //#define MOTOR_UNIT_TEST
 
-#define SWAP_VALUES(x,y) do { typeof(x) SWAP = (x); (x) = (y); (y) = SWAP; } while (0)
-
 #define SWAP32(x) ((((x) >> 0) & 0xff) << 24 | \
                    (((x) >> 8) & 0xff) << 16 | \
                    (((x) >>16) & 0xff) <<  8 | \
