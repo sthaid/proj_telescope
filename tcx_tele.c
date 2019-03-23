@@ -1346,17 +1346,17 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 calibrated ? SDL_EVENT_TELE_UN_CALIBRATE : SDL_EVENT_TELE_CALIBRATE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
-        // - row 2
+        // - row 3
         if (calibrated && tgt_azel_valid) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(9,fontsz), ROW2Y(2,fontsz), fontsz, 
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(3,fontsz), fontsz, 
                 tracking_enabled ? "TRACK_DIS" : "TRACK_ENA",
                 LIGHT_BLUE, BLACK, 
                 tracking_enabled ? SDL_EVENT_TELE_TRK_DISABLE : SDL_EVENT_TELE_TRK_ENABLE,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         } else if (motors == MOTORS_CLOSED) {
             sdl_render_text_and_register_event(
-                pane, pane->w-COL2X(9,fontsz), ROW2Y(2,fontsz), fontsz, 
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(3,fontsz), fontsz, 
                 "SHDN_CTLR",
                 LIGHT_BLUE, BLACK, 
                 SDL_EVENT_TELE_SHUTDN_CTLR,

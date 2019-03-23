@@ -618,13 +618,14 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 static char * sky_pane_cmd(char * cmd_line)
 {
     int i;
-    char *cmd, *arg1;
+    char *cmd, *arg1, *arg2;
     char cmd_line_copy[1000];
 
     // tokenize cmd_line into cmd, arg1
     strcpy(cmd_line_copy, cmd_line);
     cmd = strtok(cmd_line_copy, " ");
-    arg1 = strtok(NULL, "");
+    arg1 = strtok(NULL, " ");
+    arg2 = strtok(NULL, " ");
     INFO("cmd='%s' arg1='%s'\n", cmd, arg1);
 
     // ignore blank cmd_line
@@ -632,7 +633,25 @@ static char * sky_pane_cmd(char * cmd_line)
         return "";
     }
 
-    // cmd: trk <[objname]|ident|curr|off>
+    // cmd: azel <az> <el>
+    if (strcasecmp(cmd, "azel") == 0) {
+        double az, el;
+        if (arg1 == NULL || arg2 == NULL) {
+            return "error: arg1 and arg2 expected";
+        }
+        if (sscanf(arg1, "%lf", &az) != 1 || az < 0 || az >= 360) {
+            return "error: invalid az";
+        }
+        if (sscanf(arg2, "%lf", &el) != 1 || el < 0 || el >= 90) {
+            return "error: invalid el";
+        }
+        az_ctr = az;
+        el_ctr = el;
+        tracking = TRACKING_OFF;
+        return "okay";
+    }
+    
+    // cmd: trk <OBJNAME|ident|curr|off>
     if (strcasecmp(cmd, "trk") == 0) {
         if (arg1 == NULL) {
             return "error: arg expected";
@@ -671,7 +690,7 @@ static char * sky_pane_cmd(char * cmd_line)
         FATAL("BUG: shouldn't be here\n");
     }
 
-    // cmd: ident <[objname]|off>
+    // cmd: ident <OBJNAME|off>
     if (strcasecmp(cmd, "ident") == 0) {
         if (arg1 == NULL) {
             return "error: arg expected";
