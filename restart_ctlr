@@ -1,0 +1,4 @@
+#!/bin/bash
+
+killall ctlr
+nohup ./ctlr </dev/null >ctlr.log 2>&1 &
