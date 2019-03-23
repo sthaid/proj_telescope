@@ -1,0 +1,52 @@
+========================================
+Setting Static IP Addresses
+========================================
+
+--- Raspbian ---
+
+https://raspberrypi.stackexchange.com/questions/37920/how-do-i-set-up-networking-wifi-static-ip-address/74428#74428
+
+Edit /etc/dhcpcd.conf as follows:-
+
+# static eth0
+interface eth0
+static ip_address=192.168.2.10/24
+
+--- Fedora / RHEL / Centos ---
+
+https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/deployment_guide/s1-networkscripts-interfaces
+
+sudo vi /etc/sysconfig/network-scripts/ifcfg-enp4s0
+
+DEVICE=enp4s0
+BOOTPROTO=none
+ONBOOT=yes
+PREFIX=24
+IPADDR=192.168.2.11
+
+---- IP Commoand ---
+
+IP command cheat sheet:
+https://access.redhat.com/sites/default/files/attachments/rh_ip_command_cheatsheet_1214_jcs_print.pdf
+
+Example:
+ip addr add 192.168.2.11/24 dev enp4s0
+
+========================================
+My .bash_profile TCX exports
+========================================
+
+export TCX_LAT=42.422224
+export TCX_LONG=-71.622796
+export TCX_CTLR_IP=ctlr_wifi
+export TCX_AZ_TELE_LEG_1=45
+
+========================================
+Code Snippets
+========================================
+
+    // set 30 second timeout for recv
+    struct timeval rcvto = {30, 0};  // sec, usec
+    if (setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &rcvto, sizeof(rcvto)) == -1) {
+        FATAL("setsockopt SO_RCVTIMEO, %s", strerror(errno));
+    }
