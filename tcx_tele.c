@@ -711,7 +711,7 @@ static void * tele_ctrl_thread(void * cx)
             int az_mstep, el_mstep;
             int curr_az_mstep = ctlr_motor_status.motor[0].curr_pos_mstep;
 
-            if (act_el > min_of_max_el) {
+            if (act_el > min_of_max_el+.1) {
                 az_mstep = curr_az_mstep;
                 el_mstep = cal_el0_mstep + ELDEG_TO_MSTEP(min_of_max_el) + adj_el_mstep;
             } else if (tgt_el > min_of_max_el) {
