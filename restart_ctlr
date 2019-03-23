@@ -1,4 +1,24 @@
 #!/bin/bash
 
-killall ctlr
+pgrep -x ctlr >/dev/null
+if [ $? = 0 ]; then
+  echo "info: killing ctlr"
+  killall ctlr
+  sleep 1
+
+  pgrep -x ctlr >/dev/null
+  if [ $? = 0 ]; then
+    echo "error: ctlr failed to be killed"
+    exit 1
+  fi
+fi
+
+echo "info: starting ctlr"
 nohup ./ctlr </dev/null >ctlr.log 2>&1 &
+sleep 1
+
+pgrep -x ctlr >/dev/null
+if [ $? = 1 ]; then
+  echo "error: ctlr failed start"
+  exit 1
+fi
