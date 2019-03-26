@@ -78,16 +78,15 @@ SOFTWARE.
     (x) == MOTORS_ERROR  ? "ERROR"  : \
                            "????")
 
-// XXX change VALID to RECENT
-#define CTLR_MOTOR_STATUS_VALID ({uint64_t x = ctlr_motor_status_us; \
-                                  __sync_synchronize(); \
-                                  microsec_timer() - x <= 5000000;})
-#define CAM_IMG_VALID           ({uint64_t x = cam_img.recv_time_us[0]; \
-                                  __sync_synchronize(); \
-                                  microsec_timer() - x <= 5000000;})
-#define CAM_CTRLS_VALID         ({uint64_t x = vars->cam_ctrls_time_us; \
-                                  __sync_synchronize(); \
-                                  microsec_timer() - x <= 5000000;})
+#define CTLR_MOTOR_STATUS_RECENT ({uint64_t x = ctlr_motor_status_us; \
+                                   __sync_synchronize(); \
+                                   microsec_timer() - x <= 5000000;})
+#define CAM_IMG_RECENT           ({uint64_t x = cam_img.recv_time_us[0]; \
+                                   __sync_synchronize(); \
+                                   microsec_timer() - x <= 5000000;})
+#define CAM_CTRLS_RECENT         ({uint64_t x = vars->cam_ctrls_time_us; \
+                                   __sync_synchronize(); \
+                                   microsec_timer() - x <= 5000000;})
 
 #define SDLPR(fmt, args...) \
     do { \
@@ -561,9 +560,9 @@ static void * tele_ctrl_thread(void * cx)
                 INFO("setting MOTORS_ERROR because not connected\n");
             }
             motors = MOTORS_ERROR;
-        } else if (!CTLR_MOTOR_STATUS_VALID) {
+        } else if (!CTLR_MOTOR_STATUS_RECENT) {
             if (motors != MOTORS_ERROR) {
-                INFO("setting MOTORS_ERROR because because not CTLR_MOTOR_STATUS_VALID\n");
+                INFO("setting MOTORS_ERROR because because not CTLR_MOTOR_STATUS_RECENT\n");
             }
             motors = MOTORS_ERROR;
         } else if (ctlr_motor_status.motor[0].opened == 0 && ctlr_motor_status.motor[1].opened == 0) {
@@ -988,12 +987,12 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4,
     if (!calibrated && connected && motors != MOTORS_CLOSED) {
         char motor0_pos_str[32];
         char motor1_pos_str[32];
-        if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[0].opened) {
+        if (CTLR_MOTOR_STATUS_RECENT && ctlr_motor_status.motor[0].opened) {
             sprintf(motor0_pos_str, "%d", ctlr_motor_status.motor[0].curr_pos_mstep);
         } else {
             strcpy(motor0_pos_str, "-");
         }
-        if (CTLR_MOTOR_STATUS_VALID && ctlr_motor_status.motor[1].opened) {
+        if (CTLR_MOTOR_STATUS_RECENT && ctlr_motor_status.motor[1].opened) {
             sprintf(motor1_pos_str, "%d", ctlr_motor_status.motor[1].curr_pos_mstep);
         } else {
             strcpy(motor1_pos_str, "-");
@@ -1223,7 +1222,7 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         pthread_mutex_lock(&cam_img_mutex);
 
         // if image avail
-        if (CAM_IMG_VALID) {
+        if (CAM_IMG_RECENT) {
             // sanitize the pan/zoom control info
             sanitize_pan_zoom();
 
@@ -1376,12 +1375,12 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
         // some of the event_ids are handled here, and the majority
         // of the event_ids are handled by call to tele_ctrl_process_cmd
         if (event->event_id == SDL_EVENT_TELE_MOUSE_MOTION) {
-            if (CAM_IMG_VALID) {
+            if (CAM_IMG_RECENT) {
                 pz.image_x_ctr -= event->mouse_motion.delta_x;
                 pz.image_y_ctr -= event->mouse_motion.delta_y;
             }
         } else if (event->event_id == SDL_EVENT_TELE_MOUSE_WHEEL) {
-            if (CAM_IMG_VALID) {
+            if (CAM_IMG_RECENT) {
                 int dy = event->mouse_wheel.delta_y;
                 if (dy < 0 && pz.image_scale < 1) {
                     pz.image_scale *= 1.1;
@@ -1478,7 +1477,7 @@ static void sanitize_pan_zoom(void)
 
 // -----------------  TELE CAM INFO PANE HNDLR  ---------------------------
 
-// XXX scroll arrows or mouse motion for moving the menu if it has too many entries to fit in the pane
+// LATER scroll arrows or mouse motion for moving the menu if it has too many entries to fit in the pane
 
 int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
@@ -1542,7 +1541,7 @@ int tele_cam_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_param
         // endif
         if (vars->cam_ctrls->max_cam_ctrl != 0 && 
             vars->cam_ctrls_len != 0 &&
-            CAM_CTRLS_VALID)
+            CAM_CTRLS_RECENT)
         {
             int32_t i, j;
             char *strings, *s, *menu_strings[100], current_value_str[100];
@@ -1779,7 +1778,7 @@ int tele_motor_info_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_par
         // else
         //   display 'UNAVAILABLE'
         // endif
-        if (CTLR_MOTOR_STATUS_VALID) {
+        if (CTLR_MOTOR_STATUS_RECENT) {
             sdlpr_col = 0; sdlpr_row = 2;
             SDLPR("OPENED   %9d %9d", m0->opened, m1->opened);
             SDLPR("ENERG    %9d %9d", m0->energized, m1->energized);

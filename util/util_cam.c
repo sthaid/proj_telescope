@@ -104,6 +104,7 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
     struct v4l2_buffer         buffer;
     enum   v4l2_buf_type       buf_type;
     int32_t                    i;
+    int32_t                    wait_count;
 
     // preset returns to invalid
     *act_fmt = 0;
@@ -273,6 +274,29 @@ int32_t cam_initialize(int32_t req_fmt, int32_t req_width, int32_t req_height, d
         goto error;
     }
 
+    // wait for up to 10 secs for the first frame to be recvd
+    wait_count = 0;
+    while (true) {
+        bzero(&buffer, sizeof(buffer));
+        buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buffer.memory = V4L2_MEMORY_MMAP;
+        if (ioctl(cam_fd, VIDIOC_DQBUF, &buffer) < 0) {
+            if (errno != EAGAIN) {
+                ERROR("ioctl VIDIOC_DQBUF failed, %s\n", strerror(errno));
+                goto error;
+            }
+            if (wait_count >= 10) {
+                ERROR("have not received first buffer in %d secs\n", wait_count);
+                goto error;
+            }
+            wait_count++;
+            sleep(1);
+        } else {
+            cam_put_buff(bufmap[buffer.index].addr);
+            break;
+        }
+    }
+
     // query controls
     if (cam_ctrls_query() < 0) {
         ERROR("cam_ctrls_query failed\n");
@@ -383,15 +407,14 @@ try_again:
     }
 
     // if no buffers are available then 
-    //   if it has been more than 2 seconds then 
-    //     XXX this is 10 sec -instead get the first buffer in cam_initialize
+    //   if it has been more than 5 seconds then 
     //     return error
     //   else
     //     delay and try again
     //   endif
     // endif
     if (max_buffer_avail == 0) {
-        if (duration > 10000000) {
+        if (duration > 5000000) {
             ERROR("cam not responding\n");
             return -1;
         } else {

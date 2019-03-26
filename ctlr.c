@@ -141,7 +141,7 @@ int main(int argc, char **argv)
     // motor initialize
     rc = motor_init();
     if (rc < 0) {
-        ERROR("motor_init failed\n"); // XXX should be FATAL
+        ERROR("motor_init failed\n");
     }
 
     // camera initialize
@@ -983,7 +983,6 @@ static void * motor_getstatus_thread(void * cx)
     msg_motor_status_data_t * msg_motor_status_data = (msg_motor_status_data_t*)msg_motor_status->data;
 
     // init
-    memset(variables, 0, sizeof(variables));
     motor_getstatus_thread_running = true;
 
     while (motor_initialized) {
@@ -991,6 +990,7 @@ static void * motor_getstatus_thread(void * cx)
         pthread_mutex_lock(&motor_mutex);
 
         // for each open motor get variables
+        memset(variables, 0, sizeof(variables));
         for (h = 0; h < MAX_MOTOR; h++) {
             if (motor[h].tic_handle == NULL) {
                 continue;
@@ -998,7 +998,9 @@ static void * motor_getstatus_thread(void * cx)
 
             // get the variables
             tic_get_variables(motor[h].tic_handle, &variables[h], true);
-            // XXX this can this fail 
+            if (variables[h] == NULL) {
+                continue;
+            }
 
             // also check for need to energize the motor because the voltage is now okay
             tic_variables *v = variables[h];
@@ -1021,7 +1023,7 @@ static void * motor_getstatus_thread(void * cx)
                 tic_variables *v = variables[h];
                 char time_str[100];
 
-                if (motor[h].tic_handle == NULL) {
+                if (motor[h].tic_handle == NULL || v == NULL) {
                     continue;
                 }
 
@@ -1059,7 +1061,7 @@ static void * motor_getstatus_thread(void * cx)
         for (h = 0; h < MAX_MOTOR; h++) {
             tic_variables *v = variables[h];
 
-            if (motor[h].tic_handle == NULL) {
+            if (motor[h].tic_handle == NULL || v == NULL) {
                 continue;
             }
 
@@ -1560,8 +1562,12 @@ re_init:
         if (cam_img_receipt_id != cam_img_lastsnd_id &&
             cam_img_receipt_id != cam_img_lastsnd_id - 1)
         {
-            WARN("discarding cam_img, receipt_id=%d lastsnd_id=%d\n", // XXX change to debug lvl
-                 cam_img_receipt_id, cam_img_lastsnd_id);             //     or print every 100 discards
+            static int discard_count;
+            discard_count++;
+            WARN_INTERVAL(5000000,  // warn at most every 5 secs
+                          "discarding cam_img, discard_count=%d "
+                          "receipt_id=%d lastsnd_id=%d\n",
+                          discard_count, cam_img_receipt_id, cam_img_lastsnd_id);
             cam_put_buff(ptr);
             continue;
         }

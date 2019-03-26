@@ -85,6 +85,16 @@ SOFTWARE.
         } \
     } while (0)
 
+#define WARN_INTERVAL(us, fmt, args...) \
+    do { \
+        uint64_t now = microsec_timer(); \
+        static uint64_t last; \
+        if (now - last > (us)) { \
+            WARN(fmt, args); \
+            last = now; \
+        } \
+    } while (0)
+
 void logmsg(char * lvl, const char * func, char * fmt, ...) __attribute__ ((format (printf, 3, 4)));
 
 // -----------------  TIME  --------------------------------------

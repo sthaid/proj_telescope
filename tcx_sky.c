@@ -445,13 +445,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
-        // XXX comment what these are doing
         switch (event->event_id) {
         case SDL_EVENT_MOUSE_MOTION: 
         case SDL_EVENT_KEY_UP_ARROW: 
         case SDL_EVENT_KEY_DOWN_ARROW: 
         case SDL_EVENT_KEY_LEFT_ARROW: 
         case SDL_EVENT_KEY_RIGHT_ARROW: {
+            // pan
             int dx=0, dy=0;
 
             if (event->event_id == SDL_EVENT_MOUSE_MOTION) {
@@ -488,6 +488,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
 
         case SDL_EVENT_MOUSE_WHEEL: {
+            // zoom
             int dy = event->mouse_wheel.delta_y;
             if (dy < 0 && az_span < 359.99) {
                 az_span *= 1.1;
@@ -501,6 +502,7 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
 
         case SDL_EVENT_MOUSE_RIGHT_CLICK: {
+            // identify object closes to current mouse position
             int mouse_x, mouse_y;
             int dist, best_dist, best_i, i, delta_x, delta_y;
 
@@ -542,6 +544,9 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
             return PANE_HANDLER_RET_DISPLAY_REDRAW; }
 
         case 1 ... 127: {
+            // accumulate keyboard events into cmd_line buffer, and
+            // when <cr> is detected pass cmd_line buffer to sky_pane_cmd
+            // routine to process it
             char ch = event->event_id;
             if (ch >= 32 && ch <= 126) {
                 vars->cmd_line[vars->cmd_line_len++] = ch;
@@ -566,34 +571,43 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
 
         case SDL_EVENT_KEY_ALT + 'm': 
         case SDL_EVENT_KEY_ALT + 'M':
+            // change min magnitude of displayed objects
             mag += (event->event_id == SDL_EVENT_KEY_ALT + 'M' ? .1 : -.1);
             if (mag < MIN_MAG) mag = MIN_MAG;
             if (mag > MAX_MAG) mag = MAX_MAG;
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
 
         case SDL_EVENT_KEY_ALT + '1':
+            // select current time (normal operation)
             sky_time_set_mode(SKY_TIME_MODE_CURRENT);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_ALT + '2':
+            // pause time
             sky_time_set_mode(SKY_TIME_MODE_PAUSED);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_ALT + '3':
+            // reverse time by tstep intervals
             sky_time_set_mode(SKY_TIME_MODE_REV);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_ALT + '4':
+            // forward time by tstep intervals
             sky_time_set_mode(SKY_TIME_MODE_FWD);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_ALT + '5':
+            // reverse time one tstep interval, then pause
             sky_time_set_mode(SKY_TIME_MODE_REV_STEP);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_ALT + '6':
+            // forward time one tstep interval, then pause
             sky_time_set_mode(SKY_TIME_MODE_FWD_STEP);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
 
         case SDL_EVENT_KEY_PGUP:
+            // reset sky_pane, with pane range az=360 el=90
             reset(false);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         case SDL_EVENT_KEY_PGDN:
+            // reset sky_pane, with pane range az=360 el=180
             reset(true);
             return PANE_HANDLER_RET_DISPLAY_REDRAW;
         }

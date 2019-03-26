@@ -217,5 +217,5 @@ static void jpeg_decode_output_message_override(j_common_ptr cinfo)
     char buffer[JMSG_LENGTH_MAX];
 
     (*cinfo->err->format_message)(cinfo, buffer);
-    // XXX ERROR("%s\n", buffer);
+    ERROR("%s\n", buffer);
 }
