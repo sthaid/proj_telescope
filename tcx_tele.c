@@ -639,8 +639,8 @@ static void * tele_ctrl_thread(void * cx)
         // sanitize_az will put tgt_az in range: 90 to 450
         //
         // note that by constraining tgt_az to this range is intended to prevent 
-        //  telescope azimuth motion through the leg_1 azimuth; moving in azimuth
-        //  from one side of leg1 to the other side of leg1 should go all of the
+        //  telescope azimuth motion through the 90 degree azimuth; moving in azimuth
+        //  from one side of 90 degrees to the other side of 90 degrees will go all of the
         //  way around
         sky_get_tgt_azel(&tgt_az, &tgt_el);
         tgt_az = sanitize_az(tgt_az, 90);

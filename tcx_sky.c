@@ -458,13 +458,13 @@ int sky_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_eve
                 dx = event->mouse_motion.delta_x;
                 dy = event->mouse_motion.delta_y;
             } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
-                dx = -5;
-            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
                 dx = +5;
+            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
+                dx = -5;
             } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
-                dy = -5;
-            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
                 dy = +5;
+            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
+                dy = -5;
             }
 
             if (dx == 0 && dy == 0) {
@@ -1039,13 +1039,13 @@ int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sd
                 dx = event->mouse_motion.delta_x;
                 dy = event->mouse_motion.delta_y;
             } else if (event->event_id == SDL_EVENT_KEY_LEFT_ARROW) {
-                dx = -5;
-            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
                 dx = +5;
+            } else if (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW) {
+                dx = -5;
             } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
-                dy = -5;
-            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
                 dy = +5;
+            } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
+                dy = -5;
             }
 
             if (dx == 0 && dy == 0) {
@@ -1294,7 +1294,7 @@ static time_t sky_time_tod_next(time_t t, double hr)
     double second;
     struct tm *tm, tm1;
 
-    tm = gmtime(&t);
+    tm = localtime(&t);
     year  = tm->tm_year + 1900;
     month = tm->tm_mon + 1;
     day   = tm->tm_mday;
@@ -1321,7 +1321,7 @@ static time_t sky_time_tod_prior(time_t t, double hr)
     double second;
     struct tm *tm, tm1;
 
-    tm = gmtime(&t);
+    tm = localtime(&t);
     year  = tm->tm_year + 1900;
     month = tm->tm_mon + 1;
     day   = tm->tm_mday;
