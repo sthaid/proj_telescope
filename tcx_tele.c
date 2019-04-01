@@ -539,6 +539,7 @@ static void comm_verify_sock_opts(void)
 static void * tele_ctrl_thread(void * cx)
 {
     uint64_t time_us, time_last_set_pos_us=0;
+    bool quick_react;
 
     bool connected_last = false;
     int  motors_last = MOTORS_CLOSED;
@@ -635,14 +636,14 @@ static void * tele_ctrl_thread(void * cx)
         }
 
         // get tgt_az/el by calling sky routine, and
-        // sanitize_az will put tgt_az in range: az_tele_leg_1 to az_tele_leg_1+360
+        // sanitize_az will put tgt_az in range: 90 to 450
         //
         // note that by constraining tgt_az to this range is intended to prevent 
         //  telescope azimuth motion through the leg_1 azimuth; moving in azimuth
         //  from one side of leg1 to the other side of leg1 should go all of the
         //  way around
         sky_get_tgt_azel(&tgt_az, &tgt_el);
-        tgt_az = sanitize_az(tgt_az, az_tele_leg_1);
+        tgt_az = sanitize_az(tgt_az, 90);
 
         // determine if the target azel is valid (can the telescope mechanism point there)
         tgt_azel_valid = tele_ctrl_is_azel_valid(tgt_az, tgt_el, "TARGET");
@@ -666,9 +667,11 @@ static void * tele_ctrl_thread(void * cx)
         }
 
         // if tracking is enabled then set telescope position to tgt_az,tgt_el;
-        // do this once per second
+        // do this once per second when making large movements, or once every
+        // 10 secs for small movements (such as tracking an object)
+        quick_react = (fabs(tgt_az - act_az) > 1 || fabs(tgt_el - act_el) > 1);
         if (tracking_enabled &&
-            (time_us = microsec_timer()) >= time_last_set_pos_us + 1000000)
+            (time_us = microsec_timer()) >= time_last_set_pos_us + (quick_react ? 1000000 : 10000000))
         do {
             // note - above code ensures that act and tgt az/el are valid
 
@@ -1040,12 +1043,12 @@ static bool tele_ctrl_is_azel_valid(double az, double el, char *caller_str)
 
     max_el = tele_ctrl_get_max_el(az, caller_str);
     if (max_el == -1) {
-        ERROR("%s az=%0.2f el=%0.2f - tele_ctrl_get_max_el return error\n", caller_str, az, el);
+        DEBUG("%s az=%0.2f el=%0.2f - tele_ctrl_get_max_el return error\n", caller_str, az, el);
         return false;
     }
 
     if (el < -3 || el > max_el) {
-        ERROR("%s az=%0.2f el=%0.2f max_el=%0.2f - el is invalid\n", caller_str, az, el, max_el);
+        DEBUG("%s az=%0.2f el=%0.2f max_el=%0.2f - el is invalid\n", caller_str, az, el, max_el);
         return false;
     }
 
@@ -1064,8 +1067,8 @@ static double tele_ctrl_get_max_el(double az, char *caller_str)
         49, 23, 23, 23, 23,     //  25
         23, 23, 23, 23, 23,     //  30
         23, 23, 23, 23, 23,     //  35
-        23, 23, 23, 23, 23,     //  40
-        23, 14, 14, 14, 14,     //  45
+        23, 14, 14, 14, 14,     //  40
+        14, 14, 14, 14, 14,     //  45
         14, 14, 14, 14, 14,     //  50
         14, 14, 14, 14, 14,     //  55
         17, 17, 17, 17, 17,     //  60
@@ -1131,8 +1134,11 @@ static double tele_ctrl_get_max_el(double az, char *caller_str)
             };
 
     int idx;
+    double az_relative_tele_leg_1;
 
-    idx = lrint(az - az_tele_leg_1);
+    az_relative_tele_leg_1 = sanitize_az(az-az_tele_leg_1, 0);
+
+    idx = lrint(az_relative_tele_leg_1);
     if (idx == 360) idx = 0;
     if (idx == -1) idx = 359;
 
