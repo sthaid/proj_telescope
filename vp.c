@@ -284,6 +284,25 @@ int main(int argc, char ** argv)
         }
         printf("%s\n", str);
 
+        // - print 2nd header line containing the object's magnitude
+        p = str;
+        p += sprintf(p, "%17s ", "");
+        for (i = 0; i < max_obj; i++) {
+            char mag_str[100];
+
+            if (!obj_in_range[i]) {
+                continue;
+            }
+            if (obj[0][i].mag != NO_VALUE) {
+                sprintf(mag_str, "%8.1f", obj[0][i].mag);
+            } else {
+                strcpy(mag_str, "n/a");
+            }
+            mag_str[8] = '\0';
+            p += sprintf(p, "%8s ", mag_str);
+        }
+        printf("%s\n", str);
+
         // - construct and print lines for each time; if a time has no objects in range 
         //   then do not print a line for that time
         for (n = 0; n <= n_interval; n++) {
