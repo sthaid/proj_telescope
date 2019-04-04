@@ -101,6 +101,9 @@ static sdl_event_reg_t  sdl_event_reg_tbl[MAX_EVENT_REG_TBL];
 static int32_t          sdl_event_max;
 static sdl_event_t      sdl_push_ev;
 
+static struct pane_list_head_s * sdl_pane_list_head[10];
+static int              sdl_pane_list_head_idx;
+
 static uint32_t         sdl_color_to_rgba[] = {
                             //    red           green          blue    alpha
                                (127 << 24) | (  0 << 16) | (255 << 8) | 255,     // PURPLE
@@ -348,6 +351,9 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
     }
     va_end(ap);
 
+    // make pane_list_head available for scrutiny by sdl_poll_event
+    sdl_pane_list_head[sdl_pane_list_head_idx++] = &pane_list_head;
+
     // loop 
     while (true) {
         // if no panes or the global program_quit flag is set then break
@@ -518,6 +524,9 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
     while ((pane_cx = pane_list_head.tqh_first) != NULL) {
         sdl_pane_terminate(&pane_list_head, pane_cx);
     }
+
+    // remove entry from sdl_pane_list_head
+    sdl_pane_list_head_idx--;
 }
 
 void sdl_pane_create(struct pane_list_head_s * pane_list_head, pane_handler_t pane_handler, void * init_params,
@@ -1075,6 +1084,44 @@ sdl_event_t * sdl_poll_event(void)
         default: {
             DEBUG("got event %d - not supported\n", ev.type);
             break; }
+        }
+
+        // if using the pane manager AND
+        //    we have an event AND
+        //    we have an event_cx (which is a pane_cx when sdl_pane_manger is being used)
+        // then
+        //   Determine the pane_cx associated with the current mouse position;
+        //    that is the pane that is closest to the foreground.
+        //   If the pane found is not the pane associated with the event then
+        //    discard the event.
+        // endif
+        //
+        // In other words, if the pane associated with the event is not visible at the
+        // mouse position then the event is discarded.
+        if (sdl_pane_list_head_idx > 0 &&
+            event.event_id != SDL_EVENT_NONE &&
+            event.event_cx != NULL)
+        {
+            struct pane_list_head_s *pane_list_head = sdl_pane_list_head[sdl_pane_list_head_idx-1];
+            int mouse_x, mouse_y;
+            pane_cx_t *x, *found_pane_cx=NULL;
+
+            SDL_GetMouseState(&mouse_x, &mouse_y);
+            DEBUG("MOUSE %d %d\n", mouse_x,mouse_y);
+
+            TAILQ_FOREACH_REVERSE(x, pane_list_head, pane_list_head_s, entries) {
+                DEBUG("%d %d %d %d\n", x->x_disp, x->y_disp, x->w_total, x->h_total);
+                if ((mouse_x >= x->x_disp && mouse_x < x->x_disp + x->w_total) &&
+                    (mouse_y >= x->y_disp && mouse_y < x->y_disp + x->h_total))
+                {
+                    found_pane_cx = x;
+                    break;
+                }
+            }
+            if (found_pane_cx != event.event_cx) {
+                DEBUG("DISCARDING EVENT\n");
+                bzero(&event, sizeof(event));
+            }
         }
 
         // break if event is set
