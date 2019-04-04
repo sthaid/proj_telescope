@@ -215,7 +215,14 @@ static void jpeg_decode_error_exit_override(j_common_ptr cinfo)
 static void jpeg_decode_output_message_override(j_common_ptr cinfo)
 {
     char buffer[JMSG_LENGTH_MAX];
+    static long count;
 
-    (*cinfo->err->format_message)(cinfo, buffer);
-    ERROR("%s\n", buffer);
+    if (count <= 10) {
+        (*cinfo->err->format_message)(cinfo, buffer);
+        ERROR("%s\n", buffer);
+        if (count == 10) {
+            ERROR("no more error prints\n");
+        }
+        count++;
+    }
 }
