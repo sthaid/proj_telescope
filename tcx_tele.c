@@ -130,6 +130,7 @@ uint64_t                      ctlr_cal_values_recv_time_us;
 static int    motors;
 static bool   calibrated;
 static bool   tracking_enabled;
+static bool   tracking_acquired;
 
 static int    cal_az0_mstep;
 static int    cal_el0_mstep;
@@ -547,6 +548,8 @@ static void * tele_ctrl_thread(void * cx)
     bool tracking_enabled_last = false;
     bool tgt_azel_valid_last = false;
     bool act_azel_valid_last = false;
+    int  adj_az_mstep_last = 999999;
+    int  adj_el_mstep_last = 999999;
 
     while (true) {
         // delay 50 ms
@@ -602,11 +605,12 @@ static void * tele_ctrl_thread(void * cx)
         }
 
         // if telescope is not fully ready then ensure the 
-        // calibrated and tracking_enabled flags are clear
+        // calibrated, tracking_enabled, and trackiing_acquired flags are clear
         // and zero the az/el adjustment values
         if (!connected || motors != MOTORS_OPEN || !calibrated) {
             calibrated = false;
             tracking_enabled = false;
+            tracking_acquired = false;
             adj_az_mstep = adj_el_mstep = 0;
         }
 
@@ -664,12 +668,32 @@ static void * tele_ctrl_thread(void * cx)
         // if the target or actual azel is invalid then disable tracking
         if (!tgt_azel_valid || !act_azel_valid) {
             tracking_enabled = false;
+            tracking_acquired = false;
+        }
+
+        // determine if tracking has been acquired and whether
+        // the telescope should quickly react to requested position change;
+        // if the telescope has acquired tracking then it is better to update
+        // position less often because the tracking mechanism used is 
+        // stepper motor, which induces a small jolt on every step
+        if (tracking_enabled) {
+            tracking_acquired = (fabs(tgt_az - act_az) < 0.05 && 
+                                 fabs(tgt_el - act_el) < 0.05);
+            quick_react = (!tracking_acquired ||
+                           adj_az_mstep != adj_az_mstep_last ||
+                           adj_el_mstep != adj_el_mstep_last);
+            adj_az_mstep_last = adj_az_mstep;
+            adj_el_mstep_last = adj_el_mstep;
+        } else {
+            tracking_acquired = false;
+            quick_react = false;
+            adj_az_mstep_last = 999999;
+            adj_el_mstep_last = 999999;
         }
 
         // if tracking is enabled then set telescope position to tgt_az,tgt_el;
-        // do this once per second when making large movements, or once every
-        // 10 secs for small movements (such as tracking an object)
-        quick_react = (fabs(tgt_az - act_az) > 1 || fabs(tgt_el - act_el) > 1);
+        // do this either every second or every 10 seconds depending on the 
+        // quick_react flag
         if (tracking_enabled &&
             (time_us = microsec_timer()) >= time_last_set_pos_us + (quick_react ? 1000000 : 10000000))
         do {
@@ -689,6 +713,7 @@ static void * tele_ctrl_thread(void * cx)
                 if (max_el == -1) {
                     ERROR("tele_ctrl_get_max_el failed, az=%d start_az=%d end_az=%d\n", az, start_az, end_az);
                     tracking_enabled = false;
+                    tracking_acquired = false;
                     break;
                 }
                 if (max_el < min_of_max_el) {
@@ -800,6 +825,7 @@ static void tele_ctrl_process_cmd(int event_id)
             comm_send_msg(&msg);
             calibrated = false;
             tracking_enabled = false;
+            tracking_acquired = false;
         }
         break;
     case SDL_EVENT_TELE_MOTORS_OPEN:
@@ -808,12 +834,14 @@ static void tele_ctrl_process_cmd(int event_id)
             comm_send_msg(&msg);
             calibrated = false;
             tracking_enabled = false;
+            tracking_acquired = false;
         }
         break;
     case SDL_EVENT_TELE_UN_CALIBRATE:
         if (calibrated) {
             calibrated = false;
             tracking_enabled = false;
+            tracking_acquired = false;
 
             INFO("sending UN_CALIBRATE\n");
             char msg_buffer[100];
@@ -839,6 +867,7 @@ static void tele_ctrl_process_cmd(int event_id)
             INFO("calibrated: EL %9d %10d %6.2f\n", cal_el0_mstep, curr_el_mstep, tgt_el);
             calibrated = true;
             tracking_enabled = false;
+            tracking_acquired = false;
 
             INFO("sending CALIBRATE\n");
             char msg_buffer[100];
@@ -855,11 +884,13 @@ static void tele_ctrl_process_cmd(int event_id)
     case SDL_EVENT_TELE_TRK_DISABLE:
         if (calibrated) {
             tracking_enabled = false;
+            tracking_acquired = false;
         }
         break;
     case SDL_EVENT_TELE_TRK_ENABLE:
         if (calibrated) {
             tracking_enabled = true;
+            tracking_acquired = false;
         }
         break;
     case SDL_EVENT_TELE_SHUTDN_CTLR:
@@ -868,6 +899,7 @@ static void tele_ctrl_process_cmd(int event_id)
             comm_send_msg(&msg);
             calibrated = false;
             tracking_enabled = false;
+            tracking_acquired = false;
         }
         break;
     case SDL_EVENT_KEY_UP_ARROW:
@@ -970,18 +1002,10 @@ static void tele_ctrl_get_status(char *str1, char *str2, char *str3, char *str4,
         sprintf(str1, "BAD_TGT_AZEL");
     } else if (!tracking_enabled) {
         sprintf(str1, "DISABLED");
+    } else if (!tracking_acquired) {
+        sprintf(str1, "ACQUIRING");
     } else {
-        double az_delta = fabs(act_az2-tgt_az2);
-        double el_delta = fabs(act_el-tgt_el);
-        if (az_delta > 180) {
-            az_delta = fabs(360-az_delta);
-        }
-        acquired = (az_delta <= 0.02 && el_delta <= 0.02);
-        if (!acquired) {
-            sprintf(str1, "ACQUIRING");
-        } else {
-            sprintf(str1, "ACQUIRED");
-        }
+        sprintf(str1, "ACQUIRED");
     }
 
     // STATUS LINE 2 - upper left
