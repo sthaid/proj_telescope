@@ -892,7 +892,8 @@ void sky_get_tgt_azel(double * tgt_az, double * tgt_el)
 // -----------------  SKY VIEW PANE HANDLER  ------------------------------
 
 static int    sky_view_scale_tbl_idx = 0;
-static double sky_view_scale_tbl[]   = {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.5};
+static double sky_view_scale_tbl[]   = 
+             {45, 40, 35, 30, 25, 20, 15, 10, 5, 4, 3, 2, 1, 0.75, 0.5, 0.4, 0.3, 0.2, 0.1, 0.07};
 
 int sky_view_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event) 
 {
