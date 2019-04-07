@@ -1047,7 +1047,7 @@ static bool tele_ctrl_is_azel_valid(double az, double el, char *caller_str)
         return false;
     }
 
-    if (el < -3 || el > max_el) {
+    if (el < -10 || el > max_el) {
         DEBUG("%s az=%0.2f el=%0.2f max_el=%0.2f - el is invalid\n", caller_str, az, el, max_el);
         return false;
     }
