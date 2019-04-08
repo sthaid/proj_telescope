@@ -31,42 +31,49 @@ SOFTWARE.
 #define AZMSTEP_360_DEG        (200 * 32 * 6)
 #define AZMSTEP_180_DEG        (AZMSTEP_360_DEG / 2)
 #define AZMSTEP_1_DEG          ((int)(AZMSTEP_360_DEG / 360. + .5))
+#define SEARCH_AZ_MSTEP        (AZMSTEP_1_DEG / 10)
 
 #define ELDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
 #define MSTEP_TO_ELDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
 #define ELMSTEP_360_DEG        (200 * 32 * 6)
 #define ELMSTEP_180_DEG        (ELMSTEP_360_DEG / 2)
 #define ELMSTEP_1_DEG          ((int)(ELMSTEP_360_DEG / 360. + .5))
+#define SEARCH_EL_MSTEP        (ELMSTEP_1_DEG / 10)
 
-#define SDL_EVENT_TELE_MOTORS_CLOSE   (SDL_EVENT_USER_DEFINED + 0)
-#define SDL_EVENT_TELE_MOTORS_OPEN    (SDL_EVENT_USER_DEFINED + 1)
-#define SDL_EVENT_TELE_UN_CALIBRATE   (SDL_EVENT_USER_DEFINED + 2)
-#define SDL_EVENT_TELE_CALIBRATE      (SDL_EVENT_USER_DEFINED + 3)
-#define SDL_EVENT_TELE_TRK_DISABLE    (SDL_EVENT_USER_DEFINED + 4)
-#define SDL_EVENT_TELE_TRK_ENABLE     (SDL_EVENT_USER_DEFINED + 5)
-#define SDL_EVENT_TELE_SHUTDN_CTLR    (SDL_EVENT_USER_DEFINED + 6)
-#define SDL_EVENT_TELE_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 7)
-#define SDL_EVENT_TELE_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 8)
+#define SDL_EVENT_TELE_MOTORS_CLOSE      (SDL_EVENT_USER_DEFINED + 0)
+#define SDL_EVENT_TELE_MOTORS_OPEN       (SDL_EVENT_USER_DEFINED + 1)
+#define SDL_EVENT_TELE_UN_CALIBRATE      (SDL_EVENT_USER_DEFINED + 2)
+#define SDL_EVENT_TELE_CALIBRATE         (SDL_EVENT_USER_DEFINED + 3)
+#define SDL_EVENT_TELE_TRK_DISABLE       (SDL_EVENT_USER_DEFINED + 4)
+#define SDL_EVENT_TELE_TRK_ENABLE        (SDL_EVENT_USER_DEFINED + 5)
+#define SDL_EVENT_TELE_SHUTDN_CTLR       (SDL_EVENT_USER_DEFINED + 6)
+#define SDL_EVENT_TELE_SEARCH_ENABLE     (SDL_EVENT_USER_DEFINED + 7)
+#define SDL_EVENT_TELE_SEARCH_DISABLE    (SDL_EVENT_USER_DEFINED + 8)
+#define SDL_EVENT_TELECAM_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 9) 
+#define SDL_EVENT_TELECAM_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 10)
 
 #define EVENT_ID_STR(x) \
-   ((x) == SDL_EVENT_TELE_MOTORS_CLOSE     ? "MOTORS_CLOSE"          : \
-    (x) == SDL_EVENT_TELE_MOTORS_OPEN      ? "MOTORS_OPEN"           : \
-    (x) == SDL_EVENT_TELE_UN_CALIBRATE     ? "UN_CALIBRATE"          : \
-    (x) == SDL_EVENT_TELE_CALIBRATE        ? "CALIBRATE"             : \
-    (x) == SDL_EVENT_TELE_TRK_DISABLE      ? "TRK_DISABLE"           : \
-    (x) == SDL_EVENT_TELE_TRK_ENABLE       ? "TRK_ENABLE"            : \
-    (x) == SDL_EVENT_TELE_SHUTDN_CTLR      ? "SHUTDN_CTLR"           : \
-    (x) == SDL_EVENT_TELE_MOUSE_MOTION     ? "MOUSE_MOTION"          : \
-    (x) == SDL_EVENT_TELE_MOUSE_WHEEL      ? "MOUSE_WHEEL"           : \
-    (x) == SDL_EVENT_KEY_LEFT_ARROW        ? "KEY_LEFT_ARROW"        : \
-    (x) == SDL_EVENT_KEY_RIGHT_ARROW       ? "KEY_RIGHT_ARROW"       : \
-    (x) == SDL_EVENT_KEY_UP_ARROW          ? "KEY_UP_ARROW"          : \
-    (x) == SDL_EVENT_KEY_DOWN_ARROW        ? "KEY_DOWN_ARROW"        : \
-    (x) == SDL_EVENT_KEY_SHIFT_LEFT_ARROW  ? "KEY_SHIFT_LEFT_ARROW"  : \
-    (x) == SDL_EVENT_KEY_SHIFT_RIGHT_ARROW ? "KEY_SHIFT_RIGHT_ARROW" : \
-    (x) == SDL_EVENT_KEY_SHIFT_UP_ARROW    ? "KEY_SHIFT_UP_ARROW"    : \
-    (x) == SDL_EVENT_KEY_SHIFT_DOWN_ARROW  ? "KEY_SHIFT_DOWN_ARROW"  : \
-                                             "????")
+   ((x) == SDL_EVENT_TELE_MOTORS_CLOSE        ? "MOTORS_CLOSE"          : \
+    (x) == SDL_EVENT_TELE_MOTORS_OPEN         ? "MOTORS_OPEN"           : \
+    (x) == SDL_EVENT_TELE_UN_CALIBRATE        ? "UN_CALIBRATE"          : \
+    (x) == SDL_EVENT_TELE_CALIBRATE           ? "CALIBRATE"             : \
+    (x) == SDL_EVENT_TELE_TRK_DISABLE         ? "TRK_DISABLE"           : \
+    (x) == SDL_EVENT_TELE_TRK_ENABLE          ? "TRK_ENABLE"            : \
+    (x) == SDL_EVENT_TELE_SHUTDN_CTLR         ? "SHUTDN_CTLR"           : \
+    (x) == SDL_EVENT_TELE_SEARCH_ENABLE       ? "SEARCH_EBABLE"         : \
+    (x) == SDL_EVENT_TELE_SEARCH_DISABLE      ? "SEARCH_DISABLE"        : \
+    (x) == SDL_EVENT_TELECAM_MOUSE_MOTION     ? "MOUSE_MOTION"          : \
+    (x) == SDL_EVENT_TELECAM_MOUSE_WHEEL      ? "MOUSE_WHEEL"           : \
+    (x) == SDL_EVENT_KEY_LEFT_ARROW           ? "KEY_LEFT_ARROW"        : \
+    (x) == SDL_EVENT_KEY_RIGHT_ARROW          ? "KEY_RIGHT_ARROW"       : \
+    (x) == SDL_EVENT_KEY_UP_ARROW             ? "KEY_UP_ARROW"          : \
+    (x) == SDL_EVENT_KEY_DOWN_ARROW           ? "KEY_DOWN_ARROW"        : \
+    (x) == SDL_EVENT_KEY_SHIFT_LEFT_ARROW     ? "KEY_SHIFT_LEFT_ARROW"  : \
+    (x) == SDL_EVENT_KEY_SHIFT_RIGHT_ARROW    ? "KEY_SHIFT_RIGHT_ARROW" : \
+    (x) == SDL_EVENT_KEY_SHIFT_UP_ARROW       ? "KEY_SHIFT_UP_ARROW"    : \
+    (x) == SDL_EVENT_KEY_SHIFT_DOWN_ARROW     ? "KEY_SHIFT_DOWN_ARROW"  : \
+    (x) == SDL_EVENT_KEY_ESC                  ? "KEY_ESC"               : \
+                                                "????")
 
 #define MOTORS_CLOSED 0
 #define MOTORS_OPEN   1
@@ -109,6 +116,13 @@ typedef struct {
     int recv_count;
 } cam_img_t;
 
+typedef struct {
+    bool     enabled;
+    int      ctrl1;
+    int      ctrl2;
+    uint64_t last_time_us;
+} search_azel_t;
+
 //
 // variables
 //
@@ -143,6 +157,7 @@ static bool   act_azel_available;
 static bool   act_azel_valid;
 
 static int    adj_az_mstep, adj_el_mstep;
+static search_azel_t search;
 
 static pthread_mutex_t tele_ctrl_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -540,7 +555,7 @@ static void comm_verify_sock_opts(void)
 static void * tele_ctrl_thread(void * cx)
 {
     uint64_t time_us, time_last_set_pos_us=0;
-    bool quick_react;
+    uint64_t set_pos_intvl_us;
 
     bool connected_last = false;
     int  motors_last = MOTORS_CLOSED;
@@ -671,31 +686,82 @@ static void * tele_ctrl_thread(void * cx)
             tracking_acquired = false;
         }
 
-        // determine if tracking has been acquired and whether
-        // the telescope should quickly react to requested position change;
+        // determine whether the telescope has reached the target az/el
+        tracking_acquired = tracking_enabled &&
+                            fabs(tgt_az - act_az) < 0.05 && 
+                            fabs(tgt_el - act_el) < 0.05;
+
+        // when tracking has acquired the target position then search mode can be
+        // used to update the adj_az/el_mstep variables to upate the telescope's
+        // position in a spiral; the search stops at 1 degree or when commanded to
+        // stop via the <esc> key or clicking on STOP_SRCH
+        if (search.enabled && !tracking_acquired) {
+            memset(&search, 0, sizeof(search));
+        }
+        if (search.enabled && 
+            (time_us = microsec_timer()) > search.last_time_us + 1000000)
+        {
+            if (search.ctrl1 == 0) {
+                // establish adj_az/el_mstep start point = 0,0
+                search.ctrl1++;
+                search.ctrl2 = 0;
+                adj_az_mstep = 0;
+                adj_el_mstep = 0;
+            } else {
+                int dir = (search.ctrl1-1) % 4;  // 0,1,2,3 = right,up,left,down
+                int max = (search.ctrl1-1) / 2 + 1;  // number of positions to move at dir
+
+                if (dir == 0) adj_az_mstep += SEARCH_AZ_MSTEP;      // right
+                else if (dir == 1) adj_el_mstep += SEARCH_EL_MSTEP; // up
+                else if (dir == 2) adj_az_mstep -= SEARCH_AZ_MSTEP; // left
+                else adj_el_mstep -= SEARCH_EL_MSTEP;               // down
+
+                search.ctrl2++;
+                if (search.ctrl2 > max) {
+                    FATAL("BUG: ctrl1=%d ctrl2=%d dir=%d max=%d\n", search.ctrl1, search.ctrl2, dir, max);
+                }
+                if (search.ctrl2 == max) {
+                    search.ctrl2 = 0;
+                    search.ctrl1++;
+                }
+            }
+            search.last_time_us = time_us;
+
+            if (adj_az_mstep >= AZMSTEP_1_DEG || adj_el_mstep >= ELMSTEP_1_DEG) {
+                INFO("disabling search at 1 degree\n");
+                memset(&search,0,sizeof(search));
+            } else {
+                INFO("search %d %d\n", adj_az_mstep/SEARCH_AZ_MSTEP, adj_el_mstep/SEARCH_EL_MSTEP);
+            }
+        }
+
+        // determine the interval which the telescope should react to a requested position change;
         // if the telescope has acquired tracking then it is better to update
-        // position less often because the tracking mechanism used is 
-        // stepper motor, which induces a small jolt on every step
+        // position less often because the telescope tracking mechanism uses a
+        // stepper motor, which causes a small jolt on every step
         if (tracking_enabled) {
-            tracking_acquired = (fabs(tgt_az - act_az) < 0.05 && 
-                                 fabs(tgt_el - act_el) < 0.05);
-            quick_react = (!tracking_acquired ||
-                           adj_az_mstep != adj_az_mstep_last ||
-                           adj_el_mstep != adj_el_mstep_last);
-            adj_az_mstep_last = adj_az_mstep;
-            adj_el_mstep_last = adj_el_mstep;
+            if (adj_az_mstep != adj_az_mstep_last || adj_el_mstep != adj_el_mstep_last) {
+                // when az/el adjust has changed then set the tele position now
+                set_pos_intvl_us = 0;
+                adj_az_mstep_last = adj_az_mstep;
+                adj_el_mstep_last = adj_el_mstep;
+            } else if (!tracking_acquired) {
+                // when tracking not acquired, update tele pos every second
+                set_pos_intvl_us = 1000000;
+            } else {
+                // when tracking is acquired, update tele pos every 10 secs
+                set_pos_intvl_us = 10000000;
+            }
         } else {
-            tracking_acquired = false;
-            quick_react = false;
+            set_pos_intvl_us  = 1000000;
             adj_az_mstep_last = 999999;
             adj_el_mstep_last = 999999;
         }
 
         // if tracking is enabled then set telescope position to tgt_az,tgt_el;
-        // do this either every second or every 10 seconds depending on the 
-        // quick_react flag
+        // do this at the interval 'set_pos_intvl_us' determined above
         if (tracking_enabled &&
-            (time_us = microsec_timer()) >= time_last_set_pos_us + (quick_react ? 1000000 : 10000000))
+            (time_us = microsec_timer()) >= time_last_set_pos_us + set_pos_intvl_us)
         do {
             // note - above code ensures that act and tgt az/el are valid
 
@@ -954,6 +1020,15 @@ static void tele_ctrl_process_cmd(int event_id)
             comm_send_msg(msg);
         }
         break; }
+    case SDL_EVENT_TELE_SEARCH_ENABLE:
+        memset(&search,0,sizeof(search));
+        search.enabled = true;
+        break;
+    case SDL_EVENT_TELE_SEARCH_DISABLE:
+    case SDL_EVENT_KEY_ESC:
+        memset(&search,0,sizeof(search));
+        break;
+    //XXX - cmd to reset the adj_az/el
     }
 
     // unlock mutex
@@ -1182,8 +1257,8 @@ static double tele_ctrl_get_max_el(double az, char *caller_str)
 //   to locate the top left of the image; used in call to 
 //   sdl_update_xxx_texture 
 // - image_x_ctr, image_y_ctr: these control the pan location, and are
-//   updated by SDL_EVENT_TELE_MOUSE_MOTION
-// - image_scale: controls the zoom, and is updated by SDL_EVENT_TELE_MOUSE_WHEEL
+//   updated by SDL_EVENT_TELECAM_MOUSE_MOTION
+// - image_scale: controls the zoom, and is updated by SDL_EVENT_TELECAM_MOUSE_WHEEL
 // - cam_width, cam_height: these are used to check for a change in the 
 //   actual camera width/height (found in cam_img), and if change is detected
 //   the image_scale, and image_x/y_ctr are reset
@@ -1353,8 +1428,8 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
 
         // register mouse motion and wheel events to support camera digital pan/zoom
         rect_t loc = {0,0,pane->w,pane->h};
-        sdl_register_event(pane, &loc, SDL_EVENT_TELE_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
-        sdl_register_event(pane, &loc, SDL_EVENT_TELE_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_TELECAM_MOUSE_MOTION, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_TELECAM_MOUSE_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 
         // register control events 
         // - row 0
@@ -1391,6 +1466,16 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 SDL_EVENT_TELE_SHUTDN_CTLR,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
+        // - row 5
+        if (tracking_acquired) {
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(5,fontsz), fontsz, 
+                !search.enabled ? "SEARCH" : "STOP_SRCH",
+                LIGHT_BLUE, BLACK, 
+                calibrated ? SDL_EVENT_TELE_SEARCH_ENABLE : SDL_EVENT_TELE_SEARCH_DISABLE,
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        }
+        // XXX reset adj_az/el cmd
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -1402,14 +1487,14 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
     if (request == PANE_HANDLER_REQ_EVENT) {
         int ret;
 
-        // some of the event_ids are handled here, and the majority
-        // of the event_ids are handled by call to tele_ctrl_process_cmd
-        if (event->event_id == SDL_EVENT_TELE_MOUSE_MOTION) {
+        // the tele-camera event_ids are handled here, and 
+        // the telescope position control events are handled by tele_ctrl_process_cmd
+        if (event->event_id == SDL_EVENT_TELECAM_MOUSE_MOTION) {
             if (CAM_IMG_RECENT) {
                 pz.image_x_ctr -= event->mouse_motion.delta_x;
                 pz.image_y_ctr -= event->mouse_motion.delta_y;
             }
-        } else if (event->event_id == SDL_EVENT_TELE_MOUSE_WHEEL) {
+        } else if (event->event_id == SDL_EVENT_TELECAM_MOUSE_WHEEL) {
             if (CAM_IMG_RECENT) {
                 int dy = event->mouse_wheel.delta_y;
                 if (dy < 0 && pz.image_scale < 1) {
