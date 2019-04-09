@@ -31,14 +31,12 @@ SOFTWARE.
 #define AZMSTEP_360_DEG        (200 * 32 * 6)
 #define AZMSTEP_180_DEG        (AZMSTEP_360_DEG / 2)
 #define AZMSTEP_1_DEG          ((int)(AZMSTEP_360_DEG / 360. + .5))
-#define SEARCH_AZ_MSTEP        (AZMSTEP_1_DEG / 10)
 
 #define ELDEG_TO_MSTEP(deg)    (rint((deg) * ((200. * 32. * 6.) / 360.)))
 #define MSTEP_TO_ELDEG(mstep)  ((mstep) * (360. / (200. * 32. * 6.)))
 #define ELMSTEP_360_DEG        (200 * 32 * 6)
 #define ELMSTEP_180_DEG        (ELMSTEP_360_DEG / 2)
 #define ELMSTEP_1_DEG          ((int)(ELMSTEP_360_DEG / 360. + .5))
-#define SEARCH_EL_MSTEP        (ELMSTEP_1_DEG / 10)
 
 #define SDL_EVENT_TELE_MOTORS_CLOSE      (SDL_EVENT_USER_DEFINED + 0)
 #define SDL_EVENT_TELE_MOTORS_OPEN       (SDL_EVENT_USER_DEFINED + 1)
@@ -49,8 +47,9 @@ SOFTWARE.
 #define SDL_EVENT_TELE_SHUTDN_CTLR       (SDL_EVENT_USER_DEFINED + 6)
 #define SDL_EVENT_TELE_SEARCH_ENABLE     (SDL_EVENT_USER_DEFINED + 7)
 #define SDL_EVENT_TELE_SEARCH_DISABLE    (SDL_EVENT_USER_DEFINED + 8)
-#define SDL_EVENT_TELECAM_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 9) 
-#define SDL_EVENT_TELECAM_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 10)
+#define SDL_EVENT_TELE_RESET_ADJ         (SDL_EVENT_USER_DEFINED + 9)
+#define SDL_EVENT_TELECAM_MOUSE_MOTION   (SDL_EVENT_USER_DEFINED + 10) 
+#define SDL_EVENT_TELECAM_MOUSE_WHEEL    (SDL_EVENT_USER_DEFINED + 11)
 
 #define EVENT_ID_STR(x) \
    ((x) == SDL_EVENT_TELE_MOTORS_CLOSE        ? "MOTORS_CLOSE"          : \
@@ -62,6 +61,7 @@ SOFTWARE.
     (x) == SDL_EVENT_TELE_SHUTDN_CTLR         ? "SHUTDN_CTLR"           : \
     (x) == SDL_EVENT_TELE_SEARCH_ENABLE       ? "SEARCH_EBABLE"         : \
     (x) == SDL_EVENT_TELE_SEARCH_DISABLE      ? "SEARCH_DISABLE"        : \
+    (x) == SDL_EVENT_TELE_RESET_ADJ           ? "RESET_ADJ"             : \
     (x) == SDL_EVENT_TELECAM_MOUSE_MOTION     ? "MOUSE_MOTION"          : \
     (x) == SDL_EVENT_TELECAM_MOUSE_WHEEL      ? "MOUSE_WHEEL"           : \
     (x) == SDL_EVENT_KEY_LEFT_ARROW           ? "KEY_LEFT_ARROW"        : \
@@ -120,7 +120,9 @@ typedef struct {
     bool     enabled;
     int      ctrl1;
     int      ctrl2;
-    uint64_t last_time_us;
+    double   adj_az_deg;
+    double   adj_el_deg;
+    uint64_t next_time_us;
 } search_azel_t;
 
 //
@@ -695,26 +697,44 @@ static void * tele_ctrl_thread(void * cx)
         // used to update the adj_az/el_mstep variables to upate the telescope's
         // position in a spiral; the search stops at 1 degree or when commanded to
         // stop via the <esc> key or clicking on STOP_SRCH
-        if (search.enabled && !tracking_acquired) {
-            memset(&search, 0, sizeof(search));
-        }
-        if (search.enabled && 
-            (time_us = microsec_timer()) > search.last_time_us + 1000000)
-        {
+        if ((search.enabled) && 
+            (search.next_time_us == 0 || microsec_timer() > search.next_time_us))
+        do {
+            if (!tracking_enabled) {
+                INFO("disabling search: tracking_enabled is false\n");
+                memset(&search,0,sizeof(search));
+                break;
+            }
+            if ((search.ctrl1 != 0) && 
+                (abs(adj_az_mstep) >= AZMSTEP_1_DEG || abs(adj_el_mstep) >= ELMSTEP_1_DEG)) 
+            {
+                INFO("disabling search: at 1 degree\n");
+                memset(&search,0,sizeof(search));
+                break;
+            }
+
             if (search.ctrl1 == 0) {
                 // establish adj_az/el_mstep start point = 0,0
                 search.ctrl1++;
                 search.ctrl2 = 0;
-                adj_az_mstep = 0;
-                adj_el_mstep = 0;
+                search.adj_az_deg = 0;
+                search.adj_el_deg = 0;
+                adj_az_mstep = AZDEG_TO_MSTEP(search.adj_az_deg);
+                adj_el_mstep = ELDEG_TO_MSTEP(search.adj_el_deg);
+                search.next_time_us = microsec_timer() + 2000000;
             } else {
                 int dir = (search.ctrl1-1) % 4;  // 0,1,2,3 = right,up,left,down
                 int max = (search.ctrl1-1) / 2 + 1;  // number of positions to move at dir
 
-                if (dir == 0) adj_az_mstep += SEARCH_AZ_MSTEP;      // right
-                else if (dir == 1) adj_el_mstep += SEARCH_EL_MSTEP; // up
-                else if (dir == 2) adj_az_mstep -= SEARCH_AZ_MSTEP; // left
-                else adj_el_mstep -= SEARCH_EL_MSTEP;               // down
+                if (dir == 0) search.adj_az_deg += 0.1;      // right
+                else if (dir == 1) search.adj_el_deg += 0.1; // up
+                else if (dir == 2) search.adj_az_deg -= 0.1; // left
+                else search.adj_el_deg -= 0.1;               // down
+
+                adj_az_mstep = AZDEG_TO_MSTEP(search.adj_az_deg);
+                adj_el_mstep = ELDEG_TO_MSTEP(search.adj_el_deg);
+
+                search.next_time_us = microsec_timer() + 500000;
 
                 search.ctrl2++;
                 if (search.ctrl2 > max) {
@@ -725,15 +745,8 @@ static void * tele_ctrl_thread(void * cx)
                     search.ctrl1++;
                 }
             }
-            search.last_time_us = time_us;
-
-            if (adj_az_mstep >= AZMSTEP_1_DEG || adj_el_mstep >= ELMSTEP_1_DEG) {
-                INFO("disabling search at 1 degree\n");
-                memset(&search,0,sizeof(search));
-            } else {
-                INFO("search %d %d\n", adj_az_mstep/SEARCH_AZ_MSTEP, adj_el_mstep/SEARCH_EL_MSTEP);
-            }
-        }
+            DEBUG("search %0.2f %0.2f\n", search.adj_az_deg, search.adj_el_deg);
+        } while (0);
 
         // determine the interval which the telescope should react to a requested position change;
         // if the telescope has acquired tracking then it is better to update
@@ -1028,7 +1041,10 @@ static void tele_ctrl_process_cmd(int event_id)
     case SDL_EVENT_KEY_ESC:
         memset(&search,0,sizeof(search));
         break;
-    //XXX - cmd to reset the adj_az/el
+    case SDL_EVENT_TELE_RESET_ADJ:
+        adj_az_mstep = 0;
+        adj_el_mstep = 0;
+        break;
     }
 
     // unlock mutex
@@ -1467,15 +1483,23 @@ int tele_pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_ev
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
         // - row 5
-        if (tracking_acquired) {
+        if (calibrated) {
             sdl_render_text_and_register_event(
                 pane, pane->w-COL2X(9,fontsz), ROW2Y(5,fontsz), fontsz, 
-                !search.enabled ? "SEARCH" : "STOP_SRCH",
+                "RESET_ADJ",
                 LIGHT_BLUE, BLACK, 
-                calibrated ? SDL_EVENT_TELE_SEARCH_ENABLE : SDL_EVENT_TELE_SEARCH_DISABLE,
+                SDL_EVENT_TELE_RESET_ADJ,
                 SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         }
-        // XXX reset adj_az/el cmd
+        // - row 6
+        if (tracking_acquired || search.enabled) {
+            sdl_render_text_and_register_event(
+                pane, pane->w-COL2X(9,fontsz), ROW2Y(6,fontsz), fontsz, 
+                !search.enabled ? "SEARCH" : "STOP_SRCH",
+                LIGHT_BLUE, BLACK, 
+                !search.enabled ? SDL_EVENT_TELE_SEARCH_ENABLE : SDL_EVENT_TELE_SEARCH_DISABLE,
+                SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        }
 
         return PANE_HANDLER_RET_NO_ACTION;
     }

@@ -660,6 +660,7 @@ static char * sky_pane_cmd(char * cmd_line)
             return "error: invalid el";
         }
         az_ctr = az;
+        if (az_ctr > 180) az_ctr -= 360;
         el_ctr = el;
         tracking = TRACKING_OFF;
         return "okay";
