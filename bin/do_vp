@@ -1,0 +1,4 @@
+#!/bin/bash
+
+#     AZ      EL     TIME   DAYS   OBJECTS
+vp  270 20   20 90   20 23   14    moon,venus,mars,saturn,jupiter,pleiades,capella,sirius
