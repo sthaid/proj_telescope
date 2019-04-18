@@ -726,10 +726,10 @@ static void * tele_ctrl_thread(void * cx)
                 int dir = (search.ctrl1-1) % 4;  // 0,1,2,3 = right,up,left,down
                 int max = (search.ctrl1-1) / 2 + 1;  // number of positions to move at dir
 
-                if (dir == 0) search.adj_az_deg += 0.1;      // right
-                else if (dir == 1) search.adj_el_deg += 0.1; // up
-                else if (dir == 2) search.adj_az_deg -= 0.1; // left
-                else search.adj_el_deg -= 0.1;               // down
+                if (dir == 0) search.adj_az_deg += 0.025;      // right
+                else if (dir == 1) search.adj_el_deg += 0.025; // up
+                else if (dir == 2) search.adj_az_deg -= 0.025; // left
+                else search.adj_el_deg -= 0.025;               // down
 
                 adj_az_mstep = AZDEG_TO_MSTEP(search.adj_az_deg);
                 adj_el_mstep = ELDEG_TO_MSTEP(search.adj_el_deg);
