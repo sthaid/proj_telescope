@@ -37,7 +37,7 @@ image. However, in practice, the quality of the image generally depends on the
 quality of the optics (lenses) and viewing conditions, not on magnification.
 
 ==================================
-MAGNIICATION  
+MAGNIFICATION  
 ==================================
 
 https://en.wikipedia.org/wiki/Magnification ---
@@ -83,6 +83,14 @@ FOR example belt is 6 to 1
 MY OLD TELSECOPE INFO
 ==================================
 
+The 4.25" mirror was ground from an Edmund Scientific kit in
+the year approximately 1970. The mirror and diagnol do have
+problem areas, and I suspect would benefit from re-aluminizing.
+However, the telescope does work reasonably well, considering 
+that it is home made and old; so I do not plan to re-aluminize.
+Should I change my mind, this is one company I found:
+  http://www.alcoat.net/al_1.htm
+
 Focal Len apprxo 45"  =  1140 mm
 
 Old High Mag Lens = 12.5 mm
@@ -92,6 +100,8 @@ Mag = 1140 / 12.5 =  90   <===============
 F number = 45" / 4.25"   ~=  10
 
 Lense barrel diameter 1 1/4 "
+
+- - - - -
 
 But there's also a minimum magnification beyond which light emerging from the 
 telescope eyepiece will spill around the dilated pupil of the eye and be wasted. 
@@ -104,13 +114,21 @@ but you will not be using all the light-collecting ability of the telescope's ob
 
 Longest lense focal length = Fnum x 7 = 10 x 7  = 70 mm
 
+==================================
+INTERESTING OBJECTS
+==================================
+
+Angular Diameter
+- Saturn's rings  approx 40 arcsec   = .01 degrees
+- https://en.wikipedia.org/wiki/Angular_diameter
+
 Saturn's rings should be visible in even the smallest telescope at a 
 magnification of 25 times. A good 3-inch scope at 50x magnification 
 will show the rings as distinctly separate from the ball of the planet. 
 
-==================================
-INTERESTING OBJECTS
-==================================
+Pleiades
+  Right ascension	03h 47m 24s[1]
+  Declination	+24° 07′ 00″[1]
 
 Crab Pulsar:
   The Crab Pulsar is one of very few pulsars to be identified optically. 
@@ -122,10 +140,6 @@ Crab Pulsar:
      Apparent magnitude (V)	16.5
 
 Magnitude 10 comets are common.
-
-Pleiades
-  Right ascension	03h 47m 24s[1]
-  Declination	+24° 07′ 00″[1]
 
 ==================================
 RA and DEC INFO

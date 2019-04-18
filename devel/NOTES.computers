@@ -39,7 +39,7 @@ My .bash_profile TCX exports
 export TCX_LAT=42.422224
 export TCX_LONG=-71.622796
 export TCX_CTLR_IP=ctlr_wifi
-export TCX_AZ_TELE_LEG_1=45
+export TCX_AZ_TELE_LEG_1=44.5
 
 ========================================
 Code Snippets
