@@ -1,5 +1,0 @@
-#!/bin/bash
-
-cd ~/proj
-
-rsync -av --delete proj_telescope ctlr_wifi:
