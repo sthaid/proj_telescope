@@ -1,10 +1,10 @@
 Compressed Stellar and SolarSys Data
 ------------------------------------
 
-The following files are now in git.
+The following files are in git.
 The solar_sys_data.csv.gz is generated for Cambridge MA; however
 this file should still be quite accurate for other locations, except 
-for the Moon.
+possibly for the Moon.
   hygdata_v3.csv.gz
   solar_sys_data.csv.gz
 
