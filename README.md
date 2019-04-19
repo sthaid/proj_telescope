@@ -1,4 +1,4 @@
-### Overview - UNDER CONSTRUCTION
+### Overview
 
 The goal of this project is to retrofit a homemade 4 1/4 inch reflector
 telescope, that was built about 1970. The mirror was ground from an
@@ -16,37 +16,41 @@ Runs on linux desktop or laptop. I currently use Fedora 26.
 Connects to the Stepper-Motor-Interface program (ctlr) via IPv4 TCP sockets. 
 Sends messages to the Stepper-Motor-Interface program to drive telescope 
 stepper motors to the desired azimuth and elevation. This program's sky chart 
-function will continue to operate even when the Stepper-Motor-Interface program 
+function continues to operate when the Stepper-Motor-Interface program 
 is not being used.
 
 Required environment variables:
 * TCX_LAT=decimal-latitude
 * TCX_LONG=decimal-longitude-west-negative
-* TCX_AZ_CAL_POS=decimal-degrees-azimuth-of-calibration-spot
-* TCX_EL_CAL_POS=decimal-degrees-elevation-of-calibration-spot
 * TCX_CTLR_IP=name-or-ip-address-of-host-running-stepper-motor-intfc-pgm
+* TCX_AZ_TELE_LEG_1=azimuth of a specific telescope leg, used by the software
+to limit telescope positioning based on telescope's mechanical attributes
 
 When tcx starts it reads files containing the locations of objects. Refer to 
 sky_data/NOTES for how to create these files. The files read are:
 * sky_data/hygdata_v3.csv: star positions
 * sky_data/solar_sys_data.csv: planet positions
 * sky_data/place_marks.dat: other object positions
+* sky_data/cal_locs.dat: calibration position(s)
 
-After reading the sky_data, tcx creates a window containing 3 panes:
+After reading the sky_data, tcx creates a window containing several panes:
 * sky-az-el: top half of window - displays the sky objects in azimuth/elevation coordinates
-* sky-view: lower left - a less distorted sky view with same center as sky-az-el pane
-* tele-ctl: lower middle - used to control the telescope and intended to eventually 
-  display the telescope camera image
+* tele-ctl: lower left - used to control the telescope and display telescope camera image
+* sky-view: lower middle - a less distorted sky view with same center as sky-az-el pane
+* camera-info: lower middle (overlays sky-view): webcam settings
+* motor-info: azimuth / elevation stepper motor values (primarily for debugging problems)
 
 Each pane has it's own user interface. Left click to select the pane. The pane's border will
 become green to indicate it is the selected pane. The following sections describe the controls for
-each pane.
+each pane. Use right click to select panes that overlay each other; right-click will demote
+the current pane to the background.
 
 Sky-az-el pane controls:
 * cmdline:
-  * ident \<objname\>|off - locate the named object and display in orange
   * trk \<objname\>|ident|curr|off - the named object is held in the center of the pane
+  * ident \<objname\>|off - locate the named object and display in orange
   * tstep delta_t|sunrise[+/-h.hh]|sunset[+/-h.hh]|sidday|h.hhh: timestep for the ALT-3,4,5,6 single key cmds described below
+  * azel \<az\> \<el\> - the center of the pane is set to the specified az / el
   * quit - terminate
 * mouse left click or arrow keys - pan
 * mouse wheel - zoom
@@ -69,12 +73,14 @@ Tele-ctl pane controls:
 * track enable/disable - enable the telescope to track the center of the sky-az-el pane
 * arrow keys - when uncalibrated these keys position the telescope; when calibrated these keys
   provide fine adjustment of the telescope position of up to 1 degree
+* search - when tracking is acquired, search can be used to position the telescope
+  in a spiral pattern to help locate the desired object
 * shutdown ctlr - issues shutdown command on the ctlr
 
 ### Stepper-Motor-Interface Program (ctlr)
 
-I run this program on a battery powered Raspberry Pi which will be attached to the base
-of the telescope. The Raspberry Pi (running the ctlr program) communicates to the laptop 
+I run this program on a Raspberry Pi which is attached to the base of the telescope. 
+The Raspberry Pi (running the ctlr program) communicates to the laptop 
 (running the tcx program) via WIFI. The ctlr program receives commands from the tcx program
 to set the telescope's azimuth and elevation.
 
@@ -82,12 +88,14 @@ to set the telescope's azimuth and elevation.
 
 This program builds warning free on Fedora-26. To build simply run make.
 
-Follow the procedure described in sky_data/NOTES to download the stellar and solar-sys-data files.
+Follow the procedure described in sky_data/NOTES to decompress the hygdata_v3.csv.gz
+and solar_sys_data.csv.gz. These files contain the stellr and solar system object
+coordinates respectively.
 
 Create the following environment variables, described above;
-TCX_LAT, TCX_LONG, TCX_AZ_CAL_POS, TCX_EL_CAL_POS, TCX_CTLR_IP.
+TCX_LAT, TCX_LONG, TCX_CTLR_IP, and TCX_AZ_TELE_LEG_1.
 
-I use display resolution 1920x1080; other display resolutions will probably work too.
+I prefer to use display resolution 1920x1080; other display resolutions will work too.
 
 ./tcx runs the program.
 
@@ -106,7 +114,7 @@ If desired, follow the directions in comments near the beginning of ctlr.c
 
 ### View-Planner Program (vp)
 
-This program identifies viewing times. Inputs are:
+This program helps to identify viewing times for specified objects. Inputs are:
 * an area of the sky: az range, el range
 * time span: for example 'sunset+1 sunset+6'
 * number of days
