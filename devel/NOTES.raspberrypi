@@ -108,6 +108,7 @@ Install Procedure:
       git config --global user.email stevenhaid@gmail.com
       git config --global credential.helper cache
       git config --global credential.helper 'cache --timeout=3600'
+      git config --global core.editor vim
       git config -l
 
 - clone proj_telescope
