@@ -41,13 +41,13 @@ DEP=$(SRC_TCX:.c=.d) $(SRC_CTLR:.c=.d) $(SRC_VP:.c=.d)
 all: $(TARGETS)
 
 tcx: $(OBJ_TCX) 
-	$(CC) -pthread -lrt -lm -lreadline -lpng -ljpeg -lSDL2 -lSDL2_ttf -lSDL2_mixer -o $@ $(OBJ_TCX)
+	$(CC) -o $@ $(OBJ_TCX) -pthread -lrt -lm -lreadline -lpng -ljpeg -lSDL2 -lSDL2_ttf -lSDL2_mixer
 
 ctlr: $(OBJ_CTLR)
-	$(CC) -pthread -lrt -lm -lreadline -lpololu-tic-1 -o $@ $(OBJ_CTLR)
+	$(CC) -o $@ $(OBJ_CTLR) -pthread -lrt -lm -lreadline -lpololu-tic-1
 
 vp: $(OBJ_VP)
-	$(CC) -pthread -lrt -lm -lreadline -lpololu-tic-1 -o $@ $(OBJ_VP)
+	$(CC) -o $@ $(OBJ_VP) -pthread -lrt -lm -lreadline -lpololu-tic-1
 
 -include $(DEP)
 
